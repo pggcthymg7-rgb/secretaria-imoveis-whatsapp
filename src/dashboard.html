@@ -118,8 +118,10 @@
 
         <!-- Botões de Variáveis Dinâmicas -->
         <div class="space-y-1.5">
-          <span class="text-[11px] font-semibold text-slate-400">Clique para inserir variáveis do imóvel no texto:</span>
+          <span class="text-[11px] font-semibold text-slate-400">Clique para inserir variáveis do imóvel ou blocos humanos adaptativos no texto:</span>
           <div class="flex flex-wrap gap-1.5">
+            <button onclick="insertTag('{abertura_humana}')" class="px-2.5 py-1 rounded bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500/40 text-xs text-emerald-300 font-mono">🧠 {abertura_humana}</button>
+            <button onclick="insertTag('{fechamento_humano}')" class="px-2.5 py-1 rounded bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500/40 text-xs text-emerald-300 font-mono">🧠 {fechamento_humano}</button>
             <button onclick="insertTag('{nome}')" class="px-2.5 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-xs text-emerald-400 font-mono">{nome}</button>
             <button onclick="insertTag('{tipo}')" class="px-2.5 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-xs text-emerald-400 font-mono">{tipo}</button>
             <button onclick="insertTag('{setor}')" class="px-2.5 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-xs text-emerald-400 font-mono">{setor}</button>
@@ -132,8 +134,25 @@
           </div>
         </div>
 
-        <textarea id="cfgMessageTemplate" oninput="updateLiveTemplatePreview()" rows="11"
+        <textarea id="cfgMessageTemplate" oninput="updateLiveTemplatePreview()" rows="9"
           class="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"></textarea>
+
+        <!-- Caixa de Treinamento Humano da Secretária -->
+        <div class="p-4 rounded-xl bg-slate-950 border border-emerald-500/30 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-xs font-bold text-emerald-400">🧠 Treinamento & Jeito Humano de Responder</h3>
+              <p class="text-[11px] text-slate-400">Ensine como ela deve se adaptar ao contexto (ex: urgência, parceria, proposta à vista). Você também pode criar regras no formato: <code class="text-emerald-300">Se pedir X, diga: Y</code></p>
+            </div>
+            <label class="flex items-center gap-1.5 text-xs text-emerald-300 cursor-pointer">
+              <input id="cfgHumanMode" type="checkbox" checked onchange="updateLiveTemplatePreview()" class="rounded bg-slate-900 border-slate-700 text-emerald-500" />
+              <span>Modo Humano Ativo</span>
+            </label>
+          </div>
+          <textarea id="cfgHumanTraining" rows="5"
+            placeholder="Ex: Se pedir urgente, diga: Tenho essa daqui disponível e podemos ir a qualquer horário, é só me avisar!"
+            class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"></textarea>
+        </div>
 
         <div class="flex items-center justify-between pt-2 border-t border-slate-800">
           <div>
@@ -145,7 +164,7 @@
         </div>
 
         <button onclick="saveMessageSettings()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg transition">
-          💾 Salvar Mensagem Personalizada & Limite de 5 Fotos
+          💾 Salvar Treinamento Humano, Mensagem & Limite de 5 Fotos
         </button>
       </div>
 
@@ -175,17 +194,17 @@
         </p>
 
         <div class="flex flex-wrap gap-2 mb-3">
+          <button onclick="setExample('Preciso urgente de um apartamento de 3 quartos no setor bueno até 500 mil para visita hoje')" class="text-xs bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 px-2.5 py-1.5 rounded-md border border-emerald-500/40 font-semibold">
+            ⚡ Teste Urgente: "Preciso urgente ap 3q no Bueno até 500 mil pra visita hoje"
+          </button>
+          <button onclick="setExample('Tenho cliente procurando apartamento mobiliado na regiao sudoeste ate 400.000,00')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-md border border-slate-700">
+            🤝 Teste Parceria: "Tenho cliente procurando ap mobiliado..."
+          </button>
           <button onclick="setExample('Quero um apartamento de 2 quartos no setor sudoeste até 400 mil')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-md border border-slate-700">
-            Teste "Quero": "Quero ap 2q no setor sudoeste até 400 mil"
+            Teste "Quero ap 2q no setor sudoeste até 400 mil"
           </button>
           <button onclick="setExample('Procuro imóvel mobiliado em qualquer setor')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-md border border-slate-700">
             Teste "Mobiliado em qualquer setor"
-          </button>
-          <button onclick="setExample('Procuro apartamento mobiliado na regiao sudoeste ate 400.000,00')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-md border border-slate-700">
-            Teste "Mobiliado na Região Sudoeste até 400.000,00"
-          </button>
-          <button onclick="setExample('Quero apartamento na regiao sul ate R$ 500.000,00')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-md border border-slate-700">
-            Teste "Quero ap na Região Sul até R$ 500.000,00"
           </button>
         </div>
 
@@ -464,6 +483,8 @@
       const valStr = Number(sample.valor || 480000).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
       const preview = raw
+        .replace(/\{abertura_humana\}/gi, 'Boa noite João, tudo bem? Vi lá no grupo que você precisa com urgência! Tenho essa daqui disponível na carteira e podemos ir visitar a qualquer horário, é só me avisar:')
+        .replace(/\{fechamento_humano\}/gi, 'Segue(m) a(s) foto(s) do imóvel! Como você precisa rápido, consigo me organizar para irmos lá a qualquer horário, é só me falar aqui.')
         .replace(/\{nome\}/gi, 'João')
         .replace(/\{tipo\}/gi, sample.tipo || 'Apartamento')
         .replace(/\{setor\}/gi, sample.setor || 'Setor Bueno')
@@ -480,13 +501,15 @@
     async function saveMessageSettings() {
       const messageTemplate = document.getElementById('cfgMessageTemplate').value;
       const maxPhotosPerMatch = Number(document.getElementById('cfgMaxPhotos').value || 5);
+      const humanTraining = document.getElementById('cfgHumanTraining').value;
+      const humanModeEnabled = document.getElementById('cfgHumanMode').checked;
 
       await fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageTemplate, maxPhotosPerMatch })
+        body: JSON.stringify({ messageTemplate, maxPhotosPerMatch, humanTraining, humanModeEnabled })
       });
-      alert('✅ Modelo de mensagem personalizada e limite de ' + maxPhotosPerMatch + ' fotos salvos com sucesso!');
+      alert('✅ Treinamento humano, modelo de mensagem e limite de ' + maxPhotosPerMatch + ' fotos salvos com sucesso!');
       fetchStatus(true);
     }
 
@@ -804,7 +827,7 @@
           body: JSON.stringify({ message, senderName: 'Carlos (Grupo)' })
         });
         const data = await res.json();
-        const { analysis, previews } = data;
+        const { analysis, previews, sampleHumanPreview } = data;
 
         document.getElementById('engineBadge').textContent = analysis.usedEngine || 'Motor Ativo';
 
@@ -817,7 +840,10 @@
           const c = analysis.criteria || {};
           let html = `
             <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-2">
-              <div class="font-semibold text-emerald-400">✅ Intenção de Compra Identificada! Filtros extraídos da frase:</div>
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="font-semibold text-emerald-400">✅ Intenção de Compra Identificada! Filtros extraídos da frase:</span>
+                <span class="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-semibold">🧠 Tom: ${analysis.detectedTone || 'Conversa Humana Natural'}</span>
+              </div>
               <div class="flex flex-wrap gap-2">
                 <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🏷️ Tipo: <b>${c.tipo || 'Qualquer Imóvel'}</b></span>
                 <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">📍 Setor: <b>${c.setor || 'Qualquer Setor'}</b></span>
@@ -831,8 +857,15 @@
 
           if (previews.length === 0) {
             html += `<div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300">
-              Nenhum imóvel ativo na sua planilha atende a todos esses critérios simultaneamente.
+              Nenhum imóvel ativo na sua planilha atende a todos esses critérios no momento — mas veja abaixo como a secretária se adapta de forma humana à frase:
             </div>`;
+            if (sampleHumanPreview) {
+              html += `
+                <div class="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-xs space-y-2">
+                  <div class="font-bold text-emerald-300">💬 Prévia da Resposta Humana Adaptativa (após status "digitando..."):</div>
+                  <pre class="whitespace-pre-wrap font-sans bg-slate-950 p-3 rounded-lg border border-slate-800 text-slate-200">${sampleHumanPreview}</pre>
+                </div>`;
+            }
           } else {
             for (const p of previews) {
               const numPhotosToSend = Math.min((p.property.fotos || []).length, Number(document.getElementById('cfgMaxPhotos').value || 5));
@@ -886,6 +919,8 @@
           document.getElementById('cfgModoAviso').checked = Boolean(data.config.modoApenasAvisar);
           document.getElementById('cfgMessageTemplate').value = data.config.messageTemplate || '';
           document.getElementById('cfgMaxPhotos').value = data.config.maxPhotosPerMatch || 5;
+          document.getElementById('cfgHumanTraining').value = data.config.humanTraining || data.config.defaultHumanTraining || '';
+          document.getElementById('cfgHumanMode').checked = data.config.humanModeEnabled !== false;
           defaultTemplateText = data.config.defaultMessageTemplate || '';
           if (data.config.hasGeminiKey) {
             document.getElementById('cfgGemini').placeholder = '✅ Chave Gemini já configurada (digite para trocar)';
