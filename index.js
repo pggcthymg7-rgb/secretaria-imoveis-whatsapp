@@ -229,6 +229,11 @@ app.post('/api/config', async (req, res) => {
   }
 });
 
+// Endpoint de Keep-Alive (Despertador automático para nuvem gratuita não dormir)
+app.get('/ping', (req, res) => {
+  res.status(200).json({ ok: true, status: 'awake', time: new Date().toISOString() });
+});
+
 // Página do Mini-CRM & Painel de Controle da Secretária Imobiliária
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'src', 'dashboard.html'));
@@ -236,10 +241,19 @@ app.get('/', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, async () => {
-  console.log(`\n🚀 MINI-CRM & SECRETÁRIA IMOBILIÁRIA ATIVO EM: http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', async () => {
+  console.log(`\n🚀 MINI-CRM & SECRETÁRIA IMOBILIÁRIA ATIVO EM: http://0.0.0.0:${PORT}`);
   console.log(`📂 Planilha ideal (${LOCAL_CSV_PATH}) carregada com ${(await loadInventory()).length} imóveis disponíveis.`);
   startWhatsAppAgent().catch(err => {
     console.error('Erro ao iniciar WhatsApp:', err);
   });
+
+  // Despertador automático para manter o Render gratuito acordado 24h
+  const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL;
+  if (externalUrl) {
+    console.log(`⏰ Despertador 24h ativado para: ${externalUrl}/ping`);
+    setInterval(() => {
+      fetch(`${externalUrl.replace(/\/$/, '')}/ping`).catch(() => {});
+    }, 10 * 60 * 1000); // A cada 10 minutos
+  }
 });
