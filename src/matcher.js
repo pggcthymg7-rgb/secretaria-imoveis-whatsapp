@@ -207,12 +207,109 @@ function parseWithSmartRules(text, inventory) {
   };
 
   const matchedProperties = filterInventory(inventory, criteria);
+  const settings = loadSettings();
+  const humanParts = buildHumanContextualParts(text, 'Cliente', settings.humanTraining);
 
   return {
     isLookingForProperty: true,
     criteria,
     matches: matchedProperties,
-    usedEngine: 'Vocabulário Imobiliário Expandido (Local)'
+    detectedTone: humanParts.detectedTone,
+    customOpening: humanParts.opening,
+    customClosing: humanParts.closing,
+    usedEngine: 'Vocabulário Imobiliário Expandido + Adaptação Humana'
+  };
+}
+
+/**
+ * Retorna a saudação correta pelo fuso horário de Brasília (Bom dia / Boa tarde / Boa noite)
+ */
+function getGreetingByTime() {
+  try {
+    const hourStr = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      hour: 'numeric',
+      hour12: false
+    }).format(new Date());
+    const hour = parseInt(hourStr, 10);
+    if (hour >= 5 && hour < 12) return 'Bom dia';
+    if (hour >= 12 && hour < 18) return 'Boa tarde';
+    return 'Boa noite';
+  } catch {
+    return 'Olá';
+  }
+}
+
+/**
+ * Analisa o tom da mensagem do grupo + regras de treinamento do corretor para adaptar
+ * a fala da secretária como uma pessoa real conversando no WhatsApp
+ */
+function buildHumanContextualParts(messageText, senderName, humanTraining = '') {
+  const norm = normalizeText(messageText || '');
+  const firstName = senderName ? senderName.split(' ')[0] : 'tudo bem';
+  const saudacao = getGreetingByTime();
+
+  // 1. Verifica regras personalizadas escritas pelo usuário na caixa de Treinamento ("Se pedir X, diga Y")
+  if (humanTraining && humanTraining.trim()) {
+    const lines = humanTraining.split('\n').map(l => l.trim()).filter(Boolean);
+    for (const line of lines) {
+      // Ignora as regras padrão que já tratamos nativamente abaixo
+      if (line.includes('urgência (ex:') || line.includes('corretor falando que tem cliente') || line.includes('pagamento à vista ou investidor') || line.includes('Use sempre um tom humano')) {
+        continue;
+      }
+      const matchRule = line.match(/se\s+(?:a pessoa\s+|alguem\s+|o cliente\s+)?(?:pedir|falar|mencionar|disser|buscar|procurar)\s+([^,:-]+?)\s*(?:,|->|:|\bdiga\b|\bfale\b|\bresponda\b)\s*(?:diga|fale|responda)?\s*:?\s*["“]?([^"”]+)["”]?/i);
+      if (matchRule) {
+        const triggerWords = matchRule[1]
+          .split(/\s+ou\s+|\s*\/\s*|\s*,\s*/)
+          .map(w => normalizeText(w))
+          .filter(w => w.length >= 3);
+        const customReply = matchRule[2].trim();
+        if (triggerWords.some(tw => norm.includes(tw))) {
+          return {
+            detectedTone: `Regra Treinada ("${triggerWords[0]}")`,
+            opening: `${saudacao} ${firstName}, tudo bem? Vi sua mensagem agora lá no grupo! ${customReply}`,
+            closing: `Segue(m) a(s) foto(s) aqui embaixo! Qualquer dúvida ou se quiser ir lá conhecer, é só me chamar.`
+          };
+        }
+      }
+    }
+  }
+
+  // 2. Contexto de URGÊNCIA ("urgente", "pra hoje", "visita hoje", "rápido", "cliente na cidade", "imediato")
+  const isUrgent = /\b(urgente|urgencia|pra hoje|para hoje|hoje ainda|visita hoje|agora|rapido|imediato|cliente na cidade|fechar hoje|preciso logo|com pressa)\b/.test(norm);
+  if (isUrgent) {
+    return {
+      detectedTone: '⚡ URGÊNCIA (Visita disponível a qualquer horário)',
+      opening: `${saudacao} ${firstName}, tudo bem? Vi lá no grupo que você precisa com urgência! Tenho essa daqui disponível na carteira e podemos ir visitar a qualquer horário, é só me avisar:`,
+      closing: `Segue(m) a(s) foto(s) do imóvel! Como você precisa rápido, consigo me organizar para irmos lá a qualquer horário, é só me falar aqui.`
+    };
+  }
+
+  // 3. Contexto de PARCERIA / CORRETOR COM CLIENTE ("tenho cliente", "cliente procura", "parceria", "fifty")
+  const isPartnerBroker = /\b(tenho cliente|cliente procura|cliente buscando|cliente quer|cliente precisa|parceria|fifty|50\/50|corretor)\b/.test(norm);
+  if (isPartnerBroker) {
+    return {
+      detectedTone: '🤝 PARCERIA / CORRETOR COM CLIENTE',
+      opening: `${saudacao} ${firstName}, tudo bem? Vi sua mensagem no grupo falando do seu cliente! Tenho essa opção aqui na nossa carteira que encaixa certinho no perfil que ele busca:`,
+      closing: `Segue(m) a(s) foto(s)! Fazemos parceria sim — se quiser apresentar para o seu cliente, podemos ir visitar a qualquer horário, é só me avisar!`
+    };
+  }
+
+  // 4. Contexto de PAGAMENTO À VISTA / INVESTIDOR / PERMUTA
+  const isCashOrInvestor = /\b(a vista|dinheiro na mao|investidor|investimento|permuta)\b/.test(norm);
+  if (isCashOrInvestor) {
+    return {
+      detectedTone: '💎 COMPRADOR À VISTA / INVESTIDOR',
+      opening: `${saudacao} ${firstName}, tudo bem? Vi sua busca agora no grupo! Tenho essa daqui na carteira que é uma excelente oportunidade de negócio nesse perfil:`,
+      closing: `Segue(m) a(s) foto(s)! Se quiser ir lá conhecer pessoalmente, podemos ir a qualquer horário, é só me avisar por aqui.`
+    };
+  }
+
+  // 5. Tom Humano Natural Padrão (adaptado ao horário do dia)
+  return {
+    detectedTone: `💬 CONVERSA HUMANA NATURAL (${saudacao})`,
+    opening: `${saudacao} ${firstName}, tudo bem? Vi sua mensagem agora lá no grupo e tenho essa daqui na nossa carteira que encaixa muito bem no que você procura:`,
+    closing: `Segue(m) a(s) foto(s) do imóvel! Se gostar e quiser conhecer pessoalmente, podemos ir a qualquer horário, é só me avisar.`
   };
 }
 
@@ -340,6 +437,8 @@ async function analyzeMessageAndMatch(messageText, senderName, inventory) {
     return { isLookingForProperty: false, reason: 'Mensagem muito curta' };
   }
 
+  const settings = loadSettings();
+  const saudacao = getGreetingByTime();
   const apiKey = (process.env.GEMINI_API_KEY || '').trim();
 
   if (apiKey && apiKey !== 'coloque_sua_chave_aqui') {
@@ -359,7 +458,13 @@ async function analyzeMessageAndMatch(messageText, senderName, inventory) {
       }));
 
       const prompt = `
-Você é uma secretária especialista do mercado imobiliário analisando mensagens em um grupo de WhatsApp.
+Você é uma secretária humana especialista do mercado imobiliário analisando mensagens em um grupo de WhatsApp.
+Horário atual para saudação: "${saudacao}".
+Nome de quem enviou no grupo: "${senderName || 'Cliente'}".
+
+INSTRUÇÕES DE TREINAMENTO E TOM HUMANO DA SECRETÁRIA:
+${settings.humanTraining || 'Seja simpática, direta e humana como em uma conversa real de WhatsApp.'}
+
 Sua tarefa é ler a mensagem enviada no grupo e identificar:
 1) Se a pessoa está PEDINDO/PROCURANDO/QUERENDO um imóvel para comprar.
    Reconheça vocabulário amplo: "quero", "gostaria", "busco", "preciso", "procuro", "tenho cliente", "cliente quer", "alguém tem", "quem tem", "estou atrás", "compro", "me manda opções", etc.
@@ -372,7 +477,8 @@ Sua tarefa é ler a mensagem enviada no grupo e identificar:
    - Quartos: número inteiro (reconheça quarto = quartos = q = qts = suítes) ou null.
    - Tamanho: número em m² (reconheça metros = m = m2 = m²) ou null.
    - Valor máximo: número absoluto em R$ (reconheça 400.000,00 = R$400.000 = 400mil = 400k -> 400000) ou null.
-3) Comparar com a nossa CARTEIRA DE IMÓVEIS disponível abaixo validando TODAS as informações dos imóveis (tipo, setor, regiao, mobiliado, quartos, tamanho_m2, valor e descricao) e retornar os IDs compatíveis.
+3) Comparar com a nossa CARTEIRA DE IMÓVEIS disponível abaixo validando TODAS as informações dos imóveis e retornar os IDs compatíveis.
+4) Criar "customOpening" (frase inicial humana adaptada à mensagem e às instruções de treinamento acima, ex: se pedir urgente diga que tem essa daqui e podemos ir a qualquer horário, só avisar) e "customClosing" (frase final humana natural).
 
 MENSAGEM ENVIADA POR "${senderName || 'Participante'}":
 """
@@ -386,6 +492,9 @@ Responda APENAS com um JSON válido seguindo exatamente este formato:
 {
   "isLookingForProperty": true ou false,
   "reason": "Breve explicação do que você entendeu da mensagem",
+  "detectedTone": "Ex: Urgência / Parceria / Conversa Natural",
+  "customOpening": "Frase de abertura humana e natural adaptada ao pedido",
+  "customClosing": "Frase de fechamento humana e natural adaptada ao pedido",
   "criteria": {
     "tipo": "Apartamento/Casa/etc ou null",
     "setor": "Nome do setor ou null",
@@ -403,41 +512,74 @@ Responda APENAS com um JSON válido seguindo exatamente este formato:
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
-          temperature: 0.1
+          temperature: 0.25
         }
       });
 
       const parsed = JSON.parse(response.text);
       const matchedIds = Array.isArray(parsed.matchedIds) ? parsed.matchedIds.map(String) : [];
       const matches = inventory.filter(item => matchedIds.includes(String(item.id)));
+      const fallbackHuman = buildHumanContextualParts(messageText, senderName, settings.humanTraining);
 
       return {
         isLookingForProperty: Boolean(parsed.isLookingForProperty),
         reason: parsed.reason || '',
+        detectedTone: parsed.detectedTone || fallbackHuman.detectedTone,
+        customOpening: parsed.customOpening || fallbackHuman.opening,
+        customClosing: parsed.customClosing || fallbackHuman.closing,
         criteria: parsed.criteria || {},
         matches,
-        usedEngine: 'Google Gemini AI + Validação de Carteira'
+        usedEngine: 'Google Gemini AI + Treinamento Humano'
       };
     } catch (err) {
-      console.error('⚠️ Aviso na chamada Gemini AI (usando vocabulário expandido local como fallback):', err.message);
+      console.error('⚠️ Aviso na chamada Gemini AI (usando vocabulário expandido + adaptação humana local):', err.message);
     }
   }
 
-  return parseWithSmartRules(messageText, inventory);
+  const localResult = parseWithSmartRules(messageText, inventory);
+  if (localResult.isLookingForProperty) {
+    const humanParts = buildHumanContextualParts(messageText, senderName, settings.humanTraining);
+    localResult.detectedTone = humanParts.detectedTone;
+    localResult.customOpening = humanParts.opening;
+    localResult.customClosing = humanParts.closing;
+  }
+  return localResult;
 }
 
 /**
- * Formata a mensagem enviada para o cliente usando o Modelo de Mensagem Personalizável pelo Usuário!
+ * Formata a mensagem enviada para o cliente usando o Modelo de Mensagem + Adaptação Humana Contextual!
  */
-function formatOutreachMessage(senderName, originalMessage, property, customTemplateOverride = null) {
+function formatOutreachMessage(senderName, originalMessage, property, analysisContext = null) {
   const settings = loadSettings();
-  const template = customTemplateOverride || settings.messageTemplate;
+  let template = settings.messageTemplate;
+
+  const firstName = senderName ? senderName.split(' ')[0] : 'Cliente';
+  const humanParts =
+    analysisContext && typeof analysisContext === 'object' && analysisContext.customOpening
+      ? {
+          opening: analysisContext.customOpening,
+          closing: analysisContext.customClosing
+        }
+      : buildHumanContextualParts(originalMessage, firstName, settings.humanTraining);
+
+  // Se o Modo Humano Adaptativo estiver ativo e o template ainda tiver o texto antigo fixo de robô,
+  // converte automaticamente a abertura e o fechamento para se adaptar à mensagem do cliente!
+  if (settings.humanModeEnabled !== false) {
+    template = template
+      .replace(
+        /^Olá \{nome\}, tudo bem\? Vi sua mensagem agora no grupo procurando imóvel[^\n]*/i,
+        '{abertura_humana}'
+      )
+      .replace(
+        /Segue\(m\) a\(s\) foto\(s\) do imóvel! Se quiser agendar uma visita ou mais detalhes, estou à disposição por aqui\.?$/i,
+        '{fechamento_humano}'
+      );
+  }
 
   const valorFormatado = property.valor
     ? property.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
     : 'Sob consulta';
 
-  const firstName = senderName ? senderName.split(' ')[0] : 'Cliente';
   const mobiliaLabel =
     property.mobiliado === 'SIM'
       ? 'Sim (Mobiliado)'
@@ -446,6 +588,8 @@ function formatOutreachMessage(senderName, originalMessage, property, customTemp
       : 'Sem mobília';
 
   return template
+    .replace(/\{abertura_humana\}/gi, humanParts.opening)
+    .replace(/\{fechamento_humano\}/gi, humanParts.closing)
     .replace(/\{nome\}/gi, firstName)
     .replace(/\{tipo\}/gi, property.tipo || 'Imóvel')
     .replace(/\{setor\}/gi, property.setor || 'Consulte')
@@ -461,5 +605,6 @@ function formatOutreachMessage(senderName, originalMessage, property, customTemp
 module.exports = {
   analyzeMessageAndMatch,
   formatOutreachMessage,
-  parseWithSmartRules
+  parseWithSmartRules,
+  buildHumanContextualParts
 };

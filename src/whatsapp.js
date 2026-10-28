@@ -61,12 +61,18 @@ function shouldMonitorGroup(groupJid, groupSubject) {
 /**
  * Envia a descrição e até 5 fotos (ou o limite configurado) do imóvel para o WhatsApp do cliente (no privado)
  */
-async function sendPropertyOffer(recipientJid, senderName, originalMessage, property) {
+async function sendPropertyOffer(recipientJid, senderName, originalMessage, property, analysisContext = null) {
   if (!sock) throw new Error('WhatsApp não está conectado no momento.');
 
   const settings = loadSettings();
   const maxPhotos = Number(settings.maxPhotosPerMatch || 5);
-  const textMessage = formatOutreachMessage(senderName, originalMessage, property);
+  const textMessage = formatOutreachMessage(senderName, originalMessage, property, analysisContext);
+
+  // Simula pessoa real "digitando..." no topo do WhatsApp do cliente antes de enviar
+  try {
+    await sock.sendPresenceUpdate('composing', recipientJid);
+    await new Promise(r => setTimeout(r, 2500));
+  } catch {}
 
   // Envia até 5 fotos cadastradas (a primeira foto já vai com a descrição completa como legenda)
   const allFotos = Array.isArray(property.fotos) ? property.fotos : [];
@@ -252,12 +258,15 @@ async function startWhatsAppAgent() {
               sentOffersCache.add(dedupeKey);
 
               if (!modoApenasAvisar && participantJid) {
-                // Pequeno delay humano de 3 segundos antes de chamar no privado
-                await new Promise(r => setTimeout(r, 3000));
-                await sendPropertyOffer(participantJid, senderName, text, prop, analysis.customGreeting);
+                // Pequeno delay humano antes de chamar no privado
+                await new Promise(r => setTimeout(r, 2000));
+                await sendPropertyOffer(participantJid, senderName, text, prop, analysis);
+                try {
+                  await sock.sendPresenceUpdate('paused', participantJid);
+                } catch {}
                 addLog(
                   'OPORTUNIDADE_ENVIADA',
-                  `✅ Proposta do imóvel #${prop.id} (${prop.tipo} - ${prop.setor}) enviada no privado de ${senderName}!`
+                  `✅ Proposta do imóvel #${prop.id} (${prop.tipo} - ${prop.setor}) enviada no privado de ${senderName} [${analysis.detectedTone || 'Tom Humano'}]!`
                 );
               } else {
                 addLog(

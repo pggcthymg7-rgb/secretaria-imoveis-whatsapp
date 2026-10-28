@@ -14,7 +14,7 @@ const {
   deleteProperty
 } = require('./src/sheets');
 const { analyzeMessageAndMatch, formatOutreachMessage } = require('./src/matcher');
-const { loadSettings, saveSettings, DEFAULT_MESSAGE_TEMPLATE } = require('./src/settings');
+const { loadSettings, saveSettings, DEFAULT_MESSAGE_TEMPLATE, DEFAULT_HUMAN_TRAINING } = require('./src/settings');
 const { startWhatsAppAgent, getAgentState, addLog } = require('./src/whatsapp');
 
 const app = express();
@@ -84,7 +84,10 @@ app.get('/api/status', async (req, res) => {
       meuWhatsappAlerta: process.env.MEU_WHATSAPP_ALERTA || '',
       messageTemplate: settings.messageTemplate,
       defaultMessageTemplate: DEFAULT_MESSAGE_TEMPLATE,
-      maxPhotosPerMatch: settings.maxPhotosPerMatch || 5
+      maxPhotosPerMatch: settings.maxPhotosPerMatch || 5,
+      humanTraining: settings.humanTraining,
+      defaultHumanTraining: DEFAULT_HUMAN_TRAINING,
+      humanModeEnabled: settings.humanModeEnabled !== false
     },
     inventoryCount: activeInventory.length,
     totalCount: allProperties.length,
@@ -165,20 +168,40 @@ app.post('/api/simulate', async (req, res) => {
         senderName || 'João',
         message,
         prop,
-        analysis.customGreeting
+        analysis
       )
     }));
 
+    // Mesmo se não houver imóvel compatível na carteira, gera prévia de como a secretária falaria
+    const sampleHumanPreview = analysis.isLookingForProperty
+      ? formatOutreachMessage(
+          senderName || 'João',
+          message,
+          (analysis.matches && analysis.matches[0]) || {
+            tipo: analysis.criteria?.tipo || 'Apartamento',
+            setor: analysis.criteria?.setor || 'Setor Bueno',
+            regiao: analysis.criteria?.regiao || 'Região Sul',
+            mobiliado: analysis.criteria?.mobiliado || 'SIM',
+            quartos: analysis.criteria?.quartos || 3,
+            tamanho_m2: analysis.criteria?.tamanho_m2 || 95,
+            valor: analysis.criteria?.valor_maximo || 480000,
+            descricao: 'Imóvel exemplo para demonstrar o tom humano da secretária.'
+          },
+          analysis
+        )
+      : null;
+
     res.json({
       analysis,
-      previews
+      previews,
+      sampleHumanPreview
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Endpoint: Salvar configurações pelo Painel Web (incluindo Modelo de Mensagem e Limite de 5 Fotos)
+// Endpoint: Salvar configurações pelo Painel Web (incluindo Modelo de Mensagem, Treinamento Humano e Limite de 5 Fotos)
 app.post('/api/config', async (req, res) => {
   try {
     const {
@@ -189,7 +212,9 @@ app.post('/api/config', async (req, res) => {
       modoApenasAvisar,
       meuWhatsappAlerta,
       messageTemplate,
-      maxPhotosPerMatch
+      maxPhotosPerMatch,
+      humanTraining,
+      humanModeEnabled
     } = req.body;
     const updates = {};
 
@@ -214,15 +239,22 @@ app.post('/api/config', async (req, res) => {
 
     updateEnvFile(updates);
 
-    if (messageTemplate !== undefined || maxPhotosPerMatch !== undefined) {
+    if (
+      messageTemplate !== undefined ||
+      maxPhotosPerMatch !== undefined ||
+      humanTraining !== undefined ||
+      humanModeEnabled !== undefined
+    ) {
       saveSettings({
         ...(messageTemplate !== undefined ? { messageTemplate } : {}),
-        ...(maxPhotosPerMatch !== undefined ? { maxPhotosPerMatch: Number(maxPhotosPerMatch) || 5 } : {})
+        ...(maxPhotosPerMatch !== undefined ? { maxPhotosPerMatch: Number(maxPhotosPerMatch) || 5 } : {}),
+        ...(humanTraining !== undefined ? { humanTraining } : {}),
+        ...(humanModeEnabled !== undefined ? { humanModeEnabled: Boolean(humanModeEnabled) } : {})
       });
     }
 
     await loadAllProperties(true);
-    addLog('CONFIG', 'Configurações e modelo de mensagem atualizados pelo Mini-CRM.');
+    addLog('CONFIG', 'Configurações, treinamento humano e modelo de mensagem atualizados pelo Mini-CRM.');
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
