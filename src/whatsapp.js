@@ -12,6 +12,7 @@ const {
 
 const { loadInventory } = require('./sheets');
 const { analyzeMessageAndMatch, formatOutreachMessage } = require('./matcher');
+const { loadSettings } = require('./settings');
 
 const AUTH_DIR = path.join(__dirname, '..', 'auth_info_baileys');
 const FOTOS_DIR = path.join(__dirname, '..', 'fotos');
@@ -58,23 +59,25 @@ function shouldMonitorGroup(groupJid, groupSubject) {
 }
 
 /**
- * Envia a descrição e as fotos do imóvel para o WhatsApp do cliente (no privado)
+ * Envia a descrição e até 5 fotos (ou o limite configurado) do imóvel para o WhatsApp do cliente (no privado)
  */
-async function sendPropertyOffer(recipientJid, senderName, originalMessage, property, customGreeting) {
+async function sendPropertyOffer(recipientJid, senderName, originalMessage, property) {
   if (!sock) throw new Error('WhatsApp não está conectado no momento.');
 
-  const textMessage = formatOutreachMessage(senderName, originalMessage, property, customGreeting);
+  const settings = loadSettings();
+  const maxPhotos = Number(settings.maxPhotosPerMatch || 5);
+  const textMessage = formatOutreachMessage(senderName, originalMessage, property);
 
-  // 1. Se tiver fotos cadastradas, envia a primeira foto já com a descrição como legenda (caption)
-  //    e as demais fotos logo em seguida!
-  const fotos = Array.isArray(property.fotos) ? property.fotos : [];
+  // Envia até 5 fotos cadastradas (a primeira foto já vai com a descrição completa como legenda)
+  const allFotos = Array.isArray(property.fotos) ? property.fotos : [];
+  const fotos = allFotos.slice(0, maxPhotos);
 
   if (fotos.length > 0) {
     let sentTextWithFirstPhoto = false;
 
     for (let i = 0; i < fotos.length; i++) {
       const fotoRef = fotos[i];
-      const caption = !sentTextWithFirstPhoto ? textMessage : `📸 Foto ${i + 1} - ${property.tipo} (${property.setor})`;
+      const caption = !sentTextWithFirstPhoto ? textMessage : `📸 Foto ${i + 1}/${fotos.length} - ${property.tipo} (${property.setor})`;
 
       try {
         let imagePayload = null;

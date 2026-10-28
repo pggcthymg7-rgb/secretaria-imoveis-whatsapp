@@ -1,4 +1,6 @@
 const { GoogleGenAI } = require('@google/genai');
+const { loadSettings } = require('./settings');
+const { SETOR_TO_REGIAO_MAP } = require('./sheets');
 
 /**
  * Normaliza texto para comparação sem acentos e em minúsculas
@@ -13,38 +15,90 @@ function normalizeText(str) {
 }
 
 /**
- * 1ª Camada (Rápida / Filtro Pré-IA ou Fallback sem chave de API):
- * Analisa a mensagem com expressões regulares inteligentes que reconhecem todas as variações pedidas:
- * - busco / preciso / procuro / tenho cliente / alguém tem / compro
- * - quarto / quartos / q / qts / suítes
- * - metros / m / m2 / m²
- * - 500mil / 500k / R$500.000,00 / 500.000 / 1.2M
+ * 1ª Camada (Motor de Regras Inteligentes com Vocabulário Extenso Imobiliário):
+ * Reconhece:
+ * - Intenção ampla de compra/busca: quero, querendo, gostaria, busco, preciso, procuro,
+ *   tenho cliente, cliente quer, alguém tem, quem tem, tô atrás, estou atrás, compro,
+ *   necessito, interesse em, tem disponível, me manda, etc. (E até pedidos diretos como "ap 3q setor bueno até 500k?")
+ * - Mobiliado / Semimobiliado / Vazio: mobiliado, todo mobiliado, porteira fechada, decorado,
+ *   semimobiliado, rico em armários, sem mobília.
+ * - Região ou Qualquer Setor: "região sul", "região sudoeste", "zona sul", "qualquer setor", "qualquer região".
+ * - Características extras validadas na descrição da carteira: suíte, piscina, térrea, varanda gourmet, lazer, vagas, condomínio, etc.
  */
 function parseWithSmartRules(text, inventory) {
   const norm = normalizeText(text);
 
-  // 1. Verifica se é realmente uma mensagem de PROCURA (e não alguém vendendo/ofertando)
-  const searchKeywords = [
-    /\bbusco\b/, /\bpreciso\b/, /\bprocuro\b/, /\bprocurando\b/, /\bbuscando\b/,
-    /\btenho cliente\b/, /\bcliente procura\b/, /\bcliente buscando\b/,
-    /\balguem tem\b/, /\bquero comprar\b/, /\bcompro\b/, /\bdemanda\b/
-  ];
-  const offerKeywords = [
-    /\bvendo\b/, /\balugo\b/, /\boportunidade unica\b/, /\bfotos no pv\b/, /\bvalor de venda\b/
+  // 1. Identificar se é uma OFERTA (alguém vendendo/divulgando) para não confundir com comprador
+  const offerPatterns = [
+    /\bvendo\b/,
+    /\balugo\b/,
+    /\ba venda\b/,
+    /\boportunidade unica\b/,
+    /\bfotos no pv\b/,
+    /\bchama no pv\b/,
+    /\bvalor do investimento\b/,
+    /\bcomissao\b/,
+    /\bdisponivel para venda\b/,
+    /\blindo apartamento\b/,
+    /\bexcelente oportunidade\b/
   ];
 
-  const hasSearchIntent = searchKeywords.some(rx => rx.test(norm));
-  const isPureOffer = offerKeywords.some(rx => rx.test(norm)) && !hasSearchIntent;
+  // 2. Vocabulário extenso de INTENÇÃO DE BUSCA / COMPRA
+  const searchPatterns = [
+    /\bquero\b/,
+    /\bquerendo\b/,
+    /\bgostaria\b/,
+    /\bbusco\b/,
+    /\bbuscando\b/,
+    /\bpreciso\b/,
+    /\bprecisando\b/,
+    /\bprocuro\b/,
+    /\bprocurando\b/,
+    /\btenho cliente\b/,
+    /\bcliente procura\b/,
+    /\bcliente buscando\b/,
+    /\bcliente quer\b/,
+    /\bcliente precisa\b/,
+    /\balguem tem\b/,
+    /\balguem com\b/,
+    /\bquem tem\b/,
+    /\bquem tiver\b/,
+    /\btem algum\b/,
+    /\btem disponivel\b/,
+    /\bquero comprar\b/,
+    /\bcompro\b/,
+    /\bdemanda\b/,
+    /\bnecessito\b/,
+    /\bestou atras\b/,
+    /\bto atras\b/,
+    /\binteresse em\b/,
+    /\binteressado em\b/,
+    /\bme manda\b/,
+    /\bmanda opcao\b/,
+    /\bopcoes de\b/,
+    /\bindicacao de\b/,
+    /\bpesquisando\b/,
+    /\bsonho de comprar\b/,
+    /\bquer comprar\b/
+  ];
 
-  if (!hasSearchIntent || isPureOffer) {
+  const hasExplicitSearch = searchPatterns.some(rx => rx.test(norm));
+  const hasExplicitOffer = offerPatterns.some(rx => rx.test(norm));
+
+  // Também aceita mensagens curtas em formato de pergunta ou filtro direto (ex: "Apartamento 3q no Bueno até 500mil?")
+  const hasPropertyNoun = /\b(ap|apto|apartamento|casa|sobrado|imovel|kitnet|studio|flat|lote|terreno|cobertura|sala)\b/.test(norm);
+  const hasPriceLimitOrQuestion = /\b(ate|max|maximo|no maximo)\b/.test(norm) || text.includes('?');
+  const isImplicitSearch = !hasExplicitOffer && hasPropertyNoun && hasPriceLimitOrQuestion;
+
+  if ((!hasExplicitSearch && !isImplicitSearch) || (hasExplicitOffer && !hasExplicitSearch)) {
     return { isLookingForProperty: false, reason: 'Mensagem não possui intenção de busca/compra de imóvel.' };
   }
 
-  // 2. Extrair Tipo de Imóvel (se mencionado)
+  // 3. Extrair Tipo de Imóvel (Nota: "imóvel" genérico aceita qualquer tipo!)
   let tipo = null;
-  if (/\b(ap|apto|apartamento|apartamentos|flat|studio|kitnet)\b/.test(norm)) {
+  if (/\b(ap|apto|apartamento|apartamentos|flat|studio|kitnet|cobertura)\b/.test(norm)) {
     tipo = 'Apartamento';
-  } else if (/\b(casa|sobrado|condominio fechado|terrea)\b/.test(norm)) {
+  } else if (/\b(casa|casas|sobrado|condominio fechado|terrea)\b/.test(norm)) {
     tipo = 'Casa';
   } else if (/\b(lote|terreno|area)\b/.test(norm)) {
     tipo = 'Terreno';
@@ -52,29 +106,35 @@ function parseWithSmartRules(text, inventory) {
     tipo = 'Comercial';
   }
 
-  // 3. Extrair Quantidade de Quartos (ex: "3 quartos", "3q", "3 qts", "3 dorm", "3 suites")
+  // 4. Extrair Mobília (Mobiliado / Semimobiliado / Não mobiliado)
+  let mobiliado = null;
+  if (/\b(sem mobilia|nao mobiliado|vazio)\b/.test(norm)) {
+    mobiliado = 'NAO';
+  } else if (/\b(semimobiliado|semi mobiliado|semi-mobiliado|com armarios)\b/.test(norm)) {
+    mobiliado = 'SEMI';
+  } else if (/\b(mobiliado|mobiliada|porteira fechada|todo mobiliado|100% mobiliado|decorado e mobiliado)\b/.test(norm)) {
+    mobiliado = 'SIM';
+  }
+
+  // 5. Extrair Quantidade de Quartos ("3 quartos", "3q", "3 qts", "3 dorm", "3 suítes")
   let quartos = null;
   const quartosMatch = norm.match(/\b(\d+)\s*(?:quartos?|qts?|q|dormitorios?|dorms?|suites?)\b/);
   if (quartosMatch) {
     quartos = parseInt(quartosMatch[1], 10);
   }
 
-  // 4. Extrair Tamanho em Metros Quadrados (ex: "90 metros", "90m", "90m2", "90 m²")
+  // 6. Extrair Tamanho em Metros Quadrados ("90 metros", "90m", "90m2", "90 m²")
   let minM2 = null;
   const m2Match = norm.match(/\b(\d+(?:[.,]\d+)?)\s*(?:metros?\s*quadrados?|metros?|m2|m²|m)\b/);
   if (m2Match) {
     minM2 = parseFloat(m2Match[1].replace(',', '.'));
   }
 
-  // 5. Extrair Valor / Orçamento (ex: "500mil", "500 mil", "500k", "R$500.000,00", "500.000", "1.5 milhao")
+  // 7. Extrair Valor / Orçamento ("500mil", "500k", "R$500.000,00", "400.000,00", "400.000", "1.2 milhão")
   let maxValor = null;
-
-  // Padrão A: "500 mil", "500mil", "500k"
-  const milMatch = norm.match(/(?:ate|de|por|maximo|valor|r\$)?\s*(\d+(?:[.,]\d+)?)\s*(?:mil|k)\b/);
-  // Padrão B: "1.2 milhao", "1 milhao", "1.5M"
   const milhaoMatch = norm.match(/(\d+(?:[.,]\d+)?)\s*(?:milhao|milhoes|mi)\b/);
-  // Padrão C: "R$ 500.000,00", "500.000,00", "500.000"
-  const fullNumberMatch = norm.match(/(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{2})?|\d{6,9})\b/);
+  const milMatch = norm.match(/(?:ate|de|por|maximo|max|valor|r\$)?\s*(\d+(?:[.,]\d+)?)\s*(?:mil|k)\b/);
+  const fullNumberMatch = norm.match(/(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{2})?|\d{5,9}(?:,\d{2})?)\b/);
 
   if (milhaoMatch) {
     maxValor = parseFloat(milhaoMatch[1].replace(',', '.')) * 1000000;
@@ -88,54 +148,121 @@ function parseWithSmartRules(text, inventory) {
     }
   }
 
-  // 6. Extrair Setor / Bairro (comparando com os setores existentes na carteira ou após "no setor X", "no bairro X")
+  // 8. Extrair Região (ex: "região sul", "zona sul", "região sudoeste") ou "qualquer setor"
+  let regiaoDetectada = null;
+  let qualquerSetor = /\b(qualquer setor|qualquer bairro|qualquer regiao|qualquer lugar|tanto faz o setor)\b/.test(norm);
+
+  const regiaoMatch = norm.match(/\b(?:regiao|zona)\s+(sul|sudoeste|oeste|norte|leste|central|centro)\b/);
+  if (regiaoMatch) {
+    const r = regiaoMatch[1] === 'centro' ? 'central' : regiaoMatch[1];
+    regiaoDetectada = 'Região ' + r.charAt(0).toUpperCase() + r.slice(1);
+  }
+
+  // 9. Extrair Setor / Bairro específico (se não disse "qualquer setor")
   let setorDetectado = null;
-  const setoresConhecidos = [...new Set(inventory.map(i => i.setor).filter(Boolean))];
-  for (const s of setoresConhecidos) {
-    const sNorm = normalizeText(s);
-    const sSemSetor = sNorm.replace(/^(setor|st|jardim|jd|parque|pq|vila|vl|residencial|res)\s+/, '');
-    if (sNorm && (norm.includes(sNorm) || (sSemSetor.length >= 4 && norm.includes(sSemSetor)))) {
-      setorDetectado = s;
-      break;
+  if (!qualquerSetor) {
+    const setoresConhecidos = [...new Set(inventory.map(i => i.setor).filter(Boolean))];
+    for (const s of setoresConhecidos) {
+      const sNorm = normalizeText(s);
+      const sSemPrefixo = sNorm.replace(/^(setor|st|jardim|jd|parque|pq|vila|vl|residencial|res)\s+/, '');
+      if (sNorm && (norm.includes(sNorm) || (sSemPrefixo.length >= 4 && norm.includes(sSemPrefixo)))) {
+        setorDetectado = s;
+        break;
+      }
+    }
+
+    if (!setorDetectado && !regiaoDetectada) {
+      const setorRegex = norm.match(
+        /\b(?:setor|st|bairro|jardim|jd|parque|pq)\s+([a-z0-9\s]{3,20}?)(?:\s+ate\b|\s+de\b|\s+com\b|\s+mobiliado\b|[,.?]|$)/
+      );
+      if (setorRegex && !setorRegex[1].includes('qualquer')) {
+        setorDetectado = setorRegex[1].trim();
+      }
     }
   }
 
-  if (!setorDetectado) {
-    const setorRegex = norm.match(/\b(?:setor|st|bairro|jardim|jd|parque|pq)\s+([a-z0-9\s]{3,20}?)(?:\s+ate\b|\s+de\b|\s+com\b|[,.]|$)/);
-    if (setorRegex) {
-      setorDetectado = setorRegex[1].trim();
-    }
-  }
+  // 10. Extrair palavras-chave de características específicas para validar na descrição da carteira
+  const featureVocabulary = [
+    { key: 'piscina', rx: /\bpiscina\b/ },
+    { key: 'varanda gourmet', rx: /\b(varanda gourmet|sacada gourmet)\b/ },
+    { key: 'churrasqueira', rx: /\bchurrasqueira\b/ },
+    { key: 'nascente', rx: /\bnascente\b/ },
+    { key: 'andar alto', rx: /\bandar alto\b/ },
+    { key: 'terrea', rx: /\b(terrea|terreo)\b/ },
+    { key: 'elevador privativo', rx: /\belevador privativo\b/ }
+  ];
+  const caracteristicasExtras = featureVocabulary
+    .filter(f => f.rx.test(norm))
+    .map(f => f.key);
 
-  // 7. Filtrar os imóveis da carteira que dão Match!
-  const matchedProperties = filterInventory(inventory, {
+  const criteria = {
     tipo,
-    setor: setorDetectado,
+    setor: qualquerSetor ? null : setorDetectado,
+    regiao: regiaoDetectada,
+    mobiliado,
     quartos,
-    minM2,
-    maxValor
-  });
+    tamanho_m2: minM2,
+    valor_maximo: maxValor,
+    caracteristicas: caracteristicasExtras
+  };
+
+  const matchedProperties = filterInventory(inventory, criteria);
 
   return {
     isLookingForProperty: true,
-    criteria: {
-      tipo,
-      setor: setorDetectado,
-      quartos,
-      tamanho_m2: minM2,
-      valor_maximo: maxValor
-    },
+    criteria,
     matches: matchedProperties,
-    usedEngine: 'Regras Inteligentes (Local)'
+    usedEngine: 'Vocabulário Imobiliário Expandido (Local)'
   };
 }
 
 /**
- * Filtra a carteira de imóveis com base nos critérios extraídos
+ * Verifica se um imóvel pertence à região pedida pelo cliente (olhando a coluna regiao ou o mapa de setores)
+ */
+function propertyMatchesRegiao(prop, targetRegiao) {
+  const targetNorm = normalizeText(targetRegiao);
+  const propRegNorm = normalizeText(prop.regiao);
+  if (propRegNorm && (propRegNorm.includes(targetNorm) || targetNorm.includes(propRegNorm))) {
+    return true;
+  }
+
+  const propSetorNorm = normalizeText(prop.setor);
+  const mapSetores = SETOR_TO_REGIAO_MAP[targetNorm] || [];
+  return mapSetores.some(st => propSetorNorm.includes(st) || st.includes(propSetorNorm));
+}
+
+/**
+ * Verifica se um imóvel atende ao pedido de mobília (olhando a coluna `mobiliado` E a `descricao` do imóvel)
+ */
+function propertyMatchesMobiliado(prop, targetMobiliado) {
+  const propMob = (prop.mobiliado || 'NAO').toUpperCase();
+  const descNorm = normalizeText(prop.descricao);
+
+  if (targetMobiliado === 'SIM') {
+    return (
+      propMob === 'SIM' ||
+      /\b(mobiliado|mobiliada|porteira fechada|decorado e mobiliado|todo mobiliado)\b/.test(descNorm)
+    );
+  }
+  if (targetMobiliado === 'SEMI') {
+    return (
+      propMob === 'SIM' ||
+      propMob === 'SEMI' ||
+      /\b(mobiliado|semimobiliado|armarios)\b/.test(descNorm)
+    );
+  }
+  if (targetMobiliado === 'NAO') {
+    return propMob === 'NAO';
+  }
+  return true;
+}
+
+/**
+ * Filtra a carteira de imóveis validando todas as informações contra os imóveis cadastrados
  */
 function filterInventory(inventory, criteria) {
   return inventory.filter(prop => {
-    // 1. Filtro de Tipo (Apartamento, Casa, etc.)
+    // 1. Filtro de Tipo (Se o cliente pediu "imóvel" genérico, criteria.tipo é null e aceita todos!)
     if (criteria.tipo) {
       const propTipo = normalizeText(prop.tipo);
       const critTipo = normalizeText(criteria.tipo);
@@ -144,34 +271,59 @@ function filterInventory(inventory, criteria) {
       }
     }
 
-    // 2. Filtro de Setor / Bairro
+    // 2. Filtro de Setor / Bairro específico
     if (criteria.setor) {
       const propSetor = normalizeText(prop.setor).replace(/^(setor|st|jardim|jd|parque|pq)\s+/, '');
       const critSetor = normalizeText(criteria.setor).replace(/^(setor|st|jardim|jd|parque|pq)\s+/, '');
-      if (!propSetor.includes(critSetor) && !critSetor.includes(propSetor)) {
+      const descNorm = normalizeText(prop.descricao);
+      if (!propSetor.includes(critSetor) && !critSetor.includes(propSetor) && !descNorm.includes(critSetor)) {
         return false;
       }
     }
 
-    // 3. Filtro de Quantidade de Quartos
+    // 3. Filtro de Região (ex: "Região Sul", "Região Sudoeste")
+    if (criteria.regiao) {
+      if (!propertyMatchesRegiao(prop, criteria.regiao)) {
+        return false;
+      }
+    }
+
+    // 4. Filtro de Mobiliado (ex: "procuro imóvel mobiliado")
+    if (criteria.mobiliado) {
+      if (!propertyMatchesMobiliado(prop, criteria.mobiliado)) {
+        return false;
+      }
+    }
+
+    // 5. Filtro de Quantidade de Quartos
     if (criteria.quartos && criteria.quartos > 0) {
-      // Aceita exato (ou se o cliente pediu 3 quartos e o imóvel tem 3)
       if (prop.quartos !== criteria.quartos) {
         return false;
       }
     }
 
-    // 4. Filtro de Tamanho (Metros Quadrados) - aceita imóveis com pelo menos 90% da metragem pedida
-    if (criteria.minM2 && criteria.minM2 > 0) {
-      if (prop.tamanho_m2 < criteria.minM2 * 0.9) {
+    // 6. Filtro de Tamanho (Metros Quadrados) - aceita até 10% de tolerância
+    if (criteria.tamanho_m2 && criteria.tamanho_m2 > 0) {
+      if (prop.tamanho_m2 < criteria.tamanho_m2 * 0.9) {
         return false;
       }
     }
 
-    // 5. Filtro de Valor (respeita o teto pedido pelo cliente)
-    if (criteria.maxValor && criteria.maxValor > 0) {
-      if (prop.valor > criteria.maxValor) {
+    // 7. Filtro de Valor Máximo
+    if (criteria.valor_maximo && criteria.valor_maximo > 0) {
+      if (prop.valor > criteria.valor_maximo) {
         return false;
+      }
+    }
+
+    // 8. Filtro de Características Extras validadas na descrição do imóvel na carteira
+    if (Array.isArray(criteria.caracteristicas) && criteria.caracteristicas.length > 0) {
+      const fullPropText = normalizeText(`${prop.tipo} ${prop.setor} ${prop.regiao} ${prop.descricao}`);
+      for (const feat of criteria.caracteristicas) {
+        const featNorm = normalizeText(feat);
+        if (!fullPropText.includes(featNorm)) {
+          return false;
+        }
       }
     }
 
@@ -180,18 +332,16 @@ function filterInventory(inventory, criteria) {
 }
 
 /**
- * 2ª Camada (IA com Google Gemini + Fallback automático para Regras Inteligentes):
- * Usa o Gemini para compreender gírias, abreviações complexas, contexto da conversa,
- * e cruzar com a carteira de imóveis.
+ * Analisa a mensagem com IA (Google Gemini) + Vocabulário Expandido Local
+ * sempre validando rigorosamente contra os dados da carteira!
  */
 async function analyzeMessageAndMatch(messageText, senderName, inventory) {
-  if (!messageText || messageText.trim().length < 5) {
+  if (!messageText || messageText.trim().length < 4) {
     return { isLookingForProperty: false, reason: 'Mensagem muito curta' };
   }
 
   const apiKey = (process.env.GEMINI_API_KEY || '').trim();
 
-  // Se o usuário configurou a chave do Gemini, usamos o modelo Gemini 2.5 Flash para análise semântica profunda
   if (apiKey && apiKey !== 'coloque_sua_chave_aqui') {
     try {
       const ai = new GoogleGenAI({ apiKey });
@@ -200,6 +350,8 @@ async function analyzeMessageAndMatch(messageText, senderName, inventory) {
         id: p.id,
         tipo: p.tipo,
         setor: p.setor,
+        regiao: p.regiao,
+        mobiliado: p.mobiliado,
         quartos: p.quartos,
         tamanho_m2: p.tamanho_m2,
         valor: p.valor,
@@ -209,15 +361,18 @@ async function analyzeMessageAndMatch(messageText, senderName, inventory) {
       const prompt = `
 Você é uma secretária especialista do mercado imobiliário analisando mensagens em um grupo de WhatsApp.
 Sua tarefa é ler a mensagem enviada no grupo e identificar:
-1) Se a pessoa está PROCURANDO/BUSCANDO um imóvel para comprar (ex: "busco", "preciso", "procuro", "tenho cliente para", "alguém tem").
+1) Se a pessoa está PEDINDO/PROCURANDO/QUERENDO um imóvel para comprar.
+   Reconheça vocabulário amplo: "quero", "gostaria", "busco", "preciso", "procuro", "tenho cliente", "cliente quer", "alguém tem", "quem tem", "estou atrás", "compro", "me manda opções", etc.
    ATENÇÃO: Se a pessoa estiver apenas VENDENDO/OFERTANDO um imóvel próprio, isLookingForProperty deve ser false!
-2) Extrair todos os filtros mencionados na mensagem, reconhecendo variações naturais do português e abreviações imobiliárias:
-   - Intenção: busco = preciso = procuro = tenho cliente = alguém tem
-   - Quartos: quarto = quartos = q = qts = suítes (ex: "3q" -> 3)
-   - Tamanho: metros = m = m2 = m² (ex: "80m", "80m2" -> 80)
-   - Valor: 500mil = 500k = R$500.000,00 = 500.000 = 500 mil (ex: converter tudo para número absoluto: 500000)
-   - Setor / Bairro: ex: "Setor Bueno", "Bueno", "Marista", "Jardim América"
-3) Comparar com a nossa CARTEIRA DE IMÓVEIS disponível abaixo e retornar os IDs dos imóveis que atendem perfeitamente ao pedido (mesmo setor se especificado, mesma quantidade de quartos se especificado, tamanho compatível se especificado, e valor menor ou igual ao limite pedido).
+2) Extrair todos os filtros mencionados na mensagem:
+   - Tipo: Apartamento, Casa, Terreno, Comercial, ou null se pediu "imóvel" de forma geral.
+   - Setor: Nome do bairro/setor específico, ou null se disse "qualquer setor" ou pediu apenas por região.
+   - Região: ex: "Região Sul", "Região Sudoeste", "Região Oeste", "Região Norte", "Região Central", ou null.
+   - Mobiliado: "SIM" (se pediu mobiliado / porteira fechada / todo mobiliado), "SEMI" (se pediu semimobiliado / com armários), "NAO" (se pediu vazio), ou null (se não exigiu mobília).
+   - Quartos: número inteiro (reconheça quarto = quartos = q = qts = suítes) ou null.
+   - Tamanho: número em m² (reconheça metros = m = m2 = m²) ou null.
+   - Valor máximo: número absoluto em R$ (reconheça 400.000,00 = R$400.000 = 400mil = 400k -> 400000) ou null.
+3) Comparar com a nossa CARTEIRA DE IMÓVEIS disponível abaixo validando TODAS as informações dos imóveis (tipo, setor, regiao, mobiliado, quartos, tamanho_m2, valor e descricao) e retornar os IDs compatíveis.
 
 MENSAGEM ENVIADA POR "${senderName || 'Participante'}":
 """
@@ -234,12 +389,13 @@ Responda APENAS com um JSON válido seguindo exatamente este formato:
   "criteria": {
     "tipo": "Apartamento/Casa/etc ou null",
     "setor": "Nome do setor ou null",
+    "regiao": "Região Sul/Sudoeste/etc ou null",
+    "mobiliado": "SIM/SEMI/NAO ou null",
     "quartos": numero ou null,
     "tamanho_m2": numero ou null,
     "valor_maximo": numero ou null
   },
-  "matchedIds": ["id1", "id2"],
-  "customGreeting": "Uma saudação super educada, natural e direta como secretária/consultora imobiliária referenciando o que a pessoa pediu no grupo"
+  "matchedIds": ["id1", "id2"]
 }`;
 
       const response = await ai.models.generateContent({
@@ -260,40 +416,46 @@ Responda APENAS com um JSON válido seguindo exatamente este formato:
         reason: parsed.reason || '',
         criteria: parsed.criteria || {},
         matches,
-        customGreeting: parsed.customGreeting || null,
-        usedEngine: 'Google Gemini AI (gemini-2.5-flash)'
+        usedEngine: 'Google Gemini AI + Validação de Carteira'
       };
     } catch (err) {
-      console.error('⚠️ Aviso na chamada Gemini AI (usando motor de regras local como fallback imediato):', err.message);
+      console.error('⚠️ Aviso na chamada Gemini AI (usando vocabulário expandido local como fallback):', err.message);
     }
   }
 
-  // Fallback imediato (ou quando ainda não colocou a GEMINI_API_KEY)
   return parseWithSmartRules(messageText, inventory);
 }
 
 /**
- * Formata a mensagem completa que será enviada no privado (DM) do potencial comprador
+ * Formata a mensagem enviada para o cliente usando o Modelo de Mensagem Personalizável pelo Usuário!
  */
-function formatOutreachMessage(senderName, originalMessage, property, customGreeting) {
+function formatOutreachMessage(senderName, originalMessage, property, customTemplateOverride = null) {
+  const settings = loadSettings();
+  const template = customTemplateOverride || settings.messageTemplate;
+
   const valorFormatado = property.valor
     ? property.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
     : 'Sob consulta';
 
-  const firstName = senderName ? senderName.split(' ')[0] : 'tudo bem';
-  const greeting = customGreeting || `Olá ${firstName}, tudo bem? Vi sua mensagem agora no grupo buscando imóvel no *${property.setor}* e tenho uma excelente opção disponível na nossa carteira que se encaixa no que você procura!`;
+  const firstName = senderName ? senderName.split(' ')[0] : 'Cliente';
+  const mobiliaLabel =
+    property.mobiliado === 'SIM'
+      ? 'Sim (Mobiliado)'
+      : property.mobiliado === 'SEMI'
+      ? 'Semimobiliado / Armários'
+      : 'Sem mobília';
 
-  return `${greeting}
-
-🏡 *${property.tipo} - ${property.setor}*
-🛏️ *Quartos:* ${property.quartos ? `${property.quartos} quartos` : 'Consulte'}
-📐 *Tamanho:* ${property.tamanho_m2 ? `${property.tamanho_m2} m²` : 'Consulte'}
-💰 *Valor:* ${valorFormatado}
-
-📝 *Descrição:*
-${property.descricao}
-
-Segue(m) a(s) foto(s) do imóvel! Se quiser agendar uma visita ou mais detalhes, estou à disposição por aqui.`;
+  return template
+    .replace(/\{nome\}/gi, firstName)
+    .replace(/\{tipo\}/gi, property.tipo || 'Imóvel')
+    .replace(/\{setor\}/gi, property.setor || 'Consulte')
+    .replace(/\{regiao\}/gi, property.regiao || 'Goiânia')
+    .replace(/\{mobiliado\}/gi, mobiliaLabel)
+    .replace(/\{quartos\}/gi, property.quartos ? String(property.quartos) : 'Consulte')
+    .replace(/\{tamanho\}/gi, property.tamanho_m2 ? String(property.tamanho_m2) : 'Consulte')
+    .replace(/\{valor\}/gi, valorFormatado)
+    .replace(/\{descricao\}/gi, property.descricao || '')
+    .replace(/\{mensagem_original\}/gi, originalMessage || '');
 }
 
 module.exports = {
