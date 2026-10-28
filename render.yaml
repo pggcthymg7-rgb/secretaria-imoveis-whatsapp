@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: secretaria-imoveis-whatsapp
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: GRUPOS_MONITORADOS
+        value: teste
+      - key: MODO_APENAS_AVISAR
+        value: "false"
+      - key: MEU_WHATSAPP_ALERTA
+        value: "5562983443060"
