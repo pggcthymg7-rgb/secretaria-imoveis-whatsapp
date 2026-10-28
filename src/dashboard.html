@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini-CRM & Secretária Imobiliária AI — WhatsApp</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    .tab-active { border-bottom: 2px solid #10b981; color: #10b981; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <!-- Top Header -->
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-xl">
+          🏡
+        </div>
+        <div>
+          <h1 class="text-lg font-bold text-white flex items-center gap-2">
+            Mini-CRM & Secretária Imobiliária
+            <span class="text-[11px] font-medium px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Planilha Blindada</span>
+          </h1>
+          <p class="text-xs text-slate-400">Cadastre seus imóveis sem erros • Sincronizado com Planilha & Agente de WhatsApp</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2.5">
+        <span id="statusBadge" class="px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+          Carregando...
+        </span>
+        <a href="/api/export-csv" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 transition flex items-center gap-1.5" title="Baixar arquivo CSV formatado para Excel ou Google Sheets">
+          📥 Baixar Planilha (.csv)
+        </a>
+        <button onclick="openNewPropertyModal()" class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white shadow-lg shadow-emerald-950/50 transition flex items-center gap-1.5">
+          ➕ Novo Imóvel no CRM
+        </button>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="max-w-7xl mx-auto px-6 flex gap-6 text-xs font-semibold text-slate-400">
+      <button onclick="switchTab('crm')" id="tabBtn-crm" class="py-2.5 tab-active transition flex items-center gap-1.5">
+        📋 Minha Carteira de Imóveis (<span id="propCount">0</span> ativos)
+      </button>
+      <button onclick="switchTab('simulador')" id="tabBtn-simulador" class="py-2.5 hover:text-slate-200 transition flex items-center gap-1.5">
+        🧪 Simulador de Grupo & IA
+      </button>
+      <button onclick="switchTab('whatsapp')" id="tabBtn-whatsapp" class="py-2.5 hover:text-slate-200 transition flex items-center gap-1.5">
+        📡 Radar do WhatsApp & Configurações
+      </button>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-6 py-6">
+    <!-- ========================================== -->
+    <!-- ABA 1: MINI-CRM DE IMÓVEIS (PADRÃO)        -->
+    <!-- ========================================== -->
+    <div id="tab-crm" class="space-y-6">
+      <!-- Barra de Filtros Rápidos do CRM -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+        <div class="flex flex-wrap items-center gap-3 flex-1">
+          <input id="crmSearch" oninput="renderCrmTable()" type="text" placeholder="🔍 Filtrar por setor, descrição ou código..."
+            class="bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white w-64 focus:outline-none focus:border-emerald-500" />
+          
+          <select id="crmFilterTipo" onchange="renderCrmTable()" class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200">
+            <option value="">Todos os Tipos</option>
+            <option value="Apartamento">Apartamento</option>
+            <option value="Casa">Casa / Sobrado</option>
+            <option value="Terreno">Terreno / Lote</option>
+            <option value="Comercial">Comercial / Sala</option>
+          </select>
+
+          <select id="crmFilterStatus" onchange="renderCrmTable()" class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200">
+            <option value="ALL">Todos os Status</option>
+            <option value="ACTIVE">🟢 Apenas Disponíveis (O Robô envia)</option>
+            <option value="INACTIVE">⚪ Pausados / Vendidos</option>
+          </select>
+        </div>
+
+        <div class="flex items-center gap-2 text-xs text-slate-400">
+          <span>Salvo automaticamente em <code class="text-emerald-400">imoveis.csv</code></span>
+          <button onclick="openNewPropertyModal()" class="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-xl font-semibold transition">
+            + Cadastrar Imóvel
+          </button>
+        </div>
+      </div>
+
+      <!-- Grid de Cards / Tabela do Mini-CRM -->
+      <div id="crmGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- ABA 2: SIMULADOR DE MENSAGENS DO GRUPO     -->
+    <!-- ========================================== -->
+    <div id="tab-simulador" class="hidden space-y-6">
+      <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-base font-bold text-emerald-400 flex items-center gap-2">
+            <span>🧪</span> Simulador Inteligente (Teste de Variações de Linguagem com a sua Planilha)
+          </h2>
+          <span id="engineBadge" class="text-xs px-2.5 py-1 rounded bg-slate-800 text-slate-300">IA + Regras</span>
+        </div>
+        <p class="text-xs text-slate-400 mb-4">
+          Teste agora como sua secretária lê as mensagens do grupo e cruza com os imóveis que você cadastrou no Mini-CRM:
+        </p>
+
+        <div class="flex flex-wrap gap-2 mb-3">
+          <button onclick="setExample('Busco apartamento de 3 quartos no setor bueno até R$500.000,00')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded-md border border-slate-700">
+            Ex 1: "Busco ap 3 quartos setor bueno até R$500.000,00"
+          </button>
+          <button onclick="setExample('Pessoal, preciso de um ap 3q no Bueno, minimo 85m2 até 500mil! Alguém tem?')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded-md border border-slate-700">
+            Ex 2: "preciso de ap 3q no Bueno 85m2 até 500mil"
+          </button>
+          <button onclick="setExample('Procuro casa 3q no Jardim América até 650k com lazer')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded-md border border-slate-700">
+            Ex 3: "Procuro casa 3q Jardim América até 650k"
+          </button>
+        </div>
+
+        <div class="flex gap-2">
+          <input id="simInput" type="text" placeholder="Ex: procuro ap 3q no setor bueno de 90m2 ate 500 mil..." 
+            value="Busco apartamento de 3 quartos no setor bueno até R$500.000,00"
+            class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500" />
+          <button onclick="runSimulation()" id="btnSimulate" class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-5 py-2.5 rounded-xl text-sm transition">
+            Testar Agora
+          </button>
+        </div>
+
+        <div id="simResult" class="mt-4 hidden space-y-3"></div>
+      </section>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- ABA 3: WHATSAPP, GOOGLE SHEETS E RADAR     -->
+    <!-- ========================================== -->
+    <div id="tab-whatsapp" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div class="lg:col-span-6 space-y-6">
+        <!-- QR Code WhatsApp -->
+        <section id="qrSection" class="bg-slate-900 border border-amber-500/40 rounded-2xl p-6 shadow-xl hidden">
+          <h2 class="text-base font-bold text-amber-300 mb-1">📱 Conecte o WhatsApp da Secretária</h2>
+          <p class="text-xs text-slate-400 mb-4">Abra o WhatsApp no celular &gt; Aparelhos Conectados &gt; Conectar um Aparelho e escaneie abaixo:</p>
+          <div id="qrcodeContainer" class="bg-white p-4 rounded-xl inline-block mx-auto"></div>
+        </section>
+
+        <!-- Configurações -->
+        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+          <h2 class="text-base font-bold text-white flex items-center gap-2">
+            <span>⚙️</span> Configurações do Agente & Sincronização Google Sheets
+          </h2>
+
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">1. Chave da API Google Gemini (Opcional - Crie grátis em aistudio.google.com)</label>
+            <input id="cfgGemini" type="password" placeholder="Cole sua GEMINI_API_KEY aqui..."
+              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">2. Filtrar Grupos por Nome (separados por vírgula)</label>
+            <input id="cfgGrupos" type="text" placeholder="Ex: Imóveis Goiânia, Repasse Corretores (Vazio = monitora todos)"
+              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">3. Seu WhatsApp Pessoal para Receber Avisos de Match</label>
+            <input id="cfgMeuZap" type="text" placeholder="Ex: 5562999999999"
+              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
+          </div>
+
+          <div class="pt-2 border-t border-slate-800 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-emerald-400">📊 Espelhamento Automático com Google Sheets (Opcional)</span>
+              <button onclick="copyGoogleScript()" class="text-[11px] bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded border border-slate-700 text-slate-200">
+                📋 Copiar Script de Integração
+              </button>
+            </div>
+            <p class="text-[11px] text-slate-400">
+              O Mini-CRM já salva tudo na planilha padrão local (<code class="text-slate-300">imoveis.csv</code>). Se quiser que ele também envie cada imóvel cadastrado diretamente para uma planilha sua no Google Sheets na nuvem, cole abaixo a URL do App da Web (ou o link de leitura da planilha):
+            </p>
+            <input id="cfgWebhook" type="text" placeholder="URL do Webhook Google Apps Script (https://script.google.com/macros/s/.../exec)"
+              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
+            <input id="cfgSheets" type="text" placeholder="Link da Planilha Google Sheets para leitura (https://docs.google.com/spreadsheets/d/...)"
+              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
+          </div>
+
+          <div class="flex items-center justify-between pt-1">
+            <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+              <input id="cfgModoAviso" type="checkbox" class="rounded bg-slate-950 border-slate-700 text-emerald-500" />
+              <span>Modo "Apenas me avisar" (não envia DM automático ao cliente)</span>
+            </label>
+          </div>
+
+          <button onclick="saveConfig()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-xl text-xs transition">
+            💾 Salvar Configurações
+          </button>
+        </section>
+      </div>
+
+      <!-- Radar de Logs e Grupos -->
+      <div class="lg:col-span-6 space-y-6">
+        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+          <h2 class="text-base font-bold text-white mb-3 flex items-center gap-2">
+            <span>📡</span> Radar do Grupo em Tempo Real
+          </h2>
+          <div id="logsList" class="space-y-2 max-h-96 overflow-y-auto text-xs font-mono"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- ========================================================= -->
+  <!-- MODAL DO MINI-CRM: ADICIONAR / EDITAR IMÓVEL SEM ERROS    -->
+  <!-- ========================================================= -->
+  <div id="propertyModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <h3 id="modalTitle" class="text-base font-bold text-white">🏡 Cadastrar Novo Imóvel na Carteira</h3>
+          <p class="text-xs text-slate-400">O sistema valida e formata todos os campos automaticamente na planilha.</p>
+        </div>
+        <button onclick="closePropertyModal()" class="text-slate-400 hover:text-white text-lg">✕</button>
+      </div>
+
+      <input type="hidden" id="formId" value="" />
+
+      <!-- Linha 1: Tipo + Setor + Status -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Tipo de Imóvel *</label>
+          <select id="formTipo" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-emerald-500">
+            <option value="Apartamento">Apartamento</option>
+            <option value="Casa">Casa</option>
+            <option value="Sobrado">Sobrado</option>
+            <option value="Terreno">Terreno / Lote</option>
+            <option value="Comercial">Sala / Comercial</option>
+            <option value="Cobertura">Cobertura</option>
+          </select>
+        </div>
+
+        <div class="sm:col-span-2">
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Setor / Bairro * <span class="text-slate-500 font-normal">(Padronizado automaticamente)</span></label>
+          <input id="formSetor" list="setoresSugeridos" placeholder="Ex: Setor Bueno, Setor Marista, Jardim América..."
+            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-emerald-500" />
+          <datalist id="setoresSugeridos">
+            <option value="Setor Bueno"></option>
+            <option value="Setor Marista"></option>
+            <option value="Setor Oeste"></option>
+            <option value="Jardim Goiás"></option>
+            <option value="Jardim América"></option>
+            <option value="Parque Amazônia"></option>
+            <option value="Alto da Glória"></option>
+            <option value="Setor Bela Vista"></option>
+            <option value="Setor Nova Suíça"></option>
+            <option value="Alphaville"></option>
+          </datalist>
+        </div>
+      </div>
+
+      <!-- Linha 2: Quartos + Metragem + Valor -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Quantidade de Quartos *</label>
+          <input id="formQuartos" type="number" min="0" max="20" placeholder="Ex: 3"
+            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-emerald-500" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Tamanho (m²) *</label>
+          <div class="relative">
+            <input id="formM2" type="number" min="1" step="0.1" placeholder="Ex: 92"
+              class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-emerald-500 pr-10" />
+            <span class="absolute right-3 top-2 text-xs text-slate-500">m²</span>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Valor de Venda (R$) *</label>
+          <input id="formValor" type="text" oninput="formatCurrencyInput(this)" placeholder="Ex: 480.000"
+            class="w-full bg-slate-950 border border-emerald-500/50 rounded-xl px-3 py-2 text-xs text-emerald-300 font-bold focus:border-emerald-400" />
+        </div>
+      </div>
+
+      <!-- Linha 3: Descrição que vai no WhatsApp -->
+      <div>
+        <label class="block text-xs font-semibold text-slate-300 mb-1">Descrição Completa (Enviada para o cliente no WhatsApp) *</label>
+        <textarea id="formDesc" rows="3" placeholder="Ex: Apartamento impecável no Setor Bueno, 3 quartos (1 suíte), andar alto, completo em armários, 2 vagas e área de lazer..."
+          class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-emerald-500"></textarea>
+      </div>
+
+      <!-- Linha 4: Fotos do Imóvel (Upload do Computador OU Links) -->
+      <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+        <div class="flex items-center justify-between">
+          <label class="text-xs font-semibold text-slate-300">📸 Fotos do Imóvel (Enviadas junto com a descrição)</label>
+          <label class="cursor-pointer bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 px-3 py-1 rounded-lg text-xs font-semibold transition">
+            📂 Enviar Fotos do Computador
+            <input id="photoFileInput" type="file" multiple accept="image/*" class="hidden" onchange="uploadSelectedPhotos(this)" />
+          </label>
+        </div>
+
+        <input id="formFotos" type="text" placeholder="Links das fotos ou nomes dos arquivos separados por ponto-e-vírgula (;)"
+          class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300" />
+        
+        <div id="photoPreviewArea" class="flex flex-wrap gap-2 pt-1"></div>
+      </div>
+
+      <!-- Linha 5: Status de Disponibilidade -->
+      <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+        <label class="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
+          <input id="formAtivo" type="checkbox" checked class="rounded bg-slate-950 border-slate-700 text-emerald-500" />
+          <span>🟢 Imóvel Disponível (Ativo para a Secretária ofertar no WhatsApp)</span>
+        </label>
+
+        <div class="flex gap-2">
+          <button onclick="closePropertyModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-300">
+            Cancelar
+          </button>
+          <button onclick="submitPropertyForm()" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white shadow-lg">
+            💾 Salvar na Planilha
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allPropertiesData = [];
+    let lastQrRendered = null;
+    let configInitialized = false;
+
+    function switchTab(tabName) {
+      ['crm', 'simulador', 'whatsapp'].forEach(t => {
+        document.getElementById('tab-' + t).classList.toggle('hidden', t !== tabName);
+        const btn = document.getElementById('tabBtn-' + t);
+        if (t === tabName) {
+          btn.classList.add('tab-active');
+        } else {
+          btn.classList.remove('tab-active');
+        }
+      });
+    }
+
+    function formatCurrencyInput(input) {
+      let digits = input.value.replace(/\D/g, '');
+      if (!digits) {
+        input.value = '';
+        return;
+      }
+      input.value = Number(digits).toLocaleString('pt-BR');
+    }
+
+    function getRawCurrencyValue(str) {
+      return Number(String(str || '').replace(/\D/g, '')) || 0;
+    }
+
+    function openNewPropertyModal() {
+      document.getElementById('modalTitle').textContent = '🏡 Cadastrar Novo Imóvel na Carteira';
+      document.getElementById('formId').value = '';
+      document.getElementById('formTipo').value = 'Apartamento';
+      document.getElementById('formSetor').value = '';
+      document.getElementById('formQuartos').value = '3';
+      document.getElementById('formM2').value = '';
+      document.getElementById('formValor').value = '';
+      document.getElementById('formDesc').value = '';
+      document.getElementById('formFotos').value = '';
+      document.getElementById('formAtivo').checked = true;
+      renderPhotoPreviews([]);
+      document.getElementById('propertyModal').classList.remove('hidden');
+    }
+
+    function openEditPropertyModal(id) {
+      const prop = allPropertiesData.find(p => String(p.id) === String(id));
+      if (!prop) return;
+
+      document.getElementById('modalTitle').textContent = `✏️ Editar Imóvel #${prop.id} (${prop.setor})`;
+      document.getElementById('formId').value = prop.id;
+      document.getElementById('formTipo').value = prop.tipo || 'Apartamento';
+      document.getElementById('formSetor').value = prop.setor || '';
+      document.getElementById('formQuartos').value = prop.quartos || 0;
+      document.getElementById('formM2').value = prop.tamanho_m2 || 0;
+      document.getElementById('formValor').value = Number(prop.valor || 0).toLocaleString('pt-BR');
+      document.getElementById('formDesc').value = prop.descricao || '';
+      const fotosArr = Array.isArray(prop.fotos) ? prop.fotos : [];
+      document.getElementById('formFotos').value = fotosArr.join(';');
+      document.getElementById('formAtivo').checked = Boolean(prop.ativo);
+      renderPhotoPreviews(fotosArr);
+      document.getElementById('propertyModal').classList.remove('hidden');
+    }
+
+    function closePropertyModal() {
+      document.getElementById('propertyModal').classList.add('hidden');
+    }
+
+    function renderPhotoPreviews(fotosArr) {
+      const container = document.getElementById('photoPreviewArea');
+      if (!fotosArr || fotosArr.length === 0) {
+        container.innerHTML = '<span class="text-[11px] text-slate-500">Nenhuma foto adicionada ainda. Você pode enviar do seu Mac ou colar links.</span>';
+        return;
+      }
+      container.innerHTML = fotosArr.map(f => {
+        const src = /^https?:\/\//i.test(f) ? f : `/fotos/${f}`;
+        return `<div class="relative w-16 h-16 rounded-lg overflow-hidden border border-slate-700 bg-slate-900">
+          <img src="${src}" class="w-full h-full object-cover" onerror="this.style.display='none'" />
+        </div>`;
+      }).join('');
+    }
+
+    async function uploadSelectedPhotos(input) {
+      if (!input.files || input.files.length === 0) return;
+      const formData = new FormData();
+      for (const file of input.files) {
+        formData.append('photos', file);
+      }
+
+      const res = await fetch('/api/upload-photos', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      if (data.ok && data.files) {
+        const current = document.getElementById('formFotos').value
+          .split(';')
+          .map(s => s.trim())
+          .filter(Boolean);
+        const merged = [...current, ...data.files];
+        document.getElementById('formFotos').value = merged.join(';');
+        renderPhotoPreviews(merged);
+      }
+      input.value = '';
+    }
+
+    async function submitPropertyForm() {
+      const id = document.getElementById('formId').value;
+      const setor = document.getElementById('formSetor').value.trim();
+      const valor = getRawCurrencyValue(document.getElementById('formValor').value);
+      const descricao = document.getElementById('formDesc').value.trim();
+
+      if (!setor) {
+        alert('Por favor, informe o Setor / Bairro do imóvel.');
+        return;
+      }
+      if (!valor || valor <= 0) {
+        alert('Por favor, informe o Valor do imóvel.');
+        return;
+      }
+
+      const payload = {
+        tipo: document.getElementById('formTipo').value,
+        setor,
+        quartos: Number(document.getElementById('formQuartos').value || 0),
+        tamanho_m2: Number(document.getElementById('formM2').value || 0),
+        valor,
+        descricao,
+        fotos: document.getElementById('formFotos').value,
+        ativo: document.getElementById('formAtivo').checked
+      };
+
+      const url = id ? `/api/property/${id}` : '/api/property';
+      const method = id ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.ok) {
+        closePropertyModal();
+        fetchStatus(true);
+      } else {
+        alert('Erro ao salvar imóvel: ' + (data.error || 'Desconhecido'));
+      }
+    }
+
+    async function togglePropertyActive(id, currentStatus) {
+      await fetch(`/api/property/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ativo: !currentStatus })
+      });
+      fetchStatus(true);
+    }
+
+    async function removeProperty(id) {
+      if (!confirm(`Tem certeza que deseja excluir o imóvel #${id} da planilha?`)) return;
+      await fetch(`/api/property/${id}`, { method: 'DELETE' });
+      fetchStatus(true);
+    }
+
+    function renderCrmTable() {
+      const query = (document.getElementById('crmSearch').value || '').toLowerCase();
+      const tipoFilter = document.getElementById('crmFilterTipo').value;
+      const statusFilter = document.getElementById('crmFilterStatus').value;
+
+      const filtered = allPropertiesData.filter(item => {
+        if (tipoFilter && item.tipo.toLowerCase() !== tipoFilter.toLowerCase()) return false;
+        if (statusFilter === 'ACTIVE' && !item.ativo) return false;
+        if (statusFilter === 'INACTIVE' && item.ativo) return false;
+        if (query) {
+          const hay = `${item.id} ${item.tipo} ${item.setor} ${item.descricao}`.toLowerCase();
+          if (!hay.includes(query)) return false;
+        }
+        return true;
+      });
+
+      const grid = document.getElementById('crmGrid');
+      if (filtered.length === 0) {
+        grid.innerHTML = `
+          <div class="col-span-full p-8 rounded-2xl bg-slate-900 border border-slate-800 text-center space-y-2">
+            <div class="text-2xl">🏡</div>
+            <div class="text-sm font-semibold text-white">Nenhum imóvel encontrado com esses filtros</div>
+            <p class="text-xs text-slate-400">Clique em "+ Novo Imóvel no CRM" para adicionar à sua planilha padronizada.</p>
+          </div>`;
+        return;
+      }
+
+      grid.innerHTML = filtered.map(item => {
+        const firstPhoto = item.fotos && item.fotos.length > 0
+          ? (/^https?:\/\//i.test(item.fotos[0]) ? item.fotos[0] : `/fotos/${item.fotos[0]}`)
+          : null;
+
+        return `
+          <div class="rounded-2xl bg-slate-900 border ${item.ativo ? 'border-slate-800' : 'border-slate-800/50 opacity-60'} overflow-hidden flex flex-col justify-between shadow-lg">
+            <div>
+              <!-- Imagem de Capa -->
+              <div class="h-40 bg-slate-950 relative overflow-hidden flex items-center justify-center">
+                ${firstPhoto
+                  ? `<img src="${firstPhoto}" class="w-full h-full object-cover" onerror="this.style.display='none'" />`
+                  : `<span class="text-xs text-slate-600">Sem foto cadastrada</span>`
+                }
+                <div class="absolute top-2.5 left-2.5 flex gap-1.5">
+                  <span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-950/90 text-emerald-400 border border-slate-700">#${item.id}</span>
+                  <span class="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-950/90 text-white border border-slate-700">${item.tipo}</span>
+                </div>
+                <div class="absolute top-2.5 right-2.5">
+                  <button onclick="togglePropertyActive('${item.id}', ${item.ativo})" 
+                    class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${item.ativo ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-300'}">
+                    ${item.ativo ? '🟢 Disponível' : '⚪ Pausado'}
+                  </button>
+                </div>
+                <div class="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-slate-950/80 text-[11px] text-slate-200">
+                  📸 ${item.fotos.length} foto(s)
+                </div>
+              </div>
+
+              <!-- Conteúdo do Card -->
+              <div class="p-4 space-y-2">
+                <div class="flex items-center justify-between">
+                  <h3 class="text-sm font-bold text-white">📍 ${item.setor}</h3>
+                  <span class="text-sm font-extrabold text-emerald-400">R$ ${Number(item.valor).toLocaleString('pt-BR')}</span>
+                </div>
+
+                <div class="flex gap-2 text-xs text-slate-300">
+                  <span class="px-2 py-0.5 rounded bg-slate-950 border border-slate-800">🛏️ ${item.quartos} quartos</span>
+                  <span class="px-2 py-0.5 rounded bg-slate-950 border border-slate-800">📐 ${item.tamanho_m2} m²</span>
+                </div>
+
+                <p class="text-xs text-slate-400 line-clamp-3">${item.descricao}</p>
+              </div>
+            </div>
+
+            <!-- Botões de Ação do CRM -->
+            <div class="px-4 py-3 bg-slate-950/60 border-t border-slate-800/80 flex items-center justify-between">
+              <button onclick="openEditPropertyModal('${item.id}')" class="text-xs font-semibold text-emerald-400 hover:text-emerald-300">
+                ✏️ Editar Imóvel
+              </button>
+              <button onclick="removeProperty('${item.id}')" class="text-xs text-slate-500 hover:text-red-400">
+                🗑️ Excluir
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function copyGoogleScript() {
+      const res = await fetch('/api/google-script');
+      const data = await res.json();
+      await navigator.clipboard.writeText(data.code);
+      alert('Código do Google Apps Script copiado! Cole em Extensões > Apps Script na sua planilha do Google Sheets.');
+    }
+
+    function setExample(text) {
+      document.getElementById('simInput').value = text;
+      runSimulation();
+    }
+
+    async function saveConfig() {
+      const payload = {
+        googleSheetsUrl: document.getElementById('cfgSheets').value,
+        googleSheetsWebhookUrl: document.getElementById('cfgWebhook').value,
+        geminiApiKey: document.getElementById('cfgGemini').value,
+        gruposMonitorados: document.getElementById('cfgGrupos').value,
+        meuWhatsappAlerta: document.getElementById('cfgMeuZap').value,
+        modoApenasAvisar: document.getElementById('cfgModoAviso').checked
+      };
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      document.getElementById('cfgGemini').value = '';
+      alert('Configurações salvas com sucesso!');
+      fetchStatus(true);
+    }
+
+    async function runSimulation() {
+      const message = document.getElementById('simInput').value;
+      const btn = document.getElementById('btnSimulate');
+      const resDiv = document.getElementById('simResult');
+      btn.textContent = 'Analisando...';
+      resDiv.classList.remove('hidden');
+      resDiv.innerHTML = '<div class="text-xs text-slate-400">Processando mensagem...</div>';
+
+      try {
+        const res = await fetch('/api/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, senderName: 'Carlos (Grupo)' })
+        });
+        const data = await res.json();
+        const { analysis, previews } = data;
+
+        document.getElementById('engineBadge').textContent = analysis.usedEngine || 'Motor Ativo';
+
+        if (!analysis.isLookingForProperty) {
+          resDiv.innerHTML = `
+            <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-amber-300">
+              ⚠️ Ignorado pela secretária: ${analysis.reason || 'Não parece ser uma busca por imóvel.'}
+            </div>`;
+        } else {
+          const c = analysis.criteria || {};
+          let html = `
+            <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-2">
+              <div class="font-semibold text-emerald-400">✅ Intenção de Compra Identificada! Filtros extraídos:</div>
+              <div class="flex flex-wrap gap-2">
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🏷️ Tipo: <b>${c.tipo || 'Qualquer'}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">📍 Setor: <b>${c.setor || 'Qualquer'}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🛏️ Quartos: <b>${c.quartos || 'Qualquer'}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">📐 Tamanho: <b>${c.tamanho_m2 ? c.tamanho_m2 + 'm²' : 'Qualquer'}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">💰 Teto: <b>${c.valor_maximo ? 'R$ ' + Number(c.valor_maximo).toLocaleString('pt-BR') : 'Sem limite'}</b></span>
+              </div>
+            </div>`;
+
+          if (previews.length === 0) {
+            html += `<div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300">
+              Nenhum imóvel ativo na sua planilha atende a todos esses critérios simultaneamente.
+            </div>`;
+          } else {
+            for (const p of previews) {
+              html += `
+                <div class="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-xs space-y-2">
+                  <div class="font-bold text-emerald-300">💬 Mensagem que será enviada automaticamente no Privado (DM) + ${p.property.fotos.length} foto(s):</div>
+                  <pre class="whitespace-pre-wrap font-sans bg-slate-950 p-3 rounded-lg border border-slate-800 text-slate-200">${p.whatsappMessagePreview}</pre>
+                </div>`;
+            }
+          }
+          resDiv.innerHTML = html;
+        }
+      } catch (e) {
+        resDiv.innerHTML = `<div class="text-xs text-red-400">Erro: ${e.message}</div>`;
+      } finally {
+        btn.textContent = 'Testar Agora';
+      }
+    }
+
+    async function fetchStatus(forceRefresh = false) {
+      try {
+        const res = await fetch('/api/status' + (forceRefresh ? '?refresh=true' : ''));
+        const data = await res.json();
+
+        const badge = document.getElementById('statusBadge');
+        if (data.connectionStatus === 'CONECTADO') {
+          badge.textContent = '🟢 WhatsApp Conectado & Monitorando';
+          badge.className = 'px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          document.getElementById('qrSection').classList.add('hidden');
+        } else if (data.connectionStatus === 'AGUARDANDO_QR_CODE') {
+          badge.textContent = '🟡 Escaneie o QR Code (Aba WhatsApp)';
+          badge.className = 'px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 cursor-pointer';
+          badge.onclick = () => switchTab('whatsapp');
+          if (data.latestQrCode && data.latestQrCode !== lastQrRendered) {
+            lastQrRendered = data.latestQrCode;
+            const qrContainer = document.getElementById('qrcodeContainer');
+            qrContainer.innerHTML = '';
+            new QRCode(qrContainer, { text: data.latestQrCode, width: 220, height: 220 });
+            document.getElementById('qrSection').classList.remove('hidden');
+          }
+        } else {
+          badge.textContent = '⚪ Iniciando WhatsApp...';
+        }
+
+        if (!configInitialized && data.config) {
+          configInitialized = true;
+          document.getElementById('cfgSheets').value = data.config.googleSheetsUrl || '';
+          document.getElementById('cfgWebhook').value = data.config.googleSheetsWebhookUrl || '';
+          document.getElementById('cfgGrupos').value = data.config.gruposMonitorados || '';
+          document.getElementById('cfgMeuZap').value = data.config.meuWhatsappAlerta || '';
+          document.getElementById('cfgModoAviso').checked = Boolean(data.config.modoApenasAvisar);
+          if (data.config.hasGeminiKey) {
+            document.getElementById('cfgGemini').placeholder = '✅ Chave Gemini já configurada (digite para trocar)';
+          }
+        }
+
+        document.getElementById('propCount').textContent = data.inventoryCount;
+        allPropertiesData = data.inventory || [];
+        renderCrmTable();
+
+        const logsDiv = document.getElementById('logsList');
+        if (data.activityLogs && data.activityLogs.length > 0) {
+          logsDiv.innerHTML = data.activityLogs.map(l => `
+            <div class="p-2 rounded bg-slate-950 border border-slate-800/80">
+              <span class="text-slate-500">[${l.time}]</span>
+              <span class="text-emerald-400 font-semibold">[${l.type}]</span>
+              <span class="text-slate-200">${l.message}</span>
+            </div>
+          `).join('');
+        } else {
+          logsDiv.innerHTML = '<div class="text-slate-500">Aguardando novas mensagens nos grupos...</div>';
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    fetchStatus();
+    setInterval(() => fetchStatus(false), 5000);
+    setTimeout(() => runSimulation(), 600);
+  </script>
+</body>
+</html>
