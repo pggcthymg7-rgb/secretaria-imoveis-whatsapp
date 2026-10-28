@@ -22,9 +22,9 @@
         <div>
           <h1 class="text-lg font-bold text-white flex items-center gap-2">
             Mini-CRM & Secretária Imobiliária
-            <span class="text-[11px] font-medium px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Planilha Blindada</span>
+            <span class="text-[11px] font-medium px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">v2.0 Vocabulário Expandido</span>
           </h1>
-          <p class="text-xs text-slate-400">Cadastre seus imóveis sem erros • Sincronizado com Planilha & Agente de WhatsApp</p>
+          <p class="text-xs text-slate-400">Reconhece Mobília, Região, "Quero/Busco/Procuro" • Envia até 5 fotos + Mensagem Personalizável</p>
         </div>
       </div>
 
@@ -42,12 +42,15 @@
     </div>
 
     <!-- Navigation Tabs -->
-    <div class="max-w-7xl mx-auto px-6 flex gap-6 text-xs font-semibold text-slate-400">
+    <div class="max-w-7xl mx-auto px-6 flex flex-wrap gap-6 text-xs font-semibold text-slate-400">
       <button onclick="switchTab('crm')" id="tabBtn-crm" class="py-2.5 tab-active transition flex items-center gap-1.5">
         📋 Minha Carteira de Imóveis (<span id="propCount">0</span> ativos)
       </button>
+      <button onclick="switchTab('mensagem')" id="tabBtn-mensagem" class="py-2.5 hover:text-slate-200 transition flex items-center gap-1.5">
+        ✍️ Personalizar Mensagem & Fotos (5 Fotos)
+      </button>
       <button onclick="switchTab('simulador')" id="tabBtn-simulador" class="py-2.5 hover:text-slate-200 transition flex items-center gap-1.5">
-        🧪 Simulador de Grupo & IA
+        🧪 Simulador de Grupo & Vocabulário
       </button>
       <button onclick="switchTab('whatsapp')" id="tabBtn-whatsapp" class="py-2.5 hover:text-slate-200 transition flex items-center gap-1.5">
         📡 Radar do WhatsApp & Configurações
@@ -60,11 +63,10 @@
     <!-- ABA 1: MINI-CRM DE IMÓVEIS (PADRÃO)        -->
     <!-- ========================================== -->
     <div id="tab-crm" class="space-y-6">
-      <!-- Barra de Filtros Rápidos do CRM -->
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
-        <div class="flex flex-wrap items-center gap-3 flex-1">
-          <input id="crmSearch" oninput="renderCrmTable()" type="text" placeholder="🔍 Filtrar por setor, descrição ou código..."
-            class="bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white w-64 focus:outline-none focus:border-emerald-500" />
+        <div class="flex flex-wrap items-center gap-2.5 flex-1">
+          <input id="crmSearch" oninput="renderCrmTable()" type="text" placeholder="🔍 Filtrar por setor, região, descrição..."
+            class="bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white w-60 focus:outline-none focus:border-emerald-500" />
           
           <select id="crmFilterTipo" onchange="renderCrmTable()" class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200">
             <option value="">Todos os Tipos</option>
@@ -74,55 +76,122 @@
             <option value="Comercial">Comercial / Sala</option>
           </select>
 
+          <select id="crmFilterMobiliado" onchange="renderCrmTable()" class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200">
+            <option value="">Qualquer Mobília</option>
+            <option value="SIM">🛋️ Mobiliado</option>
+            <option value="SEMI">🗄️ Semimobiliado / Armários</option>
+            <option value="NAO">📦 Sem Mobília</option>
+          </select>
+
           <select id="crmFilterStatus" onchange="renderCrmTable()" class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200">
             <option value="ALL">Todos os Status</option>
-            <option value="ACTIVE">🟢 Apenas Disponíveis (O Robô envia)</option>
+            <option value="ACTIVE">🟢 Apenas Disponíveis</option>
             <option value="INACTIVE">⚪ Pausados / Vendidos</option>
           </select>
         </div>
 
         <div class="flex items-center gap-2 text-xs text-slate-400">
-          <span>Salvo automaticamente em <code class="text-emerald-400">imoveis.csv</code></span>
           <button onclick="openNewPropertyModal()" class="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-xl font-semibold transition">
             + Cadastrar Imóvel
           </button>
         </div>
       </div>
 
-      <!-- Grid de Cards / Tabela do Mini-CRM -->
+      <!-- Grid de Cards do Mini-CRM -->
       <div id="crmGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
     </div>
 
     <!-- ========================================== -->
-    <!-- ABA 2: SIMULADOR DE MENSAGENS DO GRUPO     -->
+    <!-- ABA 2: EDITOR DE MENSAGEM & LIMITE 5 FOTOS -->
+    <!-- ========================================== -->
+    <div id="tab-mensagem" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div class="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-base font-bold text-white">✍️ Personalizar Mensagem Automática da Secretária</h2>
+            <p class="text-xs text-slate-400">Altere livremente o texto abaixo. A secretária substituirá as tags entre chaves pelos dados reais do imóvel encontrado!</p>
+          </div>
+          <button onclick="resetMessageTemplate()" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">
+            Restaurar Padrão
+          </button>
+        </div>
+
+        <!-- Botões de Variáveis Dinâmicas -->
+        <div class="space-y-1.5">
+          <span class="text-[11px] font-semibold text-slate-400">Clique para inserir variáveis do imóvel no texto:</span>
+          <div class="flex flex-wrap gap-1.5">
+            <button onclick="insertTag('{nome}')" class="px-2.5 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-xs text-emerald-400 font-mono">{nome}</button>
+            <button onclick="insertTag('{tipo}')" class="px-2.5 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-xs text-emerald-400 font-mono">{tipo}</button>
+            <button onclick="insertTag('{setor}')" class="px-2.5 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-xs text-emerald-400 font-mono">{setor}</button>
+            <button onclick="insertTag('{regiao}')" class="px-2.5 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-xs text-emerald-400 font-mono">{regiao}</button>
+            <button onclick="insertTag('{mobiliado}')" class="px-2.5 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-xs text-emerald-400 font-mono">{mobiliado}</button>
+            <button onclick="insertTag('{quartos}')" class="px-2.5 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-xs text-emerald-400 font-mono">{quartos}</button>
+            <button onclick="insertTag('{tamanho}')" class="px-2.5 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-xs text-emerald-400 font-mono">{tamanho}</button>
+            <button onclick="insertTag('{valor}')" class="px-2.5 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-xs text-emerald-400 font-mono">{valor}</button>
+            <button onclick="insertTag('{descricao}')" class="px-2.5 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-xs text-emerald-400 font-mono">{descricao}</button>
+          </div>
+        </div>
+
+        <textarea id="cfgMessageTemplate" oninput="updateLiveTemplatePreview()" rows="11"
+          class="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"></textarea>
+
+        <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+          <div>
+            <label class="block text-xs font-semibold text-slate-200">📸 Quantidade Máxima de Fotos Enviadas por Imóvel</label>
+            <p class="text-[11px] text-slate-400">Padrão configurado para 5 fotos por imóvel encontrado.</p>
+          </div>
+          <input id="cfgMaxPhotos" type="number" min="1" max="10" value="5"
+            class="w-20 bg-slate-950 border border-emerald-500/50 rounded-xl px-3 py-2 text-sm text-center font-bold text-emerald-400" />
+        </div>
+
+        <button onclick="saveMessageSettings()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg transition">
+          💾 Salvar Mensagem Personalizada & Limite de 5 Fotos
+        </button>
+      </div>
+
+      <!-- Prévia ao Vivo no formato WhatsApp -->
+      <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-3">
+        <h3 class="text-sm font-bold text-emerald-400">📱 Prévia em Tempo Real no WhatsApp do Cliente</h3>
+        <p class="text-xs text-slate-400">Veja exatamente como a mensagem chegará no privado da pessoa junto com as 5 fotos:</p>
+        <div class="p-4 rounded-2xl bg-[#0b141a] border border-slate-800">
+          <div class="bg-[#005c4b] text-slate-100 p-3.5 rounded-xl text-xs whitespace-pre-wrap leading-relaxed shadow" id="liveTemplatePreview"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- ABA 3: SIMULADOR DE MENSAGENS DO GRUPO     -->
     <!-- ========================================== -->
     <div id="tab-simulador" class="hidden space-y-6">
       <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
         <div class="flex items-center justify-between mb-3">
           <h2 class="text-base font-bold text-emerald-400 flex items-center gap-2">
-            <span>🧪</span> Simulador Inteligente (Teste de Variações de Linguagem com a sua Planilha)
+            <span>🧪</span> Simulador de Vocabulário Expandido ("Quero", "Mobiliado", "Qualquer Setor", "Região Sul")
           </h2>
-          <span id="engineBadge" class="text-xs px-2.5 py-1 rounded bg-slate-800 text-slate-300">IA + Regras</span>
+          <span id="engineBadge" class="text-xs px-2.5 py-1 rounded bg-slate-800 text-slate-300">IA + Vocabulário</span>
         </div>
         <p class="text-xs text-slate-400 mb-4">
-          Teste agora como sua secretária lê as mensagens do grupo e cruza com os imóveis que você cadastrou no Mini-CRM:
+          Clique em qualquer um dos exemplos abaixo ou digite sua própria frase para testar a busca na sua carteira atual:
         </p>
 
         <div class="flex flex-wrap gap-2 mb-3">
-          <button onclick="setExample('Busco apartamento de 3 quartos no setor bueno até R$500.000,00')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded-md border border-slate-700">
-            Ex 1: "Busco ap 3 quartos setor bueno até R$500.000,00"
+          <button onclick="setExample('Quero um apartamento de 2 quartos no setor sudoeste até 400 mil')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-md border border-slate-700">
+            Teste "Quero": "Quero ap 2q no setor sudoeste até 400 mil"
           </button>
-          <button onclick="setExample('Pessoal, preciso de um ap 3q no Bueno, minimo 85m2 até 500mil! Alguém tem?')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded-md border border-slate-700">
-            Ex 2: "preciso de ap 3q no Bueno 85m2 até 500mil"
+          <button onclick="setExample('Procuro imóvel mobiliado em qualquer setor')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-md border border-slate-700">
+            Teste "Mobiliado em qualquer setor"
           </button>
-          <button onclick="setExample('Procuro casa 3q no Jardim América até 650k com lazer')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded-md border border-slate-700">
-            Ex 3: "Procuro casa 3q Jardim América até 650k"
+          <button onclick="setExample('Procuro apartamento mobiliado na regiao sudoeste ate 400.000,00')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-md border border-slate-700">
+            Teste "Mobiliado na Região Sudoeste até 400.000,00"
+          </button>
+          <button onclick="setExample('Quero apartamento na regiao sul ate R$ 500.000,00')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-md border border-slate-700">
+            Teste "Quero ap na Região Sul até R$ 500.000,00"
           </button>
         </div>
 
         <div class="flex gap-2">
-          <input id="simInput" type="text" placeholder="Ex: procuro ap 3q no setor bueno de 90m2 ate 500 mil..." 
-            value="Busco apartamento de 3 quartos no setor bueno até R$500.000,00"
+          <input id="simInput" type="text" placeholder="Ex: quero imovel mobiliado em qualquer setor..." 
+            value="Procuro imóvel mobiliado em qualquer setor"
             class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500" />
           <button onclick="runSimulation()" id="btnSimulate" class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-5 py-2.5 rounded-xl text-sm transition">
             Testar Agora
@@ -134,32 +203,30 @@
     </div>
 
     <!-- ========================================== -->
-    <!-- ABA 3: WHATSAPP, GOOGLE SHEETS E RADAR     -->
+    <!-- ABA 4: WHATSAPP, GOOGLE SHEETS E RADAR     -->
     <!-- ========================================== -->
     <div id="tab-whatsapp" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-6">
       <div class="lg:col-span-6 space-y-6">
-        <!-- QR Code WhatsApp -->
         <section id="qrSection" class="bg-slate-900 border border-amber-500/40 rounded-2xl p-6 shadow-xl hidden">
           <h2 class="text-base font-bold text-amber-300 mb-1">📱 Conecte o WhatsApp da Secretária</h2>
           <p class="text-xs text-slate-400 mb-4">Abra o WhatsApp no celular &gt; Aparelhos Conectados &gt; Conectar um Aparelho e escaneie abaixo:</p>
           <div id="qrcodeContainer" class="bg-white p-4 rounded-xl inline-block mx-auto"></div>
         </section>
 
-        <!-- Configurações -->
         <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
           <h2 class="text-base font-bold text-white flex items-center gap-2">
-            <span>⚙️</span> Configurações do Agente & Sincronização Google Sheets
+            <span>⚙️</span> Configurações do Agente & Google Sheets
           </h2>
 
           <div>
-            <label class="block text-xs font-medium text-slate-300 mb-1">1. Chave da API Google Gemini (Opcional - Crie grátis em aistudio.google.com)</label>
+            <label class="block text-xs font-medium text-slate-300 mb-1">1. Chave da API Google Gemini (Opcional)</label>
             <input id="cfgGemini" type="password" placeholder="Cole sua GEMINI_API_KEY aqui..."
               class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
           </div>
 
           <div>
             <label class="block text-xs font-medium text-slate-300 mb-1">2. Filtrar Grupos por Nome (separados por vírgula)</label>
-            <input id="cfgGrupos" type="text" placeholder="Ex: Imóveis Goiânia, Repasse Corretores (Vazio = monitora todos)"
+            <input id="cfgGrupos" type="text" placeholder="Ex: Teste Imoveis, Repasse Corretores (Vazio = monitora todos)"
               class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
           </div>
 
@@ -176,9 +243,6 @@
                 📋 Copiar Script de Integração
               </button>
             </div>
-            <p class="text-[11px] text-slate-400">
-              O Mini-CRM já salva tudo na planilha padrão local (<code class="text-slate-300">imoveis.csv</code>). Se quiser que ele também envie cada imóvel cadastrado diretamente para uma planilha sua no Google Sheets na nuvem, cole abaixo a URL do App da Web (ou o link de leitura da planilha):
-            </p>
             <input id="cfgWebhook" type="text" placeholder="URL do Webhook Google Apps Script (https://script.google.com/macros/s/.../exec)"
               class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
             <input id="cfgSheets" type="text" placeholder="Link da Planilha Google Sheets para leitura (https://docs.google.com/spreadsheets/d/...)"
@@ -198,7 +262,6 @@
         </section>
       </div>
 
-      <!-- Radar de Logs e Grupos -->
       <div class="lg:col-span-6 space-y-6">
         <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
           <h2 class="text-base font-bold text-white mb-3 flex items-center gap-2">
@@ -211,21 +274,21 @@
   </main>
 
   <!-- ========================================================= -->
-  <!-- MODAL DO MINI-CRM: ADICIONAR / EDITAR IMÓVEL SEM ERROS    -->
+  <!-- MODAL DO MINI-CRM: ADICIONAR / EDITAR IMÓVEL (ATÉ 5 FOTOS) -->
   <!-- ========================================================= -->
   <div id="propertyModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
     <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
       <div class="flex items-center justify-between border-b border-slate-800 pb-3">
         <div>
           <h3 id="modalTitle" class="text-base font-bold text-white">🏡 Cadastrar Novo Imóvel na Carteira</h3>
-          <p class="text-xs text-slate-400">O sistema valida e formata todos os campos automaticamente na planilha.</p>
+          <p class="text-xs text-slate-400">O sistema valida Setor, Região, Mobília e envia até 5 fotos automaticamente.</p>
         </div>
         <button onclick="closePropertyModal()" class="text-slate-400 hover:text-white text-lg">✕</button>
       </div>
 
       <input type="hidden" id="formId" value="" />
 
-      <!-- Linha 1: Tipo + Setor + Status -->
+      <!-- Linha 1: Tipo + Setor + Região -->
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
           <label class="block text-xs font-semibold text-slate-300 mb-1">Tipo de Imóvel *</label>
@@ -239,73 +302,94 @@
           </select>
         </div>
 
-        <div class="sm:col-span-2">
-          <label class="block text-xs font-semibold text-slate-300 mb-1">Setor / Bairro * <span class="text-slate-500 font-normal">(Padronizado automaticamente)</span></label>
-          <input id="formSetor" list="setoresSugeridos" placeholder="Ex: Setor Bueno, Setor Marista, Jardim América..."
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Setor / Bairro *</label>
+          <input id="formSetor" list="setoresSugeridos" placeholder="Ex: Setor Bueno, Setor Sudoeste..."
             class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-emerald-500" />
           <datalist id="setoresSugeridos">
             <option value="Setor Bueno"></option>
             <option value="Setor Marista"></option>
+            <option value="Setor Sudoeste"></option>
             <option value="Setor Oeste"></option>
             <option value="Jardim Goiás"></option>
             <option value="Jardim América"></option>
             <option value="Parque Amazônia"></option>
             <option value="Alto da Glória"></option>
             <option value="Setor Bela Vista"></option>
-            <option value="Setor Nova Suíça"></option>
-            <option value="Alphaville"></option>
           </datalist>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Região da Cidade</label>
+          <select id="formRegiao" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-emerald-500">
+            <option value="">Auto-detectar pelo Setor</option>
+            <option value="Região Sul">Região Sul</option>
+            <option value="Região Sudoeste">Região Sudoeste</option>
+            <option value="Região Oeste">Região Oeste</option>
+            <option value="Região Central">Região Central</option>
+            <option value="Região Norte">Região Norte</option>
+            <option value="Região Leste">Região Leste</option>
+          </select>
         </div>
       </div>
 
-      <!-- Linha 2: Quartos + Metragem + Valor -->
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <!-- Linha 2: Mobiliado + Quartos + Metragem + Valor -->
+      <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
         <div>
-          <label class="block text-xs font-semibold text-slate-300 mb-1">Quantidade de Quartos *</label>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Mobiliado? *</label>
+          <select id="formMobiliado" class="w-full bg-slate-950 border border-emerald-500/40 rounded-xl px-3 py-2 text-xs text-white focus:border-emerald-500">
+            <option value="NAO">📦 Sem Mobília</option>
+            <option value="SIM">🛋️ Sim (Mobiliado)</option>
+            <option value="SEMI">🗄️ Semimobiliado / Armários</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Quartos *</label>
           <input id="formQuartos" type="number" min="0" max="20" placeholder="Ex: 3"
             class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-emerald-500" />
         </div>
 
         <div>
           <label class="block text-xs font-semibold text-slate-300 mb-1">Tamanho (m²) *</label>
-          <div class="relative">
-            <input id="formM2" type="number" min="1" step="0.1" placeholder="Ex: 92"
-              class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-emerald-500 pr-10" />
-            <span class="absolute right-3 top-2 text-xs text-slate-500">m²</span>
-          </div>
+          <input id="formM2" type="number" min="1" step="0.1" placeholder="Ex: 92"
+            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-emerald-500" />
         </div>
 
         <div>
-          <label class="block text-xs font-semibold text-slate-300 mb-1">Valor de Venda (R$) *</label>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Valor (R$) *</label>
           <input id="formValor" type="text" oninput="formatCurrencyInput(this)" placeholder="Ex: 480.000"
             class="w-full bg-slate-950 border border-emerald-500/50 rounded-xl px-3 py-2 text-xs text-emerald-300 font-bold focus:border-emerald-400" />
         </div>
       </div>
 
-      <!-- Linha 3: Descrição que vai no WhatsApp -->
+      <!-- Linha 3: Descrição -->
       <div>
-        <label class="block text-xs font-semibold text-slate-300 mb-1">Descrição Completa (Enviada para o cliente no WhatsApp) *</label>
-        <textarea id="formDesc" rows="3" placeholder="Ex: Apartamento impecável no Setor Bueno, 3 quartos (1 suíte), andar alto, completo em armários, 2 vagas e área de lazer..."
+        <label class="block text-xs font-semibold text-slate-300 mb-1">Descrição Completa (Também usada pelo robô para validar detalhes do imóvel) *</label>
+        <textarea id="formDesc" rows="3" placeholder="Ex: Apartamento decorado e mobiliado, 2 quartos sendo 1 suíte, varanda gourmet, lazer completo..."
           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-emerald-500"></textarea>
       </div>
 
-      <!-- Linha 4: Fotos do Imóvel (Upload do Computador OU Links) -->
+      <!-- Linha 4: Fotos (Até 5 fotos) -->
       <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
         <div class="flex items-center justify-between">
-          <label class="text-xs font-semibold text-slate-300">📸 Fotos do Imóvel (Enviadas junto com a descrição)</label>
-          <label class="cursor-pointer bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 px-3 py-1 rounded-lg text-xs font-semibold transition">
-            📂 Enviar Fotos do Computador
+          <div>
+            <label class="text-xs font-semibold text-slate-200">📸 Fotos do Imóvel (Envia até 5 fotos automaticamente no WhatsApp)</label>
+            <p class="text-[11px] text-slate-400">Selecione até 5 fotos do seu Mac (você pode clicar mais de uma vez para adicionar mais fotos).</p>
+          </div>
+          <label class="cursor-pointer bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition">
+            📂 Adicionar Fotos (Até 5)
             <input id="photoFileInput" type="file" multiple accept="image/*" class="hidden" onchange="uploadSelectedPhotos(this)" />
           </label>
         </div>
 
-        <input id="formFotos" type="text" placeholder="Links das fotos ou nomes dos arquivos separados por ponto-e-vírgula (;)"
+        <input id="formFotos" type="text" oninput="renderPhotoPreviewsFromInput()" placeholder="Links das fotos ou nomes dos arquivos separados por ponto-e-vírgula (;)"
           class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300" />
         
         <div id="photoPreviewArea" class="flex flex-wrap gap-2 pt-1"></div>
       </div>
 
-      <!-- Linha 5: Status de Disponibilidade -->
+      <!-- Linha 5: Status -->
       <div class="flex items-center justify-between pt-2 border-t border-slate-800">
         <label class="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
           <input id="formAtivo" type="checkbox" checked class="rounded bg-slate-950 border-slate-700 text-emerald-500" />
@@ -326,11 +410,12 @@
 
   <script>
     let allPropertiesData = [];
+    let defaultTemplateText = '';
     let lastQrRendered = null;
     let configInitialized = false;
 
     function switchTab(tabName) {
-      ['crm', 'simulador', 'whatsapp'].forEach(t => {
+      ['crm', 'mensagem', 'simulador', 'whatsapp'].forEach(t => {
         document.getElementById('tab-' + t).classList.toggle('hidden', t !== tabName);
         const btn = document.getElementById('tabBtn-' + t);
         if (t === tabName) {
@@ -339,6 +424,70 @@
           btn.classList.remove('tab-active');
         }
       });
+      if (tabName === 'mensagem') {
+        updateLiveTemplatePreview();
+      }
+    }
+
+    function insertTag(tag) {
+      const textarea = document.getElementById('cfgMessageTemplate');
+      const start = textarea.selectionStart || 0;
+      const end = textarea.selectionEnd || 0;
+      const text = textarea.value;
+      textarea.value = text.substring(0, start) + tag + text.substring(end);
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = start + tag.length;
+      updateLiveTemplatePreview();
+    }
+
+    function resetMessageTemplate() {
+      if (defaultTemplateText) {
+        document.getElementById('cfgMessageTemplate').value = defaultTemplateText;
+        updateLiveTemplatePreview();
+      }
+    }
+
+    function updateLiveTemplatePreview() {
+      const raw = document.getElementById('cfgMessageTemplate').value || '';
+      const sample = allPropertiesData[0] || {
+        tipo: 'Apartamento',
+        setor: 'Setor Bueno',
+        regiao: 'Região Sul',
+        mobiliado: 'SIM',
+        quartos: 3,
+        tamanho_m2: 92,
+        valor: 480000,
+        descricao: 'Apartamento impecável, decorado e mobiliado, varanda gourmet e lazer completo.'
+      };
+
+      const mobLabel = sample.mobiliado === 'SIM' ? 'Sim (Mobiliado)' : sample.mobiliado === 'SEMI' ? 'Semimobiliado / Armários' : 'Sem mobília';
+      const valStr = Number(sample.valor || 480000).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+      const preview = raw
+        .replace(/\{nome\}/gi, 'João')
+        .replace(/\{tipo\}/gi, sample.tipo || 'Apartamento')
+        .replace(/\{setor\}/gi, sample.setor || 'Setor Bueno')
+        .replace(/\{regiao\}/gi, sample.regiao || 'Região Sul')
+        .replace(/\{mobiliado\}/gi, mobLabel)
+        .replace(/\{quartos\}/gi, String(sample.quartos || 3))
+        .replace(/\{tamanho\}/gi, String(sample.tamanho_m2 || 92))
+        .replace(/\{valor\}/gi, valStr)
+        .replace(/\{descricao\}/gi, sample.descricao || '');
+
+      document.getElementById('liveTemplatePreview').textContent = preview;
+    }
+
+    async function saveMessageSettings() {
+      const messageTemplate = document.getElementById('cfgMessageTemplate').value;
+      const maxPhotosPerMatch = Number(document.getElementById('cfgMaxPhotos').value || 5);
+
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageTemplate, maxPhotosPerMatch })
+      });
+      alert('✅ Modelo de mensagem personalizada e limite de ' + maxPhotosPerMatch + ' fotos salvos com sucesso!');
+      fetchStatus(true);
     }
 
     function formatCurrencyInput(input) {
@@ -359,6 +508,8 @@
       document.getElementById('formId').value = '';
       document.getElementById('formTipo').value = 'Apartamento';
       document.getElementById('formSetor').value = '';
+      document.getElementById('formRegiao').value = '';
+      document.getElementById('formMobiliado').value = 'NAO';
       document.getElementById('formQuartos').value = '3';
       document.getElementById('formM2').value = '';
       document.getElementById('formValor').value = '';
@@ -377,6 +528,8 @@
       document.getElementById('formId').value = prop.id;
       document.getElementById('formTipo').value = prop.tipo || 'Apartamento';
       document.getElementById('formSetor').value = prop.setor || '';
+      document.getElementById('formRegiao').value = prop.regiao || '';
+      document.getElementById('formMobiliado').value = prop.mobiliado || 'NAO';
       document.getElementById('formQuartos').value = prop.quartos || 0;
       document.getElementById('formM2').value = prop.tamanho_m2 || 0;
       document.getElementById('formValor').value = Number(prop.valor || 0).toLocaleString('pt-BR');
@@ -392,16 +545,36 @@
       document.getElementById('propertyModal').classList.add('hidden');
     }
 
+    function renderPhotoPreviewsFromInput() {
+      const arr = document.getElementById('formFotos').value
+        .split(';')
+        .map(s => s.trim())
+        .filter(Boolean);
+      renderPhotoPreviews(arr);
+    }
+
+    function removePhotoAtIndex(idx) {
+      const arr = document.getElementById('formFotos').value
+        .split(';')
+        .map(s => s.trim())
+        .filter(Boolean);
+      arr.splice(idx, 1);
+      document.getElementById('formFotos').value = arr.join(';');
+      renderPhotoPreviews(arr);
+    }
+
     function renderPhotoPreviews(fotosArr) {
       const container = document.getElementById('photoPreviewArea');
       if (!fotosArr || fotosArr.length === 0) {
-        container.innerHTML = '<span class="text-[11px] text-slate-500">Nenhuma foto adicionada ainda. Você pode enviar do seu Mac ou colar links.</span>';
+        container.innerHTML = '<span class="text-[11px] text-slate-500">Nenhuma foto adicionada ainda. Você pode adicionar até 5 fotos por imóvel.</span>';
         return;
       }
-      container.innerHTML = fotosArr.map(f => {
+      container.innerHTML = fotosArr.map((f, i) => {
         const src = /^https?:\/\//i.test(f) ? f : `/fotos/${f}`;
-        return `<div class="relative w-16 h-16 rounded-lg overflow-hidden border border-slate-700 bg-slate-900">
+        return `<div class="relative w-16 h-16 rounded-lg overflow-hidden border border-slate-700 bg-slate-900 group">
           <img src="${src}" class="w-full h-full object-cover" onerror="this.style.display='none'" />
+          <span class="absolute bottom-0.5 left-1 text-[10px] bg-black/70 px-1 rounded text-white">${i + 1}</span>
+          <button type="button" onclick="removePhotoAtIndex(${i})" class="absolute top-0.5 right-0.5 bg-red-600 text-white rounded-full w-4 h-4 text-[10px] flex items-center justify-center opacity-80 hover:opacity-100">✕</button>
         </div>`;
       }).join('');
     }
@@ -448,6 +621,8 @@
       const payload = {
         tipo: document.getElementById('formTipo').value,
         setor,
+        regiao: document.getElementById('formRegiao').value,
+        mobiliado: document.getElementById('formMobiliado').value,
         quartos: Number(document.getElementById('formQuartos').value || 0),
         tamanho_m2: Number(document.getElementById('formM2').value || 0),
         valor,
@@ -491,14 +666,16 @@
     function renderCrmTable() {
       const query = (document.getElementById('crmSearch').value || '').toLowerCase();
       const tipoFilter = document.getElementById('crmFilterTipo').value;
+      const mobFilter = document.getElementById('crmFilterMobiliado').value;
       const statusFilter = document.getElementById('crmFilterStatus').value;
 
       const filtered = allPropertiesData.filter(item => {
         if (tipoFilter && item.tipo.toLowerCase() !== tipoFilter.toLowerCase()) return false;
+        if (mobFilter && (item.mobiliado || 'NAO') !== mobFilter) return false;
         if (statusFilter === 'ACTIVE' && !item.ativo) return false;
         if (statusFilter === 'INACTIVE' && item.ativo) return false;
         if (query) {
-          const hay = `${item.id} ${item.tipo} ${item.setor} ${item.descricao}`.toLowerCase();
+          const hay = `${item.id} ${item.tipo} ${item.setor} ${item.regiao} ${item.descricao}`.toLowerCase();
           if (!hay.includes(query)) return false;
         }
         return true;
@@ -520,10 +697,15 @@
           ? (/^https?:\/\//i.test(item.fotos[0]) ? item.fotos[0] : `/fotos/${item.fotos[0]}`)
           : null;
 
+        const mobBadge = item.mobiliado === 'SIM'
+          ? '<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">🛋️ Mobiliado</span>'
+          : item.mobiliado === 'SEMI'
+          ? '<span class="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">🗄️ Armários/Semi</span>'
+          : '<span class="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-400">📦 Sem mobília</span>';
+
         return `
           <div class="rounded-2xl bg-slate-900 border ${item.ativo ? 'border-slate-800' : 'border-slate-800/50 opacity-60'} overflow-hidden flex flex-col justify-between shadow-lg">
             <div>
-              <!-- Imagem de Capa -->
               <div class="h-40 bg-slate-950 relative overflow-hidden flex items-center justify-center">
                 ${firstPhoto
                   ? `<img src="${firstPhoto}" class="w-full h-full object-cover" onerror="this.style.display='none'" />`
@@ -540,19 +722,22 @@
                   </button>
                 </div>
                 <div class="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-slate-950/80 text-[11px] text-slate-200">
-                  📸 ${item.fotos.length} foto(s)
+                  📸 ${item.fotos.length}/5 foto(s)
                 </div>
               </div>
 
-              <!-- Conteúdo do Card -->
               <div class="p-4 space-y-2">
                 <div class="flex items-center justify-between">
-                  <h3 class="text-sm font-bold text-white">📍 ${item.setor}</h3>
+                  <div>
+                    <h3 class="text-sm font-bold text-white">📍 ${item.setor}</h3>
+                    <span class="text-[11px] text-slate-400">${item.regiao || ''}</span>
+                  </div>
                   <span class="text-sm font-extrabold text-emerald-400">R$ ${Number(item.valor).toLocaleString('pt-BR')}</span>
                 </div>
 
-                <div class="flex gap-2 text-xs text-slate-300">
-                  <span class="px-2 py-0.5 rounded bg-slate-950 border border-slate-800">🛏️ ${item.quartos} quartos</span>
+                <div class="flex flex-wrap gap-1.5 text-[11px] text-slate-300">
+                  ${mobBadge}
+                  <span class="px-2 py-0.5 rounded bg-slate-950 border border-slate-800">🛏️ ${item.quartos}q</span>
                   <span class="px-2 py-0.5 rounded bg-slate-950 border border-slate-800">📐 ${item.tamanho_m2} m²</span>
                 </div>
 
@@ -560,10 +745,9 @@
               </div>
             </div>
 
-            <!-- Botões de Ação do CRM -->
             <div class="px-4 py-3 bg-slate-950/60 border-t border-slate-800/80 flex items-center justify-between">
               <button onclick="openEditPropertyModal('${item.id}')" class="text-xs font-semibold text-emerald-400 hover:text-emerald-300">
-                ✏️ Editar Imóvel
+                ✏️ Editar Imóvel / Fotos
               </button>
               <button onclick="removeProperty('${item.id}')" class="text-xs text-slate-500 hover:text-red-400">
                 🗑️ Excluir
@@ -578,7 +762,7 @@
       const res = await fetch('/api/google-script');
       const data = await res.json();
       await navigator.clipboard.writeText(data.code);
-      alert('Código do Google Apps Script copiado! Cole em Extensões > Apps Script na sua planilha do Google Sheets.');
+      alert('Código do Google Apps Script copiado!');
     }
 
     function setExample(text) {
@@ -633,10 +817,12 @@
           const c = analysis.criteria || {};
           let html = `
             <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-2">
-              <div class="font-semibold text-emerald-400">✅ Intenção de Compra Identificada! Filtros extraídos:</div>
+              <div class="font-semibold text-emerald-400">✅ Intenção de Compra Identificada! Filtros extraídos da frase:</div>
               <div class="flex flex-wrap gap-2">
-                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🏷️ Tipo: <b>${c.tipo || 'Qualquer'}</b></span>
-                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">📍 Setor: <b>${c.setor || 'Qualquer'}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🏷️ Tipo: <b>${c.tipo || 'Qualquer Imóvel'}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">📍 Setor: <b>${c.setor || 'Qualquer Setor'}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🗺️ Região: <b>${c.regiao || 'Qualquer Região'}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🛋️ Mobiliado: <b>${c.mobiliado || 'Indiferente'}</b></span>
                 <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🛏️ Quartos: <b>${c.quartos || 'Qualquer'}</b></span>
                 <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">📐 Tamanho: <b>${c.tamanho_m2 ? c.tamanho_m2 + 'm²' : 'Qualquer'}</b></span>
                 <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">💰 Teto: <b>${c.valor_maximo ? 'R$ ' + Number(c.valor_maximo).toLocaleString('pt-BR') : 'Sem limite'}</b></span>
@@ -649,9 +835,10 @@
             </div>`;
           } else {
             for (const p of previews) {
+              const numPhotosToSend = Math.min((p.property.fotos || []).length, Number(document.getElementById('cfgMaxPhotos').value || 5));
               html += `
                 <div class="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-xs space-y-2">
-                  <div class="font-bold text-emerald-300">💬 Mensagem que será enviada automaticamente no Privado (DM) + ${p.property.fotos.length} foto(s):</div>
+                  <div class="font-bold text-emerald-300">💬 Imóvel #${p.property.id} (${p.property.setor}) encontrado! Mensagem enviada no Privado + ${numPhotosToSend} foto(s):</div>
                   <pre class="whitespace-pre-wrap font-sans bg-slate-950 p-3 rounded-lg border border-slate-800 text-slate-200">${p.whatsappMessagePreview}</pre>
                 </div>`;
             }
@@ -697,6 +884,9 @@
           document.getElementById('cfgGrupos').value = data.config.gruposMonitorados || '';
           document.getElementById('cfgMeuZap').value = data.config.meuWhatsappAlerta || '';
           document.getElementById('cfgModoAviso').checked = Boolean(data.config.modoApenasAvisar);
+          document.getElementById('cfgMessageTemplate').value = data.config.messageTemplate || '';
+          document.getElementById('cfgMaxPhotos').value = data.config.maxPhotosPerMatch || 5;
+          defaultTemplateText = data.config.defaultMessageTemplate || '';
           if (data.config.hasGeminiKey) {
             document.getElementById('cfgGemini').placeholder = '✅ Chave Gemini já configurada (digite para trocar)';
           }

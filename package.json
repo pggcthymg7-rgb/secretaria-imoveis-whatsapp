@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node test.js"
+    "test": "node test.js",
+    "backup": "git add -A && git commit -m \"Backup automatico\" || true",
+    "restaurar-v1": "git checkout v1.0-funcionando -- ."
   },
   "keywords": [],
   "author": "",

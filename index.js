@@ -14,6 +14,7 @@ const {
   deleteProperty
 } = require('./src/sheets');
 const { analyzeMessageAndMatch, formatOutreachMessage } = require('./src/matcher');
+const { loadSettings, saveSettings, DEFAULT_MESSAGE_TEMPLATE } = require('./src/settings');
 const { startWhatsAppAgent, getAgentState, addLog } = require('./src/whatsapp');
 
 const app = express();
@@ -70,6 +71,7 @@ app.get('/api/status', async (req, res) => {
   const allProperties = await loadAllProperties(refreshMode);
   const activeInventory = allProperties.filter(p => p.ativo);
   const state = getAgentState();
+  const settings = loadSettings();
 
   res.json({
     ...state,
@@ -79,7 +81,10 @@ app.get('/api/status', async (req, res) => {
       googleSheetsWebhookUrl: process.env.GOOGLE_SHEETS_WEBHOOK_URL || '',
       gruposMonitorados: process.env.GRUPOS_MONITORADOS || '',
       modoApenasAvisar: (process.env.MODO_APENAS_AVISAR || 'false').toLowerCase() === 'true',
-      meuWhatsappAlerta: process.env.MEU_WHATSAPP_ALERTA || ''
+      meuWhatsappAlerta: process.env.MEU_WHATSAPP_ALERTA || '',
+      messageTemplate: settings.messageTemplate,
+      defaultMessageTemplate: DEFAULT_MESSAGE_TEMPLATE,
+      maxPhotosPerMatch: settings.maxPhotosPerMatch || 5
     },
     inventoryCount: activeInventory.length,
     totalCount: allProperties.length,
@@ -173,7 +178,7 @@ app.post('/api/simulate', async (req, res) => {
   }
 });
 
-// Endpoint: Salvar configurações pelo Painel Web
+// Endpoint: Salvar configurações pelo Painel Web (incluindo Modelo de Mensagem e Limite de 5 Fotos)
 app.post('/api/config', async (req, res) => {
   try {
     const {
@@ -182,7 +187,9 @@ app.post('/api/config', async (req, res) => {
       googleSheetsWebhookUrl,
       gruposMonitorados,
       modoApenasAvisar,
-      meuWhatsappAlerta
+      meuWhatsappAlerta,
+      messageTemplate,
+      maxPhotosPerMatch
     } = req.body;
     const updates = {};
 
@@ -206,8 +213,16 @@ app.post('/api/config', async (req, res) => {
     }
 
     updateEnvFile(updates);
+
+    if (messageTemplate !== undefined || maxPhotosPerMatch !== undefined) {
+      saveSettings({
+        ...(messageTemplate !== undefined ? { messageTemplate } : {}),
+        ...(maxPhotosPerMatch !== undefined ? { maxPhotosPerMatch: Number(maxPhotosPerMatch) || 5 } : {})
+      });
+    }
+
     await loadAllProperties(true);
-    addLog('CONFIG', 'Configurações atualizadas pelo Mini-CRM.');
+    addLog('CONFIG', 'Configurações e modelo de mensagem atualizados pelo Mini-CRM.');
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
