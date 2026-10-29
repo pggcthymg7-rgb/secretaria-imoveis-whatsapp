@@ -3,6 +3,9 @@ const path = require('path');
 
 const SETTINGS_PATH = path.join(__dirname, '..', 'settings.json');
 
+// ============================================================================
+// PARTE 1: CONFIGURAÇÕES DA SECRETÁRIA DOS GRUPOS DE IMÓVEIS
+// ============================================================================
 const DEFAULT_HUMAN_TRAINING = `- Se a pessoa pedir com urgência (ex: "urgente", "pra hoje", "visita hoje", "rápido", "cliente na cidade"), responda de forma ágil dizendo: "Tenho essa daqui disponível e podemos ir a qualquer horário, é só me avisar!"
 - Se for um corretor falando que tem cliente (ex: "tenho cliente", "cliente procura", "parceria"), seja parceira e diga que fazemos parceria e podemos agendar a visita no melhor horário para o cliente dele.
 - Se falarem de pagamento à vista ou investidor, destaque que é uma excelente oportunidade de negócio e se coloque à disposição para visita imediata.
@@ -21,22 +24,30 @@ const DEFAULT_MESSAGE_TEMPLATE = `{abertura_humana}
 
 {fechamento_humano}`;
 
+// ============================================================================
+// PARTE 2: CONFIGURAÇÕES DO DIA A DIA (SAUDAÇÕES, LIGAÇÕES E RESPOSTAS SIMPLES)
+// ============================================================================
 const DEFAULT_FIRST_CONTACT_MESSAGE = `{saudacao}, tudo bem? Como posso te ajudar?`;
 const DEFAULT_MISSED_CALL_MESSAGE = `{saudacao}, já te retorno! Se puder enviar por mensagem, agradeço.`;
+const DEFAULT_DAILY_SIMPLE_REPLIES = [];
 
 function loadSettings() {
   if (fs.existsSync(SETTINGS_PATH)) {
     try {
       const data = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'));
       return {
+        // Configurações da Secretária dos Grupos
         messageTemplate: data.messageTemplate || DEFAULT_MESSAGE_TEMPLATE,
         maxPhotosPerMatch: Number(data.maxPhotosPerMatch || 5),
         humanTraining: data.humanTraining !== undefined ? data.humanTraining : DEFAULT_HUMAN_TRAINING,
         humanModeEnabled: data.humanModeEnabled !== undefined ? Boolean(data.humanModeEnabled) : true,
+
+        // Configurações da Página de Saudações & Dia a Dia
         firstContactEnabled: data.firstContactEnabled !== undefined ? Boolean(data.firstContactEnabled) : true,
         firstContactMessage: data.firstContactMessage || DEFAULT_FIRST_CONTACT_MESSAGE,
         missedCallEnabled: data.missedCallEnabled !== undefined ? Boolean(data.missedCallEnabled) : true,
-        missedCallMessage: data.missedCallMessage || DEFAULT_MISSED_CALL_MESSAGE
+        missedCallMessage: data.missedCallMessage || DEFAULT_MISSED_CALL_MESSAGE,
+        dailySimpleReplies: Array.isArray(data.dailySimpleReplies) ? data.dailySimpleReplies : DEFAULT_DAILY_SIMPLE_REPLIES
       };
     } catch (err) {
       console.error('Erro ao ler settings.json:', err.message);
@@ -50,7 +61,8 @@ function loadSettings() {
     firstContactEnabled: true,
     firstContactMessage: DEFAULT_FIRST_CONTACT_MESSAGE,
     missedCallEnabled: true,
-    missedCallMessage: DEFAULT_MISSED_CALL_MESSAGE
+    missedCallMessage: DEFAULT_MISSED_CALL_MESSAGE,
+    dailySimpleReplies: DEFAULT_DAILY_SIMPLE_REPLIES
   };
 }
 
@@ -69,6 +81,7 @@ module.exports = {
   DEFAULT_HUMAN_TRAINING,
   DEFAULT_FIRST_CONTACT_MESSAGE,
   DEFAULT_MISSED_CALL_MESSAGE,
+  DEFAULT_DAILY_SIMPLE_REPLIES,
   loadSettings,
   saveSettings
 };

@@ -13,10 +13,14 @@ const {
 const { loadInventory } = require('./sheets');
 const { analyzeMessageAndMatch, formatOutreachMessage } = require('./matcher');
 const { loadSettings } = require('./settings');
+const {
+  markContactAsKnown,
+  handleIncomingCalls,
+  handlePrivateDailyMessage
+} = require('./atendimento-diario');
 
 const AUTH_DIR = path.join(__dirname, '..', 'auth_info_baileys');
 const FOTOS_DIR = path.join(__dirname, '..', 'fotos');
-const KNOWN_CONTACTS_PATH = path.join(__dirname, '..', 'known_contacts.json');
 
 let sock = null;
 let connectionStatus = 'DESCONECTADO';
@@ -26,60 +30,6 @@ const activityLogs = [];
 
 // Evita mandar a mesma proposta repetidamente para a mesma pessoa no mesmo dia
 const sentOffersCache = new Set();
-
-// Memória permanente de pessoas que já conversaram com você (para responder APENAS a 1ª mensagem de novos contatos)
-const knownContacts = new Set();
-try {
-  if (fs.existsSync(KNOWN_CONTACTS_PATH)) {
-    const saved = JSON.parse(fs.readFileSync(KNOWN_CONTACTS_PATH, 'utf-8'));
-    if (Array.isArray(saved)) {
-      saved.forEach(jid => knownContacts.add(jid));
-    }
-  }
-} catch (err) {
-  console.error('Erro ao carregar known_contacts.json:', err.message);
-}
-
-function normalizeContactKey(jid) {
-  if (!jid) return '';
-  return String(jid).split(':')[0].split('@')[0].replace(/\D/g, '') || String(jid).trim().toLowerCase();
-}
-
-function isContactKnown(jid) {
-  const key = normalizeContactKey(jid);
-  return key ? knownContacts.has(key) : true;
-}
-
-function markContactAsKnown(jid) {
-  const key = normalizeContactKey(jid);
-  if (!key || knownContacts.has(key)) return;
-  knownContacts.add(key);
-  try {
-    fs.writeFileSync(KNOWN_CONTACTS_PATH, JSON.stringify([...knownContacts], null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Erro ao salvar known_contacts.json:', err.message);
-  }
-}
-
-function getPeriodGreeting() {
-  try {
-    const hourStr = new Intl.DateTimeFormat('pt-BR', {
-      timeZone: 'America/Sao_Paulo',
-      hour: 'numeric',
-      hour12: false
-    }).format(new Date());
-    const hour = parseInt(hourStr, 10);
-    if (hour >= 5 && hour < 12) return 'Bom dia';
-    if (hour >= 12 && hour < 18) return 'Boa tarde';
-    return 'Boa noite';
-  } catch {
-    return 'Olá';
-  }
-}
-
-// Controle de chamadas em andamento para detectar ligações não atendidas com precisão
-const activeCalls = new Map();
-const repliedMissedCalls = new Set();
 
 function addLog(type, message, details = null) {
   const entry = {
@@ -241,7 +191,10 @@ async function startWhatsAppAgent() {
     }
   });
 
-  // Registra conversas que já existiam no seu WhatsApp para responder APENAS contatos inéditos
+  // ===========================================================================
+  // MÓDULO 2 (SEPARADO): ATENDIMENTO DO DIA A DIA (src/atendimento-diario.js)
+  // Cuida de: Contatos Conhecidos, Ligações Não Atendidas e 1ª Mensagem no Privado
+  // ===========================================================================
   sock.ev.on('messaging-history.set', ({ chats }) => {
     if (Array.isArray(chats)) {
       for (const c of chats) {
@@ -255,7 +208,6 @@ async function startWhatsAppAgent() {
   sock.ev.on('chats.upsert', (chats) => {
     if (Array.isArray(chats)) {
       for (const c of chats) {
-        // Se já havia mensagens anteriores nessa conversa antes de hoje, marca como conhecido
         if (c.id && !c.id.endsWith('@g.us') && c.id !== 'status@broadcast' && (c.conversationTimestamp || c.unreadCount === 0)) {
           markContactAsKnown(c.id);
         }
@@ -263,81 +215,15 @@ async function startWhatsAppAgent() {
     }
   });
 
-  // Detector de Ligações Não Atendidas no WhatsApp (Voz ou Vídeo)
   sock.ev.on('call', async (calls) => {
-    if (!Array.isArray(calls)) return;
-
-    for (const call of calls) {
-      try {
-        const callId = call.id;
-        const callerJid = call.from || call.chatId;
-        if (!callId || !callerJid || callerJid.endsWith('@g.us') || call.isGroup) continue;
-
-        if (call.status === 'offer') {
-          // Ligação começou a tocar
-          activeCalls.set(callId, {
-            from: callerJid,
-            answered: false,
-            replied: false
-          });
-        } else if (call.status === 'accept') {
-          // Você atendeu a ligação no celular/computador -> não manda mensagem de ligação perdida
-          const info = activeCalls.get(callId) || { from: callerJid };
-          info.answered = true;
-          activeCalls.set(callId, info);
-        } else if (
-          call.status === 'timeout' ||
-          call.status === 'reject' ||
-          call.status === 'terminate'
-        ) {
-          const info = activeCalls.get(callId);
-          const wasAnswered = info ? info.answered : false;
-
-          // Se foi timeout (tocou até cair), reject, ou terminate sem ter sido atendida:
-          if (!wasAnswered && !repliedMissedCalls.has(callId)) {
-            repliedMissedCalls.add(callId);
-            if (info) info.replied = true;
-
-            const settings = loadSettings();
-            if (settings.missedCallEnabled !== false) {
-              const saudacao = getPeriodGreeting();
-              const template =
-                settings.missedCallMessage ||
-                '{saudacao}, já te retorno! Se puder enviar por mensagem, agradeço.';
-              const replyText = template.replace(/\{saudacao\}/gi, saudacao);
-
-              // Registra nos conhecidos para não disparar a recepção de 1ª mensagem logo em seguida
-              markContactAsKnown(callerJid);
-
-              await new Promise(r => setTimeout(r, 2000));
-              try {
-                await sock.sendPresenceUpdate('composing', callerJid);
-                await new Promise(r => setTimeout(r, 2000));
-              } catch {}
-
-              await sock.sendMessage(callerJid, { text: replyText });
-
-              try {
-                await sock.sendPresenceUpdate('paused', callerJid);
-                // Mantém a conversa marcada como Não Lida / Nova Conversa no seu WhatsApp
-                await sock.chatModify({ markRead: false }, callerJid);
-              } catch {}
-
-              const phoneClean = normalizeContactKey(callerJid);
-              addLog(
-                'LIGACAO_PERDIDA',
-                `📞 Ligação não atendida de ${phoneClean} -> Respondido automaticamente: "${replyText}"`
-              );
-            }
-          }
-        }
-      } catch (callErr) {
-        addLog('ERRO', `Erro ao tratar ligação: ${callErr.message}`);
-      }
-    }
+    await handleIncomingCalls(sock, calls, addLog);
   });
 
-  // Escuta todas as mensagens recebidas em tempo real
+  // ===========================================================================
+  // ESCUTA DE MENSAGENS EM TEMPO REAL
+  // - Se for mensagem PRIVADA (!isGroup) -> Envia para src/atendimento-diario.js
+  // - Se for mensagem de GRUPO (isGroup) -> Segue para a Secretária dos Grupos abaixo
+  // ===========================================================================
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
 
@@ -350,59 +236,12 @@ async function startWhatsAppAgent() {
 
         const isGroup = remoteJid.endsWith('@g.us');
 
-        // Se VOCÊ enviou uma mensagem no privado para alguém, já registra que essa conversa existe
-        // para a secretária nunca se intrometer quando a pessoa te responder
-        if (msg.key.fromMe) {
-          if (!isGroup) {
-            markContactAsKnown(remoteJid);
-          }
-          continue;
-        }
-
-        // =========================================================================
-        // FUNÇÃO NOVA: RESPONDER APENAS A 1ª MENSAGEM NO PRIVADO ("SEMPRE ONLINE")
-        // =========================================================================
         if (!isGroup) {
-          // Verifica se essa pessoa NUNCA mandou mensagem antes
-          if (!isContactKnown(remoteJid)) {
-            // Já grava imediatamente como contato conhecido para enviar APENAS a 1ª mensagem!
-            markContactAsKnown(remoteJid);
-
-            const settings = loadSettings();
-            if (settings.firstContactEnabled !== false) {
-              const senderName = msg.pushName || 'Cliente';
-              const firstName = senderName.split(' ')[0];
-              const saudacao = getPeriodGreeting();
-              const template =
-                settings.firstContactMessage || '{saudacao}, tudo bem? Como posso te ajudar?';
-              const replyText = template
-                .replace(/\{saudacao\}/gi, saudacao)
-                .replace(/\{nome\}/gi, firstName);
-
-              // Simula "digitando..." para parecer 100% que você está online na hora
-              await new Promise(r => setTimeout(r, 1500));
-              try {
-                await sock.sendPresenceUpdate('composing', remoteJid);
-                await new Promise(r => setTimeout(r, 2000));
-              } catch {}
-
-              await sock.sendMessage(remoteJid, { text: replyText });
-
-              try {
-                await sock.sendPresenceUpdate('paused', remoteJid);
-                // Marca a conversa como NÃO LIDA ("Nova Conversa") no seu celular para você ver!
-                await sock.chatModify({ markRead: false }, remoteJid);
-              } catch {}
-
-              const phoneClean = normalizeContactKey(remoteJid);
-              addLog(
-                'NOVA_CONVERSA',
-                `🟢 [Nova Conversa] 1ª mensagem de ${senderName} (${phoneClean}) respondida: "${replyText}"`
-              );
-            }
-          }
-          continue; // Segue o fluxo normal (o buscador de imóveis abaixo continua exclusivo para grupos)
+          await handlePrivateDailyMessage(sock, msg, addLog);
+          continue; // Encerra aqui; o código abaixo é exclusivo da Secretária dos Grupos!
         }
+
+        if (msg.key.fromMe) continue;
 
         // Extrai o texto da mensagem (seja texto simples ou legenda de imagem/documento)
         const text =
