@@ -140,10 +140,11 @@ async function sendOwnerWhatsAppAlert(alertMsg) {
 }
 
 /**
- * Verifica se o grupo deve ser monitorado com base na variável GRUPOS_MONITORADOS do .env
+ * Verifica se o grupo deve ser monitorado com base em settings.json ou GRUPOS_MONITORADOS do .env
  */
 function shouldMonitorGroup(groupJid, groupSubject) {
-  const filterStr = (process.env.GRUPOS_MONITORADOS || '').trim();
+  const settings = loadSettings();
+  const filterStr = (settings.gruposMonitorados !== undefined ? settings.gruposMonitorados : (process.env.GRUPOS_MONITORADOS || '')).trim();
   if (!filterStr) return true; // Se estiver vazio, monitora todos os grupos em que o número está
 
   const filters = filterStr
@@ -423,7 +424,8 @@ async function startWhatsAppAgent() {
 
           // 2. Se houve Match 100% verificado por exclusão (todos os critérios atendidos sem nenhuma dúvida):
           if (analysis.matches && analysis.matches.length > 0) {
-            const modoApenasAvisar = (process.env.MODO_APENAS_AVISAR || 'false').toLowerCase() === 'true';
+            const currentSettings = loadSettings();
+            const modoApenasAvisar = Boolean(currentSettings.modoApenasAvisar);
 
             for (const prop of analysis.matches) {
               const dedupeKey = `${participantJid}_${prop.id}`;
