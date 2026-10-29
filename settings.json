@@ -1,0 +1,16 @@
+{
+  "gruposMonitorados": "teste",
+  "modoApenasAvisar": false,
+  "meuWhatsappAlerta": "5562983443060",
+  "googleSheetsUrl": "",
+  "googleSheetsWebhookUrl": "",
+  "messageTemplate": "{abertura_humana}\n\n🏡 *{tipo} - {setor}* ({regiao})\n🛋️ *Mobília:* {mobiliado}\n🛏️ *Quartos:* {quartos} quartos\n📐 *Tamanho:* {tamanho} m²\n💰 *Valor:* {valor}\n\n📝 *Descrição:*\n{descricao}\n\n{fechamento_humano}",
+  "maxPhotosPerMatch": 5,
+  "humanTraining": "- Se a pessoa pedir com urgência (ex: \"urgente\", \"pra hoje\", \"visita hoje\", \"rápido\", \"cliente na cidade\"), responda de forma ágil dizendo: \"Tenho essa daqui disponível e podemos ir a qualquer horário, é só me avisar!\"\n- Se for um corretor falando que tem cliente (ex: \"tenho cliente\", \"cliente procura\", \"parceria\"), seja parceira e diga que fazemos parceria e podemos agendar a visita no melhor horário para o cliente dele.\n- Se falarem de pagamento à vista ou investidor, destaque que é uma excelente oportunidade de negócio e se coloque à disposição para visita imediata.\n- Use sempre um tom humano, simpático e natural de WhatsApp (usando Bom dia / Boa tarde / Boa noite conforme o horário), sem parecer mensagem automática de robô.",
+  "humanModeEnabled": true,
+  "firstContactEnabled": true,
+  "firstContactMessage": "{saudacao}, tudo bem? Como posso te ajudar?",
+  "missedCallEnabled": true,
+  "missedCallMessage": "{saudacao}, já te retorno! Se puder enviar por mensagem, agradeço.",
+  "dailySimpleReplies": []
+}

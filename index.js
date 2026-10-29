@@ -78,11 +78,11 @@ app.get('/api/status', async (req, res) => {
     ...state,
     config: {
       hasGeminiKey: Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'coloque_sua_chave_aqui'),
-      googleSheetsUrl: process.env.GOOGLE_SHEETS_CSV_URL || '',
-      googleSheetsWebhookUrl: process.env.GOOGLE_SHEETS_WEBHOOK_URL || '',
-      gruposMonitorados: process.env.GRUPOS_MONITORADOS || '',
-      modoApenasAvisar: (process.env.MODO_APENAS_AVISAR || 'false').toLowerCase() === 'true',
-      meuWhatsappAlerta: process.env.MEU_WHATSAPP_ALERTA || settings.meuWhatsappAlerta || '5562983443060',
+      googleSheetsUrl: settings.googleSheetsUrl || process.env.GOOGLE_SHEETS_CSV_URL || '',
+      googleSheetsWebhookUrl: settings.googleSheetsWebhookUrl || process.env.GOOGLE_SHEETS_WEBHOOK_URL || '',
+      gruposMonitorados: settings.gruposMonitorados !== undefined ? settings.gruposMonitorados : (process.env.GRUPOS_MONITORADOS || 'teste'),
+      modoApenasAvisar: settings.modoApenasAvisar !== undefined ? Boolean(settings.modoApenasAvisar) : ((process.env.MODO_APENAS_AVISAR || 'false').toLowerCase() === 'true'),
+      meuWhatsappAlerta: settings.meuWhatsappAlerta || process.env.MEU_WHATSAPP_ALERTA || '5562983443060',
       messageTemplate: settings.messageTemplate,
       defaultMessageTemplate: DEFAULT_MESSAGE_TEMPLATE,
       maxPhotosPerMatch: settings.maxPhotosPerMatch || 5,
@@ -251,31 +251,22 @@ app.post('/api/config', async (req, res) => {
 
     updateEnvFile(updates);
 
-    if (
-      meuWhatsappAlerta !== undefined ||
-      messageTemplate !== undefined ||
-      maxPhotosPerMatch !== undefined ||
-      humanTraining !== undefined ||
-      humanModeEnabled !== undefined ||
-      firstContactEnabled !== undefined ||
-      firstContactMessage !== undefined ||
-      missedCallEnabled !== undefined ||
-      missedCallMessage !== undefined ||
-      dailySimpleReplies !== undefined
-    ) {
-      saveSettings({
-        ...(meuWhatsappAlerta !== undefined ? { meuWhatsappAlerta: meuWhatsappAlerta.replace(/\D/g, '') } : {}),
-        ...(messageTemplate !== undefined ? { messageTemplate } : {}),
-        ...(maxPhotosPerMatch !== undefined ? { maxPhotosPerMatch: Number(maxPhotosPerMatch) || 5 } : {}),
-        ...(humanTraining !== undefined ? { humanTraining } : {}),
-        ...(humanModeEnabled !== undefined ? { humanModeEnabled: Boolean(humanModeEnabled) } : {}),
-        ...(firstContactEnabled !== undefined ? { firstContactEnabled: Boolean(firstContactEnabled) } : {}),
-        ...(firstContactMessage !== undefined ? { firstContactMessage } : {}),
-        ...(missedCallEnabled !== undefined ? { missedCallEnabled: Boolean(missedCallEnabled) } : {}),
-        ...(missedCallMessage !== undefined ? { missedCallMessage } : {}),
-        ...(dailySimpleReplies !== undefined ? { dailySimpleReplies } : {})
-      });
-    }
+    saveSettings({
+      ...(googleSheetsUrl !== undefined ? { googleSheetsUrl: googleSheetsUrl.trim() } : {}),
+      ...(googleSheetsWebhookUrl !== undefined ? { googleSheetsWebhookUrl: googleSheetsWebhookUrl.trim() } : {}),
+      ...(gruposMonitorados !== undefined ? { gruposMonitorados: gruposMonitorados.trim() } : {}),
+      ...(modoApenasAvisar !== undefined ? { modoApenasAvisar: Boolean(modoApenasAvisar) } : {}),
+      ...(meuWhatsappAlerta !== undefined ? { meuWhatsappAlerta: meuWhatsappAlerta.replace(/\D/g, '') } : {}),
+      ...(messageTemplate !== undefined ? { messageTemplate } : {}),
+      ...(maxPhotosPerMatch !== undefined ? { maxPhotosPerMatch: Number(maxPhotosPerMatch) || 5 } : {}),
+      ...(humanTraining !== undefined ? { humanTraining } : {}),
+      ...(humanModeEnabled !== undefined ? { humanModeEnabled: Boolean(humanModeEnabled) } : {}),
+      ...(firstContactEnabled !== undefined ? { firstContactEnabled: Boolean(firstContactEnabled) } : {}),
+      ...(firstContactMessage !== undefined ? { firstContactMessage } : {}),
+      ...(missedCallEnabled !== undefined ? { missedCallEnabled: Boolean(missedCallEnabled) } : {}),
+      ...(missedCallMessage !== undefined ? { missedCallMessage: missedCallMessage } : {}),
+      ...(dailySimpleReplies !== undefined ? { dailySimpleReplies } : {})
+    });
 
     await loadAllProperties(true);
     addLog('CONFIG', 'Configurações atualizadas pelo Painel Web.');

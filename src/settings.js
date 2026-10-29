@@ -31,18 +31,23 @@ const DEFAULT_FIRST_CONTACT_MESSAGE = `{saudacao}, tudo bem? Como posso te ajuda
 const DEFAULT_MISSED_CALL_MESSAGE = `{saudacao}, já te retorno! Se puder enviar por mensagem, agradeço.`;
 const DEFAULT_DAILY_SIMPLE_REPLIES = [];
 const DEFAULT_OWNER_WHATSAPP_ALERT = '5562983443060';
+const DEFAULT_GRUPOS_MONITORADOS = 'teste';
 
 function loadSettings() {
   if (fs.existsSync(SETTINGS_PATH)) {
     try {
       const data = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'));
       return {
-        // Configurações da Secretária dos Grupos
+        // Configurações Gerais e da Secretária dos Grupos
+        gruposMonitorados: data.gruposMonitorados !== undefined ? String(data.gruposMonitorados) : (process.env.GRUPOS_MONITORADOS || DEFAULT_GRUPOS_MONITORADOS),
+        modoApenasAvisar: data.modoApenasAvisar !== undefined ? Boolean(data.modoApenasAvisar) : ((process.env.MODO_APENAS_AVISAR || 'false').toLowerCase() === 'true'),
+        meuWhatsappAlerta: data.meuWhatsappAlerta || process.env.MEU_WHATSAPP_ALERTA || DEFAULT_OWNER_WHATSAPP_ALERT,
+        googleSheetsUrl: data.googleSheetsUrl !== undefined ? String(data.googleSheetsUrl) : (process.env.GOOGLE_SHEETS_CSV_URL || ''),
+        googleSheetsWebhookUrl: data.googleSheetsWebhookUrl !== undefined ? String(data.googleSheetsWebhookUrl) : (process.env.GOOGLE_SHEETS_WEBHOOK_URL || ''),
         messageTemplate: data.messageTemplate || DEFAULT_MESSAGE_TEMPLATE,
         maxPhotosPerMatch: Number(data.maxPhotosPerMatch || 5),
         humanTraining: data.humanTraining !== undefined ? data.humanTraining : DEFAULT_HUMAN_TRAINING,
         humanModeEnabled: data.humanModeEnabled !== undefined ? Boolean(data.humanModeEnabled) : true,
-        meuWhatsappAlerta: data.meuWhatsappAlerta || process.env.MEU_WHATSAPP_ALERTA || DEFAULT_OWNER_WHATSAPP_ALERT,
 
         // Configurações da Página de Saudações & Dia a Dia
         firstContactEnabled: data.firstContactEnabled !== undefined ? Boolean(data.firstContactEnabled) : true,
@@ -56,11 +61,15 @@ function loadSettings() {
     }
   }
   return {
+    gruposMonitorados: process.env.GRUPOS_MONITORADOS || DEFAULT_GRUPOS_MONITORADOS,
+    modoApenasAvisar: (process.env.MODO_APENAS_AVISAR || 'false').toLowerCase() === 'true',
+    meuWhatsappAlerta: process.env.MEU_WHATSAPP_ALERTA || DEFAULT_OWNER_WHATSAPP_ALERT,
+    googleSheetsUrl: process.env.GOOGLE_SHEETS_CSV_URL || '',
+    googleSheetsWebhookUrl: process.env.GOOGLE_SHEETS_WEBHOOK_URL || '',
     messageTemplate: DEFAULT_MESSAGE_TEMPLATE,
     maxPhotosPerMatch: 5,
     humanTraining: DEFAULT_HUMAN_TRAINING,
     humanModeEnabled: true,
-    meuWhatsappAlerta: process.env.MEU_WHATSAPP_ALERTA || DEFAULT_OWNER_WHATSAPP_ALERT,
     firstContactEnabled: true,
     firstContactMessage: DEFAULT_FIRST_CONTACT_MESSAGE,
     missedCallEnabled: true,
@@ -80,6 +89,7 @@ function saveSettings(updates) {
 }
 
 module.exports = {
+  SETTINGS_PATH,
   DEFAULT_MESSAGE_TEMPLATE,
   DEFAULT_HUMAN_TRAINING,
   DEFAULT_FIRST_CONTACT_MESSAGE,
