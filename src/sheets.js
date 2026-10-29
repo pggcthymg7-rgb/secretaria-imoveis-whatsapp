@@ -31,26 +31,39 @@ const SETOR_TO_REGIAO_MAP = {
     'setor bueno', 'bueno', 'setor marista', 'marista', 'setor bela vista', 'bela vista',
     'jardim america', 'parque amazonia', 'setor pedro ludovico', 'pedro ludovico',
     'jardim goias', 'alto da gloria', 'nova suica', 'setor nova suica', 'serrinha',
-    'setor serrinha', 'vila rosa', 'jardim atlantico', 'alphaville', 'portal do sol'
+    'setor serrinha', 'vila rosa', 'jardim atlantico', 'alphaville', 'portal do sol',
+    'jardins valencia', 'jardins verona', 'jardins milao', 'jardins parma', 'jardins paris',
+    'jardins atenas', 'jardins lisboa', 'jardins madri', 'jardins monaco', 'vila redencao',
+    'parque atheneu', 'jardim da luz', 'jardim maria inez', 'vila maria', 'areiao'
   ],
   'regiao sudoeste': [
     'setor sudoeste', 'sudoeste', 'cidade jardim', 'eldorado', 'parque oeste',
-    'jardim europa', 'vila alps', 'jardim vila boa', 'residencial eldorado', 'celina park'
+    'parque oeste industrial', 'jardim europa', 'vila alps', 'jardim vila boa',
+    'residencial eldorado', 'celina park', 'novo horizonte', 'faicalville',
+    'setor faicalville', 'jardim presidente', 'jardim planalto', 'vila maua',
+    'residencial granville', 'jardins viena', 'jardim ana lucia', 'recreio dos bandeirantes',
+    'garavelo', 'jardim marques de abreu'
   ],
   'regiao oeste': [
     'setor oeste', 'oeste', 'setor aeroviario', 'aeroviario', 'campinas', 'setor campinas',
-    'setor coimbra', 'coimbra', 'setor castelo branco'
+    'setor coimbra', 'coimbra', 'setor castelo branco', 'castelo branco',
+    'setor dos funcionarios', 'vila canaa', 'capuava', 'ipiranga', 'jardim petropolis'
   ],
   'regiao central': [
     'setor central', 'centro', 'setor sul', 'setor aeroporto', 'aeroporto',
-    'setor universitario', 'universitario', 'leste universitario', 'vila nova', 'setor vila nova'
+    'setor universitario', 'universitario', 'leste universitario', 'setor leste universitario',
+    'vila nova', 'setor vila nova', 'setor marechal rondon', 'norte ferroviario',
+    'setor norte ferroviario', 'centro oeste', 'setor centro oeste', 'crimeia oeste', 'crimeia leste'
   ],
   'regiao norte': [
-    'setor jaó', 'jao', 'setor santa genoveva', 'santa genoveva', 'setor urias magalhaes',
-    'urias magalhaes', 'passeio das aguas', 'jardim guanabara', 'vila itatiaia', 'goiania 2', 'goiania ii'
+    'setor jao', 'jao', 'setor santa genoveva', 'santa genoveva', 'setor urias magalhaes',
+    'urias magalhaes', 'passeio das aguas', 'jardim guanabara', 'vila itatiaia',
+    'goiania 2', 'goiania ii', 'setor negrao de lima', 'negrao de lima', 'aldeia do vale',
+    'jardim balneario meia ponte', 'residencial humaita', 'vila nova canaa'
   ],
   'regiao leste': [
-    'jardim novo mundo', 'novo mundo', 'agua branca', 'setor leste vila nova', 'riviera'
+    'jardim novo mundo', 'novo mundo', 'agua branca', 'setor leste vila nova', 'riviera',
+    'parque flamboyant', 'flamboyant', 'aruana', 'jardim brasil', 'jardim california'
   ]
 };
 
@@ -63,6 +76,16 @@ function normalizeStr(str) {
     .trim();
 }
 
+function escapeRegexStr(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hasExactTerm(textNorm, termNorm) {
+  if (!textNorm || !termNorm) return false;
+  const rx = new RegExp(`(?:^|\\b)${escapeRegexStr(termNorm)}(?:\\b|$)`, 'i');
+  return rx.test(textNorm);
+}
+
 /**
  * Deduz a região automaticamente pelo setor se não tiver sido informada
  */
@@ -73,8 +96,10 @@ function inferRegiaoFromSetor(setor, regiaoInformada) {
   const sNorm = normalizeStr(setor);
   if (!sNorm) return '';
 
+  // Verifica primeiro termos compostos (ex: "parque oeste", "setor sudoeste") antes de termos curtos
   for (const [regKey, setores] of Object.entries(SETOR_TO_REGIAO_MAP)) {
-    if (setores.some(st => sNorm.includes(st) || st.includes(sNorm))) {
+    const sorted = [...setores].sort((a, b) => b.length - a.length);
+    if (sorted.some(st => hasExactTerm(sNorm, st))) {
       const label = regKey.replace('regiao ', '');
       return 'Região ' + label.charAt(0).toUpperCase() + label.slice(1);
     }
