@@ -15,7 +15,7 @@ const {
 } = require('./src/sheets');
 const { analyzeMessageAndMatch, formatOutreachMessage } = require('./src/matcher');
 const { loadSettings, saveSettings, DEFAULT_MESSAGE_TEMPLATE, DEFAULT_HUMAN_TRAINING } = require('./src/settings');
-const { startWhatsAppAgent, getAgentState, addLog } = require('./src/whatsapp');
+const { startWhatsAppAgent, getAgentState, addLog, sendOwnerWhatsAppAlert } = require('./src/whatsapp');
 const { getDailyState, removeKnownContact, addDailyLog } = require('./src/atendimento-diario');
 
 const app = express();
@@ -82,7 +82,7 @@ app.get('/api/status', async (req, res) => {
       googleSheetsWebhookUrl: process.env.GOOGLE_SHEETS_WEBHOOK_URL || '',
       gruposMonitorados: process.env.GRUPOS_MONITORADOS || '',
       modoApenasAvisar: (process.env.MODO_APENAS_AVISAR || 'false').toLowerCase() === 'true',
-      meuWhatsappAlerta: process.env.MEU_WHATSAPP_ALERTA || '',
+      meuWhatsappAlerta: process.env.MEU_WHATSAPP_ALERTA || settings.meuWhatsappAlerta || '5562983443060',
       messageTemplate: settings.messageTemplate,
       defaultMessageTemplate: DEFAULT_MESSAGE_TEMPLATE,
       maxPhotosPerMatch: settings.maxPhotosPerMatch || 5,
@@ -252,6 +252,7 @@ app.post('/api/config', async (req, res) => {
     updateEnvFile(updates);
 
     if (
+      meuWhatsappAlerta !== undefined ||
       messageTemplate !== undefined ||
       maxPhotosPerMatch !== undefined ||
       humanTraining !== undefined ||
@@ -263,6 +264,7 @@ app.post('/api/config', async (req, res) => {
       dailySimpleReplies !== undefined
     ) {
       saveSettings({
+        ...(meuWhatsappAlerta !== undefined ? { meuWhatsappAlerta: meuWhatsappAlerta.replace(/\D/g, '') } : {}),
         ...(messageTemplate !== undefined ? { messageTemplate } : {}),
         ...(maxPhotosPerMatch !== undefined ? { maxPhotosPerMatch: Number(maxPhotosPerMatch) || 5 } : {}),
         ...(humanTraining !== undefined ? { humanTraining } : {}),
@@ -280,6 +282,26 @@ app.post('/api/config', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Endpoint para testar o envio de Alerta diretamente para o WhatsApp do Corretor
+app.post('/api/test-alert', async (req, res) => {
+  try {
+    const { phone } = req.body || {};
+    if (phone && phone.replace(/\D/g, '').length >= 10) {
+      const clean = phone.replace(/\D/g, '');
+      updateEnvFile({ MEU_WHATSAPP_ALERTA: clean });
+      saveSettings({ meuWhatsappAlerta: clean });
+    }
+    const result = await sendOwnerWhatsAppAlert(
+      `🔔 *TESTE DE ALERTA DA SUA SECRETÁRIA IMOBILIÁRIA!*\n\n` +
+      `✅ Seu número de alerta está configurado e funcionando perfeitamente.\n` +
+      `Sempre que surgir uma oportunidade 100% compatível nos grupos — ou sempre que a secretária ficar com alguma dúvida e bloquear o envio por precaução — você receberá o aviso aqui na hora!`
+    );
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 

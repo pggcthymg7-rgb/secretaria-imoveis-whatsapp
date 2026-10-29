@@ -265,9 +265,16 @@
           </div>
 
           <div>
-            <label class="block text-xs font-medium text-slate-300 mb-1">3. Seu WhatsApp Pessoal para Receber Avisos de Match</label>
-            <input id="cfgMeuZap" type="text" placeholder="Ex: 5562999999999"
-              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
+            <label class="block text-xs font-medium text-slate-300 mb-1">3. Seu WhatsApp Pessoal para Receber Alertas (Oportunidades & Dúvidas)</label>
+            <div class="flex gap-2">
+              <input id="cfgMeuZap" type="text" placeholder="Ex: 5562983443060"
+                class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
+              <button onclick="testOwnerAlert()" id="btnTestAlert"
+                class="bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-semibold px-3 py-2 rounded-lg text-xs whitespace-nowrap transition">
+                🔔 Testar Alerta no Meu WhatsApp
+              </button>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1">Resolve automaticamente o 9º dígito do DDD 62. Você recebe alertas tanto de Match 100% quanto de Dúvidas bloqueadas.</p>
           </div>
 
           <div class="pt-2 border-t border-slate-800 space-y-3">
@@ -832,6 +839,31 @@
       fetchStatus(true);
     }
 
+    async function testOwnerAlert() {
+      const btn = document.getElementById('btnTestAlert');
+      const phone = document.getElementById('cfgMeuZap').value;
+      const origText = btn.textContent;
+      btn.textContent = 'Enviando teste...';
+      try {
+        const res = await fetch('/api/test-alert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          alert('✅ Alerta de teste enviado com sucesso para o seu WhatsApp! Confira seu celular.');
+        } else {
+          alert('⚠️ Não foi possível enviar o alerta agora: ' + (data.error || 'Verifique se o WhatsApp está conectado.'));
+        }
+      } catch (e) {
+        alert('Erro ao testar alerta: ' + e.message);
+      } finally {
+        btn.textContent = origText;
+        fetchStatus(true);
+      }
+    }
+
     async function runSimulation() {
       const message = document.getElementById('simInput').value;
       const btn = document.getElementById('btnSimulate');
@@ -858,31 +890,58 @@
             </div>`;
         } else {
           const c = analysis.criteria || {};
+          const suitesLabel = c.suites_min
+            ? (c.suites_max >= 10 ? `Mínimo ${c.suites_min} suíte(s)` : (c.suites_max && c.suites_max !== c.suites_min ? `${c.suites_min} a ${c.suites_max} suítes` : `${c.suites_min} suíte(s)`))
+            : 'Indiferente';
+          const lazerLabel = c.lazer === 'SIM' ? 'Obrigatório Com Lazer' : c.lazer === 'NAO' ? 'Sem Lazer' : c.lazer === 'INDIFERENTE' ? 'Com ou Sem Lazer' : 'Indiferente';
+          const idadeLabel = c.apenas_novo ? `Prédio Novo (máx. ${c.idade_max_anos || 5} anos)` : c.novo_ou_seminovo ? 'Novo ou Seminovo' : (c.idade_max_anos ? `Até ${c.idade_max_anos} anos` : 'Indiferente');
+          const m2Label = c.tamanho_min_m2 && c.tamanho_max_m2
+            ? `${c.tamanho_min_m2}m² a ${c.tamanho_max_m2}m²`
+            : c.tamanho_min_m2
+            ? `Mínimo ${c.tamanho_min_m2}m²`
+            : c.tamanho_max_m2
+            ? `Até ${c.tamanho_max_m2}m²`
+            : 'Indiferente';
+
           let html = `
             <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-2">
               <div class="flex flex-wrap items-center justify-between gap-2">
-                <span class="font-semibold text-emerald-400">✅ Intenção de Compra Identificada! Filtros extraídos da frase:</span>
+                <span class="font-semibold text-emerald-400">✅ Intenção de Compra Identificada! Filtros por Exclusão (100% obrigatórios):</span>
                 <span class="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-semibold">🧠 Tom: ${analysis.detectedTone || 'Conversa Humana Natural'}</span>
               </div>
               <div class="flex flex-wrap gap-2">
-                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🏷️ Tipo: <b>${c.tipo || 'Qualquer Imóvel'}</b></span>
-                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">📍 Setor: <b>${c.setor || 'Qualquer Setor'}</b></span>
-                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🗺️ Região: <b>${c.regiao || 'Qualquer Região'}</b></span>
-                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🛋️ Mobiliado: <b>${c.mobiliado || 'Indiferente'}</b></span>
-                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🛏️ Quartos: <b>${c.quartos || 'Qualquer'}</b></span>
-                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">📐 Tamanho: <b>${c.tamanho_m2 ? c.tamanho_m2 + 'm²' : 'Qualquer'}</b></span>
-                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">💰 Teto: <b>${c.valor_maximo ? 'R$ ' + Number(c.valor_maximo).toLocaleString('pt-BR') : 'Sem limite'}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🏷️ Tipo: <b>${c.tipo || 'Qualquer Imóvel'}${c.subtipo_casa === 'CASA_DE_RUA' ? ' (Casa de Rua)' : c.subtipo_casa === 'CONDOMINIO_FECHADO' ? ' (Condomínio)' : ''}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">📍 Setor(es): <b>${c.setor || 'Indiferente'}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🗺️ Região: <b>${c.regiao || 'Indiferente'}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🛋️ Armários/Mobília: <b>${c.mobiliado || 'Indiferente'}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🛏️ Quartos: <b>${c.quartos_min && c.quartos_max && c.quartos_min !== c.quartos_max ? c.quartos_min + ' a ' + c.quartos_max : (c.quartos || 'Indiferente')}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🚿 Suítes: <b>${suitesLabel}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🏊 Área de Lazer: <b>${lazerLabel}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🏢 Condomínio Máx: <b>${c.condominio_max ? 'Até R$ ' + Number(c.condominio_max).toLocaleString('pt-BR') : (c.subtipo_casa === 'CASA_DE_RUA' ? 'Isento (Casa de Rua)' : 'Indiferente')}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">🏗️ Idade/Novo: <b>${idadeLabel}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">📐 Metragem: <b>${m2Label}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">✨ Extras: <b>${Array.isArray(c.caracteristicas) && c.caracteristicas.length > 0 ? c.caracteristicas.join(', ') : 'Nenhum'}</b></span>
+                <span class="px-2 py-1 rounded bg-slate-900 border border-slate-800">💰 Teto Valor: <b>${c.valor_maximo ? 'R$ ' + Number(c.valor_maximo).toLocaleString('pt-BR') : 'Sem limite'}</b></span>
               </div>
             </div>`;
 
+          if (analysis.hasDoubt && previews.length === 0) {
+            const reasonsHtml = (analysis.doubtReasons || []).map(r => `<li>• ${r}</li>`).join('');
+            html += `
+              <div class="p-3.5 rounded-xl bg-red-500/10 border border-red-500/40 text-xs text-red-200 space-y-1.5">
+                <div class="font-bold text-red-300">🛑 ENVIO BLOQUEADO POR DÚVIDA (Alerta enviado para o seu WhatsApp!):</div>
+                <ul class="space-y-1 text-red-200/90">${reasonsHtml}</ul>
+              </div>`;
+          }
+
           if (previews.length === 0) {
             html += `<div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300">
-              Nenhum imóvel ativo na sua planilha atende a todos esses critérios no momento — mas veja abaixo como a secretária se adapta de forma humana à frase:
+              Nenhum imóvel ativo na sua planilha atende 100% a todos esses critérios por exclusão no momento (nada será enviado para não incomodar a pessoa).
             </div>`;
             if (sampleHumanPreview) {
               html += `
                 <div class="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-xs space-y-2">
-                  <div class="font-bold text-emerald-300">💬 Prévia da Resposta Humana Adaptativa (após status "digitando..."):</div>
+                  <div class="font-bold text-emerald-300">💬 Prévia da Resposta Humana Adaptativa (caso houvesse imóvel 100% compatível):</div>
                   <pre class="whitespace-pre-wrap font-sans bg-slate-950 p-3 rounded-lg border border-slate-800 text-slate-200">${sampleHumanPreview}</pre>
                 </div>`;
             }
@@ -891,7 +950,7 @@
               const numPhotosToSend = Math.min((p.property.fotos || []).length, Number(document.getElementById('cfgMaxPhotos').value || 5));
               html += `
                 <div class="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-xs space-y-2">
-                  <div class="font-bold text-emerald-300">💬 Imóvel #${p.property.id} (${p.property.setor}) encontrado! Mensagem enviada no Privado + ${numPhotosToSend} foto(s):</div>
+                  <div class="font-bold text-emerald-300">💬 Imóvel #${p.property.id} (${p.property.setor}) 100% compatível! Mensagem enviada no Privado + ${numPhotosToSend} foto(s) + Alerta no seu WhatsApp:</div>
                   <pre class="whitespace-pre-wrap font-sans bg-slate-950 p-3 rounded-lg border border-slate-800 text-slate-200">${p.whatsappMessagePreview}</pre>
                 </div>`;
             }

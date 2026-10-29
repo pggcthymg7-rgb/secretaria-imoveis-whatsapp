@@ -30,6 +30,7 @@ const activityLogs = [];
 
 // Evita mandar a mesma proposta repetidamente para a mesma pessoa no mesmo dia
 const sentOffersCache = new Set();
+const sentDoubtAlertsCache = new Set();
 
 function addLog(type, message, details = null) {
   const entry = {
@@ -41,6 +42,101 @@ function addLog(type, message, details = null) {
   activityLogs.unshift(entry);
   if (activityLogs.length > 100) activityLogs.pop();
   console.log(`[${entry.time}] [${type}] ${message}`);
+}
+
+/**
+ * Resolve o JID real do WhatsApp no Brasil (tratando automaticamente o 9º dígito do DDD, ex: 5562983443060 vs 556283443060)
+ * e também reconhece quando o número de alerta é o próprio número conectado ao painel!
+ */
+async function resolveOwnerWhatsAppJids(rawPhone) {
+  let digits = String(rawPhone || '').replace(/\D/g, '');
+  if (!digits || digits.length < 10) return [];
+
+  // Se digitou apenas DDD + número (10 ou 11 dígitos), adiciona o DDI 55 do Brasil
+  if (digits.length === 10 || digits.length === 11) {
+    digits = '55' + digits;
+  }
+
+  const candidates = new Set([digits]);
+  // Tratamento automático do 9º dígito brasileiro (55 + 2 dígitos DDD + 9 + 8 dígitos = 13 dígitos)
+  if (digits.startsWith('55') && digits.length === 13 && digits[4] === '9') {
+    const without9 = digits.slice(0, 4) + digits.slice(5);
+    candidates.add(without9);
+  } else if (digits.startsWith('55') && digits.length === 12) {
+    const with9 = digits.slice(0, 4) + '9' + digits.slice(4);
+    candidates.add(with9);
+  }
+
+  const resolvedJids = new Set();
+
+  // 1. Verifica se o número de alerta é o próprio WhatsApp conectado na sessão atual
+  if (sock?.user?.id) {
+    const selfBase = sock.user.id.split(':')[0].split('@')[0].replace(/\D/g, '');
+    if (candidates.has(selfBase)) {
+      resolvedJids.add(`${selfBase}@s.whatsapp.net`);
+    }
+  }
+
+  // 2. Consulta o servidor do WhatsApp (onWhatsApp) para descobrir o JID exato registrado na conta (com ou sem 9º dígito)
+  if (sock && typeof sock.onWhatsApp === 'function') {
+    try {
+      const results = await sock.onWhatsApp(...Array.from(candidates));
+      if (Array.isArray(results)) {
+        for (const r of results) {
+          if (r && r.exists && r.jid) {
+            resolvedJids.add(r.jid.replace(/:\d+@/, '@'));
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Aviso ao consultar onWhatsApp para alerta:', err.message);
+    }
+  }
+
+  // 3. Fallback: se por algum motivo onWhatsApp não retornou, adiciona as duas variações (sem 9º dígito e com 9º dígito)
+  if (resolvedJids.size === 0) {
+    for (const c of candidates) {
+      resolvedJids.add(`${c}@s.whatsapp.net`);
+    }
+  }
+
+  return Array.from(resolvedJids);
+}
+
+/**
+ * Envia um alerta (de Oportunidade ou de Dúvida) diretamente para o WhatsApp do corretor (MEU_WHATSAPP_ALERTA)
+ */
+async function sendOwnerWhatsAppAlert(alertMsg) {
+  if (!sock || connectionStatus !== 'CONECTADO') {
+    addLog('AVISO_ALERTA', 'Não foi possível enviar alerta para o seu WhatsApp pois o WhatsApp ainda não está conectado.');
+    return { ok: false, error: 'WhatsApp desconectado' };
+  }
+
+  const settings = loadSettings();
+  const meuAlerta = (process.env.MEU_WHATSAPP_ALERTA || settings.meuWhatsappAlerta || '5562983443060').replace(/\D/g, '');
+  if (meuAlerta.length < 10) {
+    addLog('AVISO_ALERTA', 'Número MEU_WHATSAPP_ALERTA não configurado.');
+    return { ok: false, error: 'Número de alerta inválido' };
+  }
+
+  const targetJids = await resolveOwnerWhatsAppJids(meuAlerta);
+  let sentSuccess = false;
+  let lastError = null;
+
+  for (const ownerJid of targetJids) {
+    try {
+      markContactAsKnown(ownerJid);
+      await sock.sendMessage(ownerJid, { text: alertMsg });
+      sentSuccess = true;
+      addLog('ALERTA_ENVIADO', `📲 Alerta enviado com sucesso para o seu WhatsApp (${ownerJid.split('@')[0]})!`);
+      break;
+    } catch (err) {
+      lastError = err.message;
+      addLog('ERRO_ALERTA', `Falha ao tentar enviar alerta para ${ownerJid}: ${err.message}`);
+    }
+  }
+
+  return { ok: sentSuccess, targetJids, error: lastError };
 }
 
 /**
@@ -294,6 +390,38 @@ async function startWhatsAppAgent() {
             analysis.criteria
           );
 
+          const phoneClean = (participantJid || '').split('@')[0];
+
+          // 1. Se a secretária ficou com DÚVIDA (sobre a busca ou sobre um dado não informado em imóvel quase compatível):
+          // NÃO envia nada para a pessoa no grupo e envia um ALERTA DE DÚVIDA direto no seu WhatsApp!
+          if (analysis.hasDoubt && (!analysis.matches || analysis.matches.length === 0)) {
+            const doubtKey = `${participantJid}_${text.trim().slice(0, 60)}`;
+            if (!sentDoubtAlertsCache.has(doubtKey)) {
+              sentDoubtAlertsCache.add(doubtKey);
+              const reasonsList = (analysis.doubtReasons || ['Dúvida na interpretação de 1 ou mais critérios da busca.'])
+                .map(r => `• ${r}`)
+                .join('\n');
+
+              addLog(
+                'DUVIDA_BLOQUEADA',
+                `⚠️ Dúvida detectada na busca de ${senderName} em [${groupInfo.subject}]. Nada foi enviado ao cliente; alerta enviado ao seu WhatsApp!`,
+                analysis.doubtReasons
+              );
+
+              const doubtAlertMsg =
+                `⚠️ *DÚVIDA DA SECRETÁRIA (NADA FOI ENVIADO AO CLIENTE)*\n\n` +
+                `👥 *Grupo:* ${groupInfo.subject}\n` +
+                `👤 *Quem buscou:* ${senderName} (wa.me/${phoneClean})\n` +
+                `💬 *Mensagem original:* "${text}"\n\n` +
+                `❓ *Motivo da Dúvida (por que não enviei):*\n${reasonsList}\n\n` +
+                `🛠️ *Ação sugerida:* Confira se você tem imóvel para esse perfil ou ajuste a descrição/regras no painel da Secretária.`;
+
+              await sendOwnerWhatsAppAlert(doubtAlertMsg);
+            }
+            continue;
+          }
+
+          // 2. Se houve Match 100% verificado por exclusão (todos os critérios atendidos sem nenhuma dúvida):
           if (analysis.matches && analysis.matches.length > 0) {
             const modoApenasAvisar = (process.env.MODO_APENAS_AVISAR || 'false').toLowerCase() === 'true';
 
@@ -323,26 +451,21 @@ async function startWhatsAppAgent() {
                 );
               }
 
-              // Se o corretor cadastrou o próprio número em MEU_WHATSAPP_ALERTA, avisa-o na hora!
-              const meuAlerta = (process.env.MEU_WHATSAPP_ALERTA || '').replace(/\D/g, '');
-              if (meuAlerta.length >= 10) {
-                const ownerJid = `${meuAlerta}@s.whatsapp.net`;
-                const phoneClean = (participantJid || '').split('@')[0];
-                const alertMsg =
-                  `🚨 *OPORTUNIDADE DETECTADA NO GRUPO!*\n\n` +
-                  `👥 *Grupo:* ${groupInfo.subject}\n` +
-                  `👤 *Cliente/Parceiro:* ${senderName} (wa.me/${phoneClean})\n` +
-                  `💬 *Mensagem no grupo:* "${text}"\n\n` +
-                  `🏠 *Imóvel Compatível:* #${prop.id} - ${prop.tipo} no ${prop.setor} (${prop.quartos}q, ${prop.tamanho_m2}m², R$ ${prop.valor})\n` +
-                  `🤖 *Status:* ${modoApenasAvisar ? 'Aguardando seu contato manual' : 'Proposta e fotos já enviadas no privado da pessoa!'}`;
+              // Envia o alerta de oportunidade para o WhatsApp do corretor (resolvendo 9º dígito brasileiro automaticamente!)
+              const alertMsg =
+                `🚨 *OPORTUNIDADE 100% COMPATÍVEL NO GRUPO!*\n\n` +
+                `👥 *Grupo:* ${groupInfo.subject}\n` +
+                `👤 *Cliente/Parceiro:* ${senderName} (wa.me/${phoneClean})\n` +
+                `💬 *Mensagem no grupo:* "${text}"\n\n` +
+                `🏠 *Imóvel Compatível:* #${prop.id} - ${prop.tipo} no ${prop.setor} (${prop.quartos}q, ${prop.tamanho_m2}m², R$ ${Number(prop.valor).toLocaleString('pt-BR')})\n` +
+                `🤖 *Status:* ${modoApenasAvisar ? 'Aguardando seu contato manual' : 'Proposta e fotos já enviadas no privado da pessoa!'}`;
 
-                await sock.sendMessage(ownerJid, { text: alertMsg }).catch(() => {});
-              }
+              await sendOwnerWhatsAppAlert(alertMsg);
             }
           } else {
             addLog(
               'SEM_MATCH',
-              `A pessoa buscou um imóvel (${JSON.stringify(analysis.criteria)}), mas não há correspondente na carteira.`
+              `A pessoa buscou um imóvel (${JSON.stringify(analysis.criteria)}), mas nenhum imóvel da carteira atende 100% aos critérios pedidos.`
             );
           }
         }
@@ -368,5 +491,6 @@ function getAgentState() {
 module.exports = {
   startWhatsAppAgent,
   getAgentState,
-  addLog
+  addLog,
+  sendOwnerWhatsAppAlert
 };

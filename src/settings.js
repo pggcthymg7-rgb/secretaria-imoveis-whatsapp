@@ -30,6 +30,7 @@ const DEFAULT_MESSAGE_TEMPLATE = `{abertura_humana}
 const DEFAULT_FIRST_CONTACT_MESSAGE = `{saudacao}, tudo bem? Como posso te ajudar?`;
 const DEFAULT_MISSED_CALL_MESSAGE = `{saudacao}, já te retorno! Se puder enviar por mensagem, agradeço.`;
 const DEFAULT_DAILY_SIMPLE_REPLIES = [];
+const DEFAULT_OWNER_WHATSAPP_ALERT = '5562983443060';
 
 function loadSettings() {
   if (fs.existsSync(SETTINGS_PATH)) {
@@ -41,6 +42,7 @@ function loadSettings() {
         maxPhotosPerMatch: Number(data.maxPhotosPerMatch || 5),
         humanTraining: data.humanTraining !== undefined ? data.humanTraining : DEFAULT_HUMAN_TRAINING,
         humanModeEnabled: data.humanModeEnabled !== undefined ? Boolean(data.humanModeEnabled) : true,
+        meuWhatsappAlerta: data.meuWhatsappAlerta || process.env.MEU_WHATSAPP_ALERTA || DEFAULT_OWNER_WHATSAPP_ALERT,
 
         // Configurações da Página de Saudações & Dia a Dia
         firstContactEnabled: data.firstContactEnabled !== undefined ? Boolean(data.firstContactEnabled) : true,
@@ -58,6 +60,7 @@ function loadSettings() {
     maxPhotosPerMatch: 5,
     humanTraining: DEFAULT_HUMAN_TRAINING,
     humanModeEnabled: true,
+    meuWhatsappAlerta: process.env.MEU_WHATSAPP_ALERTA || DEFAULT_OWNER_WHATSAPP_ALERT,
     firstContactEnabled: true,
     firstContactMessage: DEFAULT_FIRST_CONTACT_MESSAGE,
     missedCallEnabled: true,
