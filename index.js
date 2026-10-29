@@ -87,7 +87,11 @@ app.get('/api/status', async (req, res) => {
       maxPhotosPerMatch: settings.maxPhotosPerMatch || 5,
       humanTraining: settings.humanTraining,
       defaultHumanTraining: DEFAULT_HUMAN_TRAINING,
-      humanModeEnabled: settings.humanModeEnabled !== false
+      humanModeEnabled: settings.humanModeEnabled !== false,
+      firstContactEnabled: settings.firstContactEnabled !== false,
+      firstContactMessage: settings.firstContactMessage,
+      missedCallEnabled: settings.missedCallEnabled !== false,
+      missedCallMessage: settings.missedCallMessage
     },
     inventoryCount: activeInventory.length,
     totalCount: allProperties.length,
@@ -214,7 +218,11 @@ app.post('/api/config', async (req, res) => {
       messageTemplate,
       maxPhotosPerMatch,
       humanTraining,
-      humanModeEnabled
+      humanModeEnabled,
+      firstContactEnabled,
+      firstContactMessage,
+      missedCallEnabled,
+      missedCallMessage
     } = req.body;
     const updates = {};
 
@@ -243,13 +251,21 @@ app.post('/api/config', async (req, res) => {
       messageTemplate !== undefined ||
       maxPhotosPerMatch !== undefined ||
       humanTraining !== undefined ||
-      humanModeEnabled !== undefined
+      humanModeEnabled !== undefined ||
+      firstContactEnabled !== undefined ||
+      firstContactMessage !== undefined ||
+      missedCallEnabled !== undefined ||
+      missedCallMessage !== undefined
     ) {
       saveSettings({
         ...(messageTemplate !== undefined ? { messageTemplate } : {}),
         ...(maxPhotosPerMatch !== undefined ? { maxPhotosPerMatch: Number(maxPhotosPerMatch) || 5 } : {}),
         ...(humanTraining !== undefined ? { humanTraining } : {}),
-        ...(humanModeEnabled !== undefined ? { humanModeEnabled: Boolean(humanModeEnabled) } : {})
+        ...(humanModeEnabled !== undefined ? { humanModeEnabled: Boolean(humanModeEnabled) } : {}),
+        ...(firstContactEnabled !== undefined ? { firstContactEnabled: Boolean(firstContactEnabled) } : {}),
+        ...(firstContactMessage !== undefined ? { firstContactMessage } : {}),
+        ...(missedCallEnabled !== undefined ? { missedCallEnabled: Boolean(missedCallEnabled) } : {}),
+        ...(missedCallMessage !== undefined ? { missedCallMessage } : {})
       });
     }
 
