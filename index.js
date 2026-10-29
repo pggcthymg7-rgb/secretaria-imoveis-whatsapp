@@ -16,6 +16,7 @@ const {
 const { analyzeMessageAndMatch, formatOutreachMessage } = require('./src/matcher');
 const { loadSettings, saveSettings, DEFAULT_MESSAGE_TEMPLATE, DEFAULT_HUMAN_TRAINING } = require('./src/settings');
 const { startWhatsAppAgent, getAgentState, addLog } = require('./src/whatsapp');
+const { getDailyState, removeKnownContact, addDailyLog } = require('./src/atendimento-diario');
 
 const app = express();
 app.use(cors());
@@ -91,8 +92,10 @@ app.get('/api/status', async (req, res) => {
       firstContactEnabled: settings.firstContactEnabled !== false,
       firstContactMessage: settings.firstContactMessage,
       missedCallEnabled: settings.missedCallEnabled !== false,
-      missedCallMessage: settings.missedCallMessage
+      missedCallMessage: settings.missedCallMessage,
+      dailySimpleReplies: settings.dailySimpleReplies || []
     },
+    daily: getDailyState(),
     inventoryCount: activeInventory.length,
     totalCount: allProperties.length,
     inventory: allProperties
@@ -222,7 +225,8 @@ app.post('/api/config', async (req, res) => {
       firstContactEnabled,
       firstContactMessage,
       missedCallEnabled,
-      missedCallMessage
+      missedCallMessage,
+      dailySimpleReplies
     } = req.body;
     const updates = {};
 
@@ -255,7 +259,8 @@ app.post('/api/config', async (req, res) => {
       firstContactEnabled !== undefined ||
       firstContactMessage !== undefined ||
       missedCallEnabled !== undefined ||
-      missedCallMessage !== undefined
+      missedCallMessage !== undefined ||
+      dailySimpleReplies !== undefined
     ) {
       saveSettings({
         ...(messageTemplate !== undefined ? { messageTemplate } : {}),
@@ -265,16 +270,29 @@ app.post('/api/config', async (req, res) => {
         ...(firstContactEnabled !== undefined ? { firstContactEnabled: Boolean(firstContactEnabled) } : {}),
         ...(firstContactMessage !== undefined ? { firstContactMessage } : {}),
         ...(missedCallEnabled !== undefined ? { missedCallEnabled: Boolean(missedCallEnabled) } : {}),
-        ...(missedCallMessage !== undefined ? { missedCallMessage } : {})
+        ...(missedCallMessage !== undefined ? { missedCallMessage } : {}),
+        ...(dailySimpleReplies !== undefined ? { dailySimpleReplies } : {})
       });
     }
 
     await loadAllProperties(true);
-    addLog('CONFIG', 'Configurações, treinamento humano e modelo de mensagem atualizados pelo Mini-CRM.');
+    addLog('CONFIG', 'Configurações atualizadas pelo Painel Web.');
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Endpoint exclusivo da Página 2 (Dia a Dia): Liberar um número da memória para testar 1ª mensagem
+app.post('/api/daily/reset-contact', (req, res) => {
+  const { phone } = req.body || {};
+  const removed = removeKnownContact(phone);
+  addDailyLog('TESTE', `Número ${phone} liberado na memória para teste de 1ª mensagem.`);
+  res.json({
+    ok: true,
+    removed,
+    message: `✅ Número ${phone} liberado! A próxima mensagem que ele te mandar no privado será tratada como 1ª mensagem ("Nova Conversa").`
+  });
 });
 
 // Endpoint de Keep-Alive (Despertador automático para nuvem gratuita não dormir)
@@ -282,9 +300,18 @@ app.get('/ping', (req, res) => {
   res.status(200).json({ ok: true, status: 'awake', time: new Date().toISOString() });
 });
 
-// Página do Mini-CRM & Painel de Controle da Secretária Imobiliária
+// ============================================================================
+// PÁGINA 1: SECRETÁRIA DOS GRUPOS DE IMÓVEIS + MINI-CRM (/)
+// ============================================================================
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'src', 'dashboard.html'));
+});
+
+// ============================================================================
+// PÁGINA 2: SAUDAÇÕES, 1ª MENSAGEM, LIGAÇÕES E DIA A DIA (/dia-a-dia)
+// ============================================================================
+app.get('/dia-a-dia', (req, res) => {
+  res.sendFile(path.join(__dirname, 'src', 'dashboard-diario.html'));
 });
 
 const PORT = process.env.PORT || 3000;

@@ -12,6 +12,21 @@
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
+  <!-- BARRA SUPERIOR DE TROCA ENTRE AS 2 PÁGINAS DO PROJETO -->
+  <div class="bg-slate-950 border-b border-slate-800 px-6 py-2.5">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <a href="/" class="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-500 text-slate-950 shadow-lg transition">
+          🏡 Página 1: Secretária dos Grupos (Imóveis)
+        </a>
+        <a href="/dia-a-dia" class="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-sky-300 border border-sky-500/40 transition">
+          💬 Página 2: Saudações & Mensagens do Dia a Dia
+        </a>
+      </div>
+      <span class="text-[11px] text-slate-400">Projetos separados para facilitar configurações e manutenção</span>
+    </div>
+  </div>
+
   <!-- Top Header -->
   <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-30">
     <div class="max-w-7xl mx-auto px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
@@ -163,43 +178,8 @@
             class="w-20 bg-slate-950 border border-emerald-500/50 rounded-xl px-3 py-2 text-sm text-center font-bold text-emerald-400" />
         </div>
 
-        <!-- Novas Funções de Atendimento Pessoal (1ª Mensagem + Ligação Não Atendida) -->
-        <div class="p-4 rounded-xl bg-slate-950 border border-sky-500/30 space-y-4">
-          <div class="space-y-1.5">
-            <div class="flex items-center justify-between">
-              <div>
-                <h3 class="text-xs font-bold text-sky-400">🟢 Recepção "Sempre Online" (Apenas 1ª Mensagem de Novos Contatos)</h3>
-                <p class="text-[11px] text-slate-400">Responde apenas a 1ª mensagem de quem nunca conversou com você e mantém marcada como <b>Nova Conversa</b>.</p>
-              </div>
-              <label class="flex items-center gap-1.5 text-xs text-sky-300 cursor-pointer">
-                <input id="cfgFirstContactEnabled" type="checkbox" checked class="rounded bg-slate-900 border-slate-700 text-sky-500" />
-                <span>Ativo</span>
-              </label>
-            </div>
-            <input id="cfgFirstContactMessage" type="text"
-              value="{saudacao}, tudo bem? Como posso te ajudar?"
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200" />
-          </div>
-
-          <div class="space-y-1.5 pt-2 border-t border-slate-800">
-            <div class="flex items-center justify-between">
-              <div>
-                <h3 class="text-xs font-bold text-amber-400">📞 Resposta para Ligação Não Atendida no WhatsApp</h3>
-                <p class="text-[11px] text-slate-400">Se alguém ligar no seu WhatsApp e você não atender, envia automaticamente de acordo com o período do dia.</p>
-              </div>
-              <label class="flex items-center gap-1.5 text-xs text-amber-300 cursor-pointer">
-                <input id="cfgMissedCallEnabled" type="checkbox" checked class="rounded bg-slate-900 border-slate-700 text-amber-500" />
-                <span>Ativo</span>
-              </label>
-            </div>
-            <input id="cfgMissedCallMessage" type="text"
-              value="{saudacao}, já te retorno! Se puder enviar por mensagem, agradeço."
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200" />
-          </div>
-        </div>
-
         <button onclick="saveMessageSettings()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg transition">
-          💾 Salvar Treinamento, Recepção Pessoal & Mensagens
+          💾 Salvar Treinamento Humano & Mensagem dos Grupos
         </button>
       </div>
 
@@ -538,10 +518,6 @@
       const maxPhotosPerMatch = Number(document.getElementById('cfgMaxPhotos').value || 5);
       const humanTraining = document.getElementById('cfgHumanTraining').value;
       const humanModeEnabled = document.getElementById('cfgHumanMode').checked;
-      const firstContactEnabled = document.getElementById('cfgFirstContactEnabled').checked;
-      const firstContactMessage = document.getElementById('cfgFirstContactMessage').value;
-      const missedCallEnabled = document.getElementById('cfgMissedCallEnabled').checked;
-      const missedCallMessage = document.getElementById('cfgMissedCallMessage').value;
 
       await fetch('/api/config', {
         method: 'POST',
@@ -550,14 +526,10 @@
           messageTemplate,
           maxPhotosPerMatch,
           humanTraining,
-          humanModeEnabled,
-          firstContactEnabled,
-          firstContactMessage,
-          missedCallEnabled,
-          missedCallMessage
+          humanModeEnabled
         })
       });
-      alert('✅ Todas as configurações de mensagens, recepção de 1ª mensagem e ligação não atendida foram salvas!');
+      alert('✅ Treinamento humano e mensagem da Secretária dos Grupos salvos!');
       fetchStatus(true);
     }
 
@@ -969,10 +941,6 @@
           document.getElementById('cfgMaxPhotos').value = data.config.maxPhotosPerMatch || 5;
           document.getElementById('cfgHumanTraining').value = data.config.humanTraining || data.config.defaultHumanTraining || '';
           document.getElementById('cfgHumanMode').checked = data.config.humanModeEnabled !== false;
-          document.getElementById('cfgFirstContactEnabled').checked = data.config.firstContactEnabled !== false;
-          document.getElementById('cfgFirstContactMessage').value = data.config.firstContactMessage || '{saudacao}, tudo bem? Como posso te ajudar?';
-          document.getElementById('cfgMissedCallEnabled').checked = data.config.missedCallEnabled !== false;
-          document.getElementById('cfgMissedCallMessage').value = data.config.missedCallMessage || '{saudacao}, já te retorno! Se puder enviar por mensagem, agradeço.';
           defaultTemplateText = data.config.defaultMessageTemplate || '';
           if (data.config.hasGeminiKey) {
             document.getElementById('cfgGemini').placeholder = '✅ Chave Gemini já configurada (digite para trocar)';

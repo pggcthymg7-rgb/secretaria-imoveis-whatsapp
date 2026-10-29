@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Saudações & Dia a Dia | Secretária WhatsApp</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
+
+  <!-- BARRA SUPERIOR DE TROCA ENTRE AS 2 PÁGINAS DO PROJETO -->
+  <div class="bg-slate-900 border-b border-slate-800 px-4 py-2.5">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <a href="/" class="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+          🏡 Página 1: Secretária dos Grupos (Imóveis)
+        </a>
+        <a href="/dia-a-dia" class="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-sky-500 text-slate-950 shadow-lg transition">
+          💬 Página 2: Saudações & Mensagens do Dia a Dia
+        </a>
+      </div>
+      <span id="statusBadge" class="px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-300">
+        Verificando conexão...
+      </span>
+    </div>
+  </div>
+
+  <!-- CABEÇALHO DA PÁGINA DO DIA A DIA -->
+  <header class="border-b border-slate-800/80 bg-slate-900/50">
+    <div class="max-w-7xl mx-auto px-4 py-5 flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <h1 class="text-xl font-extrabold text-white flex items-center gap-2">
+          <span>💬</span> Central de Saudações & Mensagens do Dia a Dia
+        </h1>
+        <p class="text-xs text-slate-400 mt-0.5">
+          Página exclusiva para configurar a recepção de <b>1ª Mensagem ("Sempre Online")</b>, <b>Ligações Não Atendidas</b> e <b>Respostas Simples</b> no privado.
+          <span class="text-sky-400 font-mono">(Arquivo no código: src/atendimento-diario.js)</span>
+        </p>
+      </div>
+      <div class="flex items-center gap-3">
+        <div class="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+          🕒 Saudação atual em Brasília: <b id="currentGreeting" class="text-sky-400">...</b>
+        </div>
+        <div class="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+          👥 Contatos já conhecidos: <b id="knownCount" class="text-emerald-400">0</b>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- COLUNA ESQUERDA: CONFIGURAÇÕES DE SAUDAÇÃO, LIGAÇÃO E RESPOSTAS SIMPLES -->
+    <div class="lg:col-span-7 space-y-6">
+
+      <!-- BLOCO 1: SAUDAÇÃO DE 1ª MENSAGEM (SEMPRE ONLINE / NOVA CONVERSA) -->
+      <section class="bg-slate-900 border border-sky-500/30 rounded-2xl p-6 shadow-xl space-y-4">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30 uppercase">Função 1 • Privado</span>
+            <h2 class="text-base font-bold text-white mt-1">🟢 Recepção "Sempre Online" (Apenas 1ª Mensagem)</h2>
+            <p class="text-xs text-slate-400">
+              Responde <b>somente quem nunca te mandou mensagem antes</b>, apenas na 1ª mensagem, identificando o período do dia (Bom dia / Boa tarde / Boa noite) e deixando a conversa marcada como <b>Não Lida (Nova Conversa)</b> no seu WhatsApp.
+            </p>
+          </div>
+          <label class="flex items-center gap-2 text-xs font-bold text-sky-300 cursor-pointer shrink-0 bg-slate-950 px-3 py-2 rounded-xl border border-slate-800">
+            <input id="cfgFirstContactEnabled" type="checkbox" checked onchange="updateDailyPreviews()" class="rounded bg-slate-900 border-slate-700 text-sky-500" />
+            <span>Ativo</span>
+          </label>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="block text-xs font-semibold text-slate-300">Mensagem enviada na 1ª vez (use <code class="text-sky-400">{saudacao}</code> para Bom dia/Boa tarde/Boa noite):</label>
+          <input id="cfgFirstContactMessage" type="text" oninput="updateDailyPreviews()"
+            value="{saudacao}, tudo bem? Como posso te ajudar?"
+            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-sky-500" />
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-[#0b141a] border border-slate-800 space-y-1">
+          <div class="text-[11px] text-slate-400">📱 Como chega para a pessoa nova agora:</div>
+          <div id="previewFirstContact" class="bg-[#005c4b] text-white px-3.5 py-2 rounded-lg text-xs inline-block shadow"></div>
+        </div>
+      </section>
+
+      <!-- BLOCO 2: LIGAÇÃO NÃO ATENDIDA NO WHATSAPP -->
+      <section class="bg-slate-900 border border-amber-500/30 rounded-2xl p-6 shadow-xl space-y-4">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">Função 2 • Ligações</span>
+            <h2 class="text-base font-bold text-white mt-1">📞 Resposta para Ligação Não Atendida</h2>
+            <p class="text-xs text-slate-400">
+              Quando alguém te ligar no WhatsApp e você não puder atender, a secretária envia automaticamente a saudação do período do dia dizendo que você já retorna.
+            </p>
+          </div>
+          <label class="flex items-center gap-2 text-xs font-bold text-amber-300 cursor-pointer shrink-0 bg-slate-950 px-3 py-2 rounded-xl border border-slate-800">
+            <input id="cfgMissedCallEnabled" type="checkbox" checked onchange="updateDailyPreviews()" class="rounded bg-slate-900 border-slate-700 text-amber-500" />
+            <span>Ativo</span>
+          </label>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="block text-xs font-semibold text-slate-300">Mensagem enviada após ligação perdida (use <code class="text-amber-400">{saudacao}</code>):</label>
+          <input id="cfgMissedCallMessage" type="text" oninput="updateDailyPreviews()"
+            value="{saudacao}, já te retorno! Se puder enviar por mensagem, agradeço."
+            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500" />
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-[#0b141a] border border-slate-800 space-y-1">
+          <div class="text-[11px] text-slate-400">📱 Como chega para quem te ligou e não foi atendido:</div>
+          <div id="previewMissedCall" class="bg-[#005c4b] text-white px-3.5 py-2 rounded-lg text-xs inline-block shadow"></div>
+        </div>
+      </section>
+
+      <!-- BLOCO 3: RESPOSTAS SIMPLES DO DIA A DIA -->
+      <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">Função 3 • Opcional</span>
+            <h2 class="text-base font-bold text-white mt-1">⚡ Respostas Simples do Dia a Dia</h2>
+            <p class="text-xs text-slate-400">
+              Se quiser que ela responda perguntas curtas exatas no privado (ex: quando alguém mandar exatamente "endereço" ou "catálogo"), adicione abaixo:
+            </p>
+          </div>
+          <button onclick="addSimpleReplyRow()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-sky-300 border border-slate-700">
+            + Adicionar Resposta Simples
+          </button>
+        </div>
+
+        <div id="simpleRepliesList" class="space-y-2.5"></div>
+      </section>
+
+      <button onclick="saveDailySettings()" class="w-full bg-sky-500 hover:bg-sky-400 text-slate-950 font-extrabold py-3 rounded-2xl text-sm shadow-lg transition">
+        💾 Salvar Todas as Configurações do Dia a Dia
+      </button>
+    </div>
+
+    <!-- COLUNA DIREITA: FERRAMENTA DE TESTE DE NÚMERO + RADAR DO DIA A DIA -->
+    <div class="lg:col-span-5 space-y-6">
+
+      <!-- Ferramenta para testar um número como se fosse um contato novo -->
+      <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-3">
+        <h2 class="text-sm font-bold text-white flex items-center gap-2">
+          <span>🧪</span> Testar "1ª Mensagem" com um Número Específico
+        </h2>
+        <p class="text-xs text-slate-400">
+          Como a secretária só responde quem <b>nunca</b> falou com você, se você quiser fazer um teste mandando mensagem do celular de um amigo ou familiar que já conversou com você antes, digite o número dele abaixo para apagá-lo da memória de conhecidos:
+        </p>
+        <div class="flex gap-2">
+          <input id="resetPhoneInput" type="text" placeholder="Ex: 5562999999999"
+            class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white" />
+          <button onclick="resetPhoneForTest()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-sky-300 border border-slate-700">
+            Liberar Número p/ Teste
+          </button>
+        </div>
+      </section>
+
+      <!-- Radar Exclusivo do Dia a Dia -->
+      <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-3">
+        <h2 class="text-sm font-bold text-white flex items-center gap-2">
+          <span>📡</span> Radar de Novas Conversas & Ligações Perdidas
+        </h2>
+        <p class="text-xs text-slate-400">
+          Acompanhe abaixo todas as 1ªs mensagens e ligações não atendidas respondidas pela secretária:
+        </p>
+        <div id="dailyLogsList" class="space-y-2 max-h-96 overflow-y-auto text-xs font-mono"></div>
+      </section>
+    </div>
+
+  </main>
+
+  <script>
+    let dailyInitialized = false;
+    let simpleReplies = [];
+    let currentGreetingStr = 'Bom dia';
+
+    function updateDailyPreviews() {
+      const fMsg = document.getElementById('cfgFirstContactMessage').value || '';
+      const mMsg = document.getElementById('cfgMissedCallMessage').value || '';
+
+      document.getElementById('previewFirstContact').textContent = fMsg
+        .replace(/\{saudacao\}/gi, currentGreetingStr)
+        .replace(/\{nome\}/gi, 'Cliente');
+
+      document.getElementById('previewMissedCall').textContent = mMsg
+        .replace(/\{saudacao\}/gi, currentGreetingStr);
+    }
+
+    function renderSimpleReplies() {
+      const container = document.getElementById('simpleRepliesList');
+      if (!simpleReplies || simpleReplies.length === 0) {
+        container.innerHTML = '<div class="text-xs text-slate-500 p-3 rounded-xl bg-slate-950 border border-slate-800/80">Nenhuma resposta simples extra cadastrada. Clique em "+ Adicionar Resposta Simples" se quiser criar um gatilho.</div>';
+        return;
+      }
+      container.innerHTML = simpleReplies.map((r, idx) => `
+        <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row gap-2 items-center">
+          <input type="text" placeholder="Se a pessoa mandar (ex: oi)" value="${(r.trigger || '').replace(/"/g, '&quot;')}"
+            oninput="simpleReplies[${idx}].trigger = this.value"
+            class="w-full sm:w-1/3 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white" />
+          <span class="text-slate-500 text-xs">➡️</span>
+          <input type="text" placeholder="Responder (ex: {saudacao}, já te atendo!)" value="${(r.response || '').replace(/"/g, '&quot;')}"
+            oninput="simpleReplies[${idx}].response = this.value"
+            class="w-full flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white" />
+          <button onclick="removeSimpleReply(${idx})" class="text-xs text-red-400 hover:text-red-300 px-2">✕</button>
+        </div>
+      `).join('');
+    }
+
+    function addSimpleReplyRow() {
+      simpleReplies.push({ trigger: '', response: '{saudacao}, tudo bem?', active: true });
+      renderSimpleReplies();
+    }
+
+    function removeSimpleReply(idx) {
+      simpleReplies.splice(idx, 1);
+      renderSimpleReplies();
+    }
+
+    async function saveDailySettings() {
+      const payload = {
+        firstContactEnabled: document.getElementById('cfgFirstContactEnabled').checked,
+        firstContactMessage: document.getElementById('cfgFirstContactMessage').value,
+        missedCallEnabled: document.getElementById('cfgMissedCallEnabled').checked,
+        missedCallMessage: document.getElementById('cfgMissedCallMessage').value,
+        dailySimpleReplies: simpleReplies.filter(r => r.trigger && r.response)
+      };
+
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      alert('✅ Configurações de Saudações, Ligações e Respostas Simples salvas com sucesso!');
+      fetchDailyStatus();
+    }
+
+    async function resetPhoneForTest() {
+      const phone = document.getElementById('resetPhoneInput').value.trim();
+      if (!phone) {
+        alert('Digite o número com DDD (ex: 5562999999999).');
+        return;
+      }
+      const res = await fetch('/api/daily/reset-contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone })
+      });
+      const data = await res.json();
+      alert(data.message || 'Número liberado para teste de 1ª mensagem!');
+      document.getElementById('resetPhoneInput').value = '';
+      fetchDailyStatus();
+    }
+
+    async function fetchDailyStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+
+        const badge = document.getElementById('statusBadge');
+        if (data.connectionStatus === 'CONECTADO') {
+          badge.textContent = '🟢 WhatsApp Conectado & Ativo 24h';
+          badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+        } else {
+          badge.textContent = '🟡 Aguardando Conexão WhatsApp';
+          badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30';
+        }
+
+        if (data.daily) {
+          currentGreetingStr = data.daily.currentPeriodGreeting || 'Bom dia';
+          document.getElementById('currentGreeting').textContent = currentGreetingStr;
+          document.getElementById('knownCount').textContent = data.daily.knownContactsCount || 0;
+
+          const logsDiv = document.getElementById('dailyLogsList');
+          const logs = data.daily.dailyActivityLogs || [];
+          if (logs.length > 0) {
+            logsDiv.innerHTML = logs.map(l => `
+              <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-slate-500">[${l.time}]</span>
+                <span class="text-sky-400 font-semibold">[${l.type}]</span>
+                <span class="text-slate-200">${l.message}</span>
+              </div>
+            `).join('');
+          } else {
+            logsDiv.innerHTML = '<div class="text-slate-500 p-2">Aguardando primeira mensagem de novos contatos ou ligações não atendidas...</div>';
+          }
+        }
+
+        if (!dailyInitialized && data.config) {
+          dailyInitialized = true;
+          document.getElementById('cfgFirstContactEnabled').checked = data.config.firstContactEnabled !== false;
+          document.getElementById('cfgFirstContactMessage').value = data.config.firstContactMessage || '{saudacao}, tudo bem? Como posso te ajudar?';
+          document.getElementById('cfgMissedCallEnabled').checked = data.config.missedCallEnabled !== false;
+          document.getElementById('cfgMissedCallMessage').value = data.config.missedCallMessage || '{saudacao}, já te retorno! Se puder enviar por mensagem, agradeço.';
+          simpleReplies = Array.isArray(data.config.dailySimpleReplies) ? data.config.dailySimpleReplies : [];
+          renderSimpleReplies();
+          updateDailyPreviews();
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    fetchDailyStatus();
+    setInterval(fetchDailyStatus, 5000);
+  </script>
+</body>
+</html>
