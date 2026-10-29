@@ -21,6 +21,9 @@ const DEFAULT_MESSAGE_TEMPLATE = `{abertura_humana}
 
 {fechamento_humano}`;
 
+const DEFAULT_FIRST_CONTACT_MESSAGE = `{saudacao}, tudo bem? Como posso te ajudar?`;
+const DEFAULT_MISSED_CALL_MESSAGE = `{saudacao}, já te retorno! Se puder enviar por mensagem, agradeço.`;
+
 function loadSettings() {
   if (fs.existsSync(SETTINGS_PATH)) {
     try {
@@ -29,7 +32,11 @@ function loadSettings() {
         messageTemplate: data.messageTemplate || DEFAULT_MESSAGE_TEMPLATE,
         maxPhotosPerMatch: Number(data.maxPhotosPerMatch || 5),
         humanTraining: data.humanTraining !== undefined ? data.humanTraining : DEFAULT_HUMAN_TRAINING,
-        humanModeEnabled: data.humanModeEnabled !== undefined ? Boolean(data.humanModeEnabled) : true
+        humanModeEnabled: data.humanModeEnabled !== undefined ? Boolean(data.humanModeEnabled) : true,
+        firstContactEnabled: data.firstContactEnabled !== undefined ? Boolean(data.firstContactEnabled) : true,
+        firstContactMessage: data.firstContactMessage || DEFAULT_FIRST_CONTACT_MESSAGE,
+        missedCallEnabled: data.missedCallEnabled !== undefined ? Boolean(data.missedCallEnabled) : true,
+        missedCallMessage: data.missedCallMessage || DEFAULT_MISSED_CALL_MESSAGE
       };
     } catch (err) {
       console.error('Erro ao ler settings.json:', err.message);
@@ -39,7 +46,11 @@ function loadSettings() {
     messageTemplate: DEFAULT_MESSAGE_TEMPLATE,
     maxPhotosPerMatch: 5,
     humanTraining: DEFAULT_HUMAN_TRAINING,
-    humanModeEnabled: true
+    humanModeEnabled: true,
+    firstContactEnabled: true,
+    firstContactMessage: DEFAULT_FIRST_CONTACT_MESSAGE,
+    missedCallEnabled: true,
+    missedCallMessage: DEFAULT_MISSED_CALL_MESSAGE
   };
 }
 
@@ -56,6 +67,8 @@ function saveSettings(updates) {
 module.exports = {
   DEFAULT_MESSAGE_TEMPLATE,
   DEFAULT_HUMAN_TRAINING,
+  DEFAULT_FIRST_CONTACT_MESSAGE,
+  DEFAULT_MISSED_CALL_MESSAGE,
   loadSettings,
   saveSettings
 };
