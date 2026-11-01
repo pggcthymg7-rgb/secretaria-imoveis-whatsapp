@@ -73,6 +73,21 @@ function alertLeads(wa) {
   };
 }
 
+/** Domingo 05:00: atualiza o mapa aberto (OSM) em DATA_DIR/mapa-osm.json */
+async function weeklyMapTick(log) {
+  if (!process.env.DATA_DIR || process.env.NODE_ENV === 'test') return;
+  const now = nowParts();
+  const st = readJson('agendador.json', {});
+  if (now.weekday !== 0 || now.minutes < 5 * 60 || st.mapaAtualizadoEm === now.date) return;
+  writeJson('agendador.json', { ...st, mapaAtualizadoEm: now.date });
+  try {
+    const r = await require('../scripts/atualizar-mapa').main({});
+    log('MAPA', `🗺️ Mapa de Goiânia atualizado: ${r.bairros} bairros, ${r.condominios} condomínios, ${r.edificios} edifícios.`);
+  } catch (err) {
+    log('MAPA', `Mapa não atualizado: ${err.message}`);
+  }
+}
+
 function start(wa, log) {
   if (timer) return;
   timer = setInterval(async () => {
@@ -89,6 +104,7 @@ function start(wa, log) {
       }
       await dailySummaryTick(wa).catch(e => log('RESUMO', `erro: ${e.message}`));
       await weeklyBackupTick(wa, log).catch(e => log('BACKUP', `erro: ${e.message}`));
+      weeklyMapTick(log).catch(e => log('MAPA', `erro: ${e.message}`));
     } finally {
       ticking = false;
     }

@@ -16,7 +16,67 @@
 const { buildEntries, REGIOES, GOIANIA_CENTER } = require('./gazetteer');
 const { normalize, hasPhrase, fuzzyContains, fuzzyFind, tokens, haversineKm } = require('./text');
 
+const fs = require('fs');
+const path = require('path');
+
 const BASE = buildEntries();
+
+/**
+ * Mapa complementar do OpenStreetMap (bairros, condomínios e edifícios com nome).
+ * Usa DATA_DIR/mapa-osm.json (atualizado toda semana na VM) ou o arquivo que vem no projeto.
+ */
+let osmCache = { file: null, mtime: 0, data: null };
+function loadOsm() {
+  const candidates = [process.env.DATA_DIR && path.join(process.env.DATA_DIR, 'mapa-osm.json'), path.join(__dirname, 'data', 'mapa-osm.json')].filter(Boolean);
+  for (const f of candidates) {
+    try {
+      const st = fs.statSync(f);
+      if (osmCache.file === f && osmCache.mtime === st.mtimeMs) return osmCache.data;
+      const data = JSON.parse(fs.readFileSync(f, 'utf-8'));
+      osmCache = { file: f, mtime: st.mtimeMs, data };
+      return data;
+    } catch {}
+  }
+  return null;
+}
+
+function osmVersion() {
+  const d = loadOsm();
+  return d ? `${osmCache.file}:${osmCache.mtime}` : 'sem-osm';
+}
+
+function osmEntries(existingAliases) {
+  const d = loadOsm();
+  if (!d) return [];
+  const out = [];
+  const known = new Set(existingAliases);
+  const add = (kind, item, extraAliases = []) => {
+    const aliases = [item.name, ...extraAliases].filter(a => {
+      const n = normalize(a);
+      return n.length >= 4 && !known.has(n);
+    });
+    if (!aliases.length) return;
+    aliases.forEach(a => known.add(normalize(a)));
+    out.push({ kind, name: item.name, region: item.region || null, city: item.city || null, lat: item.lat, lng: item.lng, aliases, osm: true });
+  };
+  for (const b of d.bairros || []) {
+    const n = normalize(b.name);
+    // "Bairro Alto da Glória" também vale como "Alto da Glória" (só se sobrar nome composto)
+    const sem = n.replace(/^bairro\s+/, '');
+    add('bairro', b, sem !== n && sem.split(' ').length >= 2 ? [sem] : []);
+  }
+  for (const c of d.condominios || []) {
+    const n = normalize(c.name);
+    const sem = n.replace(/^(condominio|cond|residencial|res)\s+(residencial\s+)?/, '');
+    add('condominio', c, sem !== n && (sem.split(' ').length >= 2 || sem.length >= 8) ? [sem] : []);
+  }
+  for (const e of d.edificios || []) {
+    const n = normalize(e.name);
+    const sem = n.replace(/^(edificio|ed|residencial|condominio)\s+/, '');
+    add('edificio', e, sem !== n && (sem.split(' ').length >= 2 || sem.length >= 7) ? [sem] : []);
+  }
+  return out;
+}
 
 // Palavras que NUNCA são nome de edifício/condomínio (vocabulário do mercado + português comum)
 const STOPWORDS = new Set(`
@@ -70,6 +130,10 @@ function buildIndex({ extraPlaces = [], inventory = [] } = {}) {
   ];
 
   const bairroByName = new Map(BASE.bairros.map(b => [normalize(b.name), b]));
+  // Mapa aberto (OSM): acrescenta só o que o mapa base ainda não conhece
+  const osm = osmEntries(entries.flatMap(e => e.aliases.map(a => normalize(a))));
+  entries.push(...osm);
+  for (const e of osm) if (e.kind === 'bairro' && !bairroByName.has(normalize(e.name))) bairroByName.set(normalize(e.name), e);
 
   for (const p of extraPlaces) {
     if (!p || !p.name) continue;
@@ -112,9 +176,10 @@ function buildIndex({ extraPlaces = [], inventory = [] } = {}) {
   return { entries, aliasList, bairroByName };
 }
 
-function neighborsOf(point, radiusKm) {
+function neighborsOf(point, radiusKm, index = null) {
   if (!point || point.lat === null || point.lat === undefined) return [];
-  return BASE.bairros.filter(b => haversineKm(point, b) <= radiusKm).map(b => b.name);
+  const pool = index ? index.entries.filter(e => e.kind === 'bairro' && e.lat !== null && e.lat !== undefined) : BASE.bairros;
+  return [...new Set(pool.filter(b => haversineKm(point, b) <= radiusKm).map(b => b.name))];
 }
 
 /**
@@ -206,6 +271,7 @@ function detectLocations(rawText, ctx = {}) {
 
   // 3) Lugares conhecidos (do mais longo para o mais curto, consumindo o texto para evitar duplicidade)
   for (const { alias, entry } of index.aliasList) {
+    if (entry.osm && alias.length < 10 && !hasPhrase(scan, alias)) continue;
     const words = scan.split(/\s+/).filter(Boolean);
     const clean = words.map(w => w.replace(/[^a-z0-9]/g, ''));
     const k = tokens(alias).length;
@@ -222,12 +288,12 @@ function detectLocations(rawText, ctx = {}) {
     if (entry.kind === 'bairro') {
       if (!result.bairros.includes(entry.name)) result.bairros.push(entry.name);
       if (isProximity && entry.lat) {
-        for (const n of neighborsOf(entry, 2.0)) if (!result.perto.includes(n)) result.perto.push(n);
+        for (const n of neighborsOf(entry, 2.0, index)) if (!result.perto.includes(n)) result.perto.push(n);
       }
     } else if (entry.kind === 'marco') {
       if (!result.marcos.includes(entry.name)) result.marcos.push(entry.name);
       if (entry.bairro && !result.perto.includes(entry.bairro)) result.perto.push(entry.bairro);
-      for (const n of neighborsOf(entry, 2.5)) if (!result.perto.includes(n)) result.perto.push(n);
+      for (const n of neighborsOf(entry, 2.5, index)) if (!result.perto.includes(n)) result.perto.push(n);
     } else if (entry.kind === 'condominio') {
       if (!result.condominios.find(c => c.name === entry.name)) result.condominios.push(entry);
     } else if (entry.kind === 'edificio') {
@@ -284,7 +350,7 @@ function detectLocations(rawText, ctx = {}) {
 function locateProperty(prop, index) {
   const setorNorm = normalize(prop.setor);
   const text = normalize(`${prop.tipo || ''} ${prop.setor || ''} ${prop.edificio || ''} ${prop.titulo || ''} ${prop.descricao || ''}`);
-  let bairro = index.bairroByName.get(setorNorm) || null;
+  let bairro = index.bairroByName.get(setorNorm) || index.bairroByName.get(setorNorm.replace(/^bairro\s+/, '')) || null;
   if (!bairro && setorNorm) {
     bairro = BASE.bairros.find(b => b.aliases.some(a => normalize(a) === setorNorm || fuzzyContains(setorNorm, normalize(a)) && normalize(a).length >= 6)) || null;
   }
@@ -292,12 +358,14 @@ function locateProperty(prop, index) {
   const region = regionRaw ? titleRegion(normalize(regionRaw)) : bairro ? bairro.region : null;
 
   let city = String(prop.cidade || '').trim();
+  // bairro de outra cidade (mapa aberto) com cidade padrão "Goiânia" no cadastro -> usa a cidade do bairro
+  if ((!city || city === 'Goiânia') && bairro && bairro.osm && bairro.city && bairro.city !== 'Goiânia' && !BASE.bairros.some(b => normalize(b.name) === setorNorm)) city = bairro.city;
   if (!city) {
     const c = BASE.cidades.find(ci => ci.name !== 'Goiânia' && ci.aliases.some(a => normalize(a).length >= 5 && hasPhrase(normalize(`${prop.setor} ${prop.edificio || ''}`), normalize(a))));
     city = c ? c.name : 'Goiânia';
   }
   const cityEntry = BASE.cidades.find(ci => ci.name === city) || null;
-  const point = bairro && city === 'Goiânia' ? bairro : cityEntry;
+  const point = bairro && bairro.lat !== null && bairro.lat !== undefined && (city === 'Goiânia' || bairro.osm) ? bairro : cityEntry;
 
   return { bairro: bairro ? bairro.name : prop.setor, region, city, point, text };
 }
@@ -344,6 +412,8 @@ function propertyMatchesLocation(prop, loc, index) {
 module.exports = {
   REGIOES,
   BASE,
+  loadOsm,
+  osmVersion,
   STOPWORDS,
   buildIndex,
   detectLocations,

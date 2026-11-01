@@ -477,7 +477,7 @@
     const c = (S.status && S.status.config) || {};
     const fb = (S.filtroBairro || '').toLowerCase();
     shell(`
-      ${header('Cérebro', 'Mapa de Goiânia', `A BIGA conhece ${cb.base.bairros || 0} bairros, ${cb.base.condominios || 0} condomínios, ${cb.base.marcos || 0} marcos e avenidas e ${cb.base.cidades || 0} cidades da região. Ensine edifícios e lugares novos aqui — vale na hora.`)}
+      ${header('Cérebro', 'Mapa de Goiânia', `A BIGA conhece ${cb.base.bairros || 0} bairros, ${cb.base.condominios || 0} condomínios, ${cb.base.marcos || 0} marcos e avenidas e ${cb.base.cidades || 0} cidades da região${cb.base.fonteAberta ? ` (mapa aberto do OpenStreetMap, atualizado em ${esc(when(cb.base.mapaAtualizadoEm))} e renovado todo domingo)` : ''}. Ensine edifícios e lugares novos aqui — vale na hora.`)}
       <section class="section"><div class="container stack" id="places">
         <span class="label">Lugares que você ensinou</span>
         ${(cb.extraPlaces || []).map((p, i) => `<div class="fields" data-place="${i}">${field('name', 'Nome', p.name)}${field('kind', 'Tipo', p.kind, { options: [['edificio', 'Edifício'], ['condominio', 'Condomínio'], ['bairro', 'Bairro'], ['marco', 'Ponto de referência']] })}${field('bairro', 'Fica no bairro', p.bairro)}${field('aliases', 'Apelidos (vírgula)', p.aliases)}<div><button class="btn-ghost danger" data-action="rmPlace" data-i="${i}">Remover</button></div></div>`).join('') || '<p class="body ash">Nenhum ainda. Ex: Edifício Metropolitan · Setor Marista · apelidos: metropolitan, metropolitan flat.</p>'}

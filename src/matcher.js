@@ -12,7 +12,7 @@
 const { GoogleGenAI } = require('@google/genai');
 const { loadSettings } = require('./settings');
 const { parseRequest, fmtPrice } = require('./brain/parser');
-const { buildIndex, detectLocations } = require('./brain/locations');
+const { buildIndex, detectLocations, osmVersion } = require('./brain/locations');
 const { evaluateInventory, propTipo, propSuites } = require('./brain/engine');
 const { normalize, fuzzyContains } = require('./brain/text');
 
@@ -180,7 +180,7 @@ function mergeAiPlaces(criteria, aiPlaces, rawText, index) {
 let cachedIndex = null;
 let cachedIndexKey = '';
 function getIndex(inventory, settings) {
-  const key = JSON.stringify([(settings.extraPlaces || []).length, inventory.map(p => `${p.id}:${p.setor}:${p.edificio || ''}`).join('|'), JSON.stringify(settings.extraPlaces || [])]);
+  const key = JSON.stringify([osmVersion(), (settings.extraPlaces || []).length, inventory.map(p => `${p.id}:${p.setor}:${p.edificio || ''}`).join('|'), JSON.stringify(settings.extraPlaces || [])]);
   if (!cachedIndex || key !== cachedIndexKey) {
     cachedIndex = buildIndex({ extraPlaces: settings.extraPlaces || [], inventory });
     cachedIndexKey = key;
