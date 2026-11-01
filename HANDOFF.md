@@ -46,6 +46,7 @@ Fomos por ciclos `/resolver-tudo`: bug real → caso no fixture → correção �
 - `deploy/corretores.sh` (root, idempotente, valida cada linha) cria tudo; chamado pelo `deploy/atualizar.sh` (cria quando falta; reinicia todas quando há código novo). Se o Caddy não validar, ele tira o `import` e o painel do João não cai.
 - Senha dela: a VM gera `SETUP_CODE` (no env dela) e grava em `/var/lib/secretaria/corretores.json`; o João manda `corretores` no "Mensagem para mim" e vê endereço + código. O código some quando ela cria a senha.
 - **1ª vez**: o `atualizar` roda a cópia antiga do script, então precisa mandar `atualizar` **duas vezes** (a 2ª cria a BIGA dela). Depois: `corretores`.
+- **Na VM (01/11 ~16h):** BIGA da Laura no ar em https://laura.147-15-87-168.sslip.io (HTTPS ok, senha criada, `/api` com 401 sem login). WhatsApp dela ainda `AGUARDANDO_QR_CODE` — falta ela ler o QR Code. Conferir com `curl https://laura.147-15-87-168.sslip.io/health`.
 - Testado aqui: instância vazia sobe sem a carteira do João; código errado recusado/certo cria senha; script rodado como root com stubs de systemctl/caddy; idempotência; backup. **Não testado na VM real** ainda.
 
 ## Próximos passos (BACKLOG_TAREFAS.md)
