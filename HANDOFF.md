@@ -38,14 +38,13 @@ Fomos por ciclos `/resolver-tudo`: bug real → caso no fixture → correção �
 - Causa: `.gitignore` `data/` ignorava `src/brain/data/`. Corrigido para `/data/` (só a pasta da raiz).
 - VM: `deploy/atualizar.sh` ganhou `garantir_mapa` (gera `DATA_DIR/mapa-osm.json` se faltar, como usuário `secretaria`, sem travar a atualização); `deploy/instalar-vm.sh` gera o mapa já na instalação.
 - O Overpass recusa conexões vindas da nuvem do Claude (mesmo com rede total). Solução: workflow `.github/workflows/mapa-osm.yml` — o GitHub baixa o mapa, roda `npm test` e grava `src/brain/data/mapa-osm.json` no branch (546 bairros, 408 condomínios, 90 edifícios). Roda ao mudar o workflow/script, pelo botão "Run workflow" e toda segunda 03:17 (só no `main`).
-- PR `claude/lucid-maxwell-eyigut` → `main` aberto; falta o João clicar em Merge.
+- PR #5 com merge em `main` (df28ac1). VM atualizada pelo comando `atualizar` e confirmada com `versão` = df28ac1 em 01/11.
 
 ## Próximos passos (BACKLOG_TAREFAS.md)
-0. João: dar Merge no PR do mapa OSM.
-1. Confirmar que a atualização de 02/11 aplicou (comando `versão`).
+1. ~~Confirmar atualização pelo celular~~ — feito em 01/11 (df28ac1).
 2. Revisar os imóveis da carteira: edifício, suítes, vagas, condomínio, permuta.
 3. Ensinar no Cérebro os edifícios que ele mais trabalha (Metropolitan, Brookfield).
-4. Multiusuário (virar produto): um `DATA_DIR` e um login por corretor.
+4. Multiusuário — **em andamento (01/11)**: a namorada do João (corretora) vai ter a BIGA dela. Plano escolhido: **uma BIGA por corretor na mesma VM** (o código usa `DATA_DIR` global no carregamento dos módulos; multi-tenant num processo só seria refatoração grande). Cada uma: serviço systemd próprio, `DATA_DIR` próprio (`/var/lib/secretaria-<nome>`), porta própria, senha própria, WhatsApp próprio e endereço próprio (`<nome>.147-15-87-168.sslip.io` no Caddy). Mesmo código, atualização única. Esperando o João responder: número de WhatsApp dela, carteira separada ou compartilhada, nome/apelido para o endereço.
 5. Opcional: deixar o repositório privado (aí a VM vai precisar de token para o git).
 
 ## Ferramentas para a próxima sessão
