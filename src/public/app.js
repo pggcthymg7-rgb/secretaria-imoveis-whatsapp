@@ -1,4 +1,4 @@
-/* Painel da Secretária Imobiliária — SPA sem dependências (CSP: script-src 'self') */
+/* Painel da BIGA — Secretária Imobiliária — SPA sem dependências (CSP: script-src 'self') */
 (() => {
   'use strict';
 
@@ -49,40 +49,30 @@
   function ambient() {
     const c = $('#particles');
     const ctx = c.getContext('2d');
-    const colors = ['#8052ff', '#ffb829', '#15846e', '#6a5cff', '#b06bff'];
+    const colors = ['#5266eb', '#ededf3', '#8b97f0'];
     let w, h, parts;
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     function reset() {
       w = c.width = innerWidth * devicePixelRatio;
       h = c.height = innerHeight * devicePixelRatio;
-      const n = Math.min(70, Math.round((innerWidth * innerHeight) / 26000));
-      parts = Array.from({ length: n }, () => ({ x: Math.random() * w, y: Math.random() * h, s: (4 + Math.random() * 9) * devicePixelRatio, r: Math.random() * 6, vr: (Math.random() - 0.5) * 0.004, vy: (0.05 + Math.random() * 0.15) * devicePixelRatio, c: colors[(Math.random() * colors.length) | 0], a: 0.12 + Math.random() * 0.18 }));
-    }
-    function tri(p) {
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.rotate(p.r);
-      ctx.beginPath();
-      ctx.moveTo(0, -p.s);
-      ctx.lineTo(p.s * 0.87, p.s * 0.5);
-      ctx.lineTo(-p.s * 0.87, p.s * 0.5);
-      ctx.closePath();
-      ctx.strokeStyle = p.c;
-      ctx.globalAlpha = p.a;
-      ctx.lineWidth = 1 * devicePixelRatio;
-      ctx.stroke();
-      ctx.restore();
+      const n = Math.min(60, Math.round((innerWidth * innerHeight) / 30000));
+      parts = Array.from({ length: n }, () => ({ x: Math.random() * w, y: Math.random() * h, r: (0.6 + Math.random() * 1.6) * devicePixelRatio, vy: (0.04 + Math.random() * 0.12) * devicePixelRatio, vx: (Math.random() - 0.5) * 0.06 * devicePixelRatio, c: colors[(Math.random() * colors.length) | 0], a: 0.12 + Math.random() * 0.3 }));
     }
     function frame() {
       ctx.clearRect(0, 0, w, h);
       for (const p of parts) {
         if (!reduce) {
           p.y -= p.vy;
-          p.r += p.vr;
-          if (p.y < -20) p.y = h + 20;
+          p.x += p.vx;
+          if (p.y < -10) p.y = h + 10;
         }
-        tri(p);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = p.c;
+        ctx.globalAlpha = p.a;
+        ctx.fill();
       }
+      ctx.globalAlpha = 1;
       if (!reduce) requestAnimationFrame(frame);
     }
     addEventListener('resize', reset);
@@ -90,56 +80,9 @@
     frame();
   }
 
-  // Constelação do login (nuvem orgânica de triângulos vazados)
-  function constellation(canvas) {
-    const ctx = canvas.getContext('2d');
-    const colors = ['#8052ff', '#ffb829', '#15846e', '#e0409a', '#3d7bff', '#b06bff'];
-    const rect = canvas.getBoundingClientRect();
-    const W = (canvas.width = rect.width * devicePixelRatio);
-    const H = (canvas.height = rect.height * devicePixelRatio);
-    const N = 900;
-    const pts = [];
-    for (let i = 0; i < N; i++) {
-      // dois "lóbulos" formando um cérebro
-      const lobe = Math.random() < 0.5 ? -1 : 1;
-      const t = Math.random() * Math.PI * 2;
-      const rr = Math.sqrt(Math.random());
-      const x = W / 2 + lobe * W * 0.13 + Math.cos(t) * rr * W * 0.27 * (1 + 0.12 * Math.sin(3 * t));
-      const y = H / 2 + Math.sin(t) * rr * H * 0.3 * (1 + 0.1 * Math.cos(5 * t));
-      pts.push({ x, y, ox: x, oy: y, s: (2 + Math.random() * 6) * devicePixelRatio, r: Math.random() * 6, c: colors[(Math.random() * colors.length) | 0], ph: Math.random() * 6 });
-    }
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    let t0 = 0;
-    function frame(t) {
-      if (!canvas.isConnected) return;
-      ctx.clearRect(0, 0, W, H);
-      const k = (t - t0) / 1000;
-      for (const p of pts) {
-        const x = p.ox + Math.sin(k * 0.6 + p.ph) * 3 * devicePixelRatio;
-        const y = p.oy + Math.cos(k * 0.5 + p.ph) * 3 * devicePixelRatio;
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(p.r + k * 0.2);
-        ctx.beginPath();
-        ctx.moveTo(0, -p.s);
-        ctx.lineTo(p.s * 0.87, p.s * 0.5);
-        ctx.lineTo(-p.s * 0.87, p.s * 0.5);
-        ctx.closePath();
-        ctx.strokeStyle = p.c;
-        ctx.globalAlpha = 0.85;
-        ctx.lineWidth = 1.2 * devicePixelRatio;
-        ctx.stroke();
-        ctx.restore();
-      }
-      if (!reduce) requestAnimationFrame(frame);
-    }
-    requestAnimationFrame(tt => {
-      t0 = tt;
-      frame(tt);
-    });
-  }
-
-  const LOGO = `<svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8052ff"/><stop offset="1" stop-color="#15846e"/></linearGradient></defs><path d="M16 2 31 29H1Z" fill="url(#lg)"/><path d="M16 12 23 25H9Z" fill="#000"/></svg>`;
+  const ART = window.BIGA_ART;
+  const LOGO = `<span class="mini">${ART.miniBiga()}</span><span>BIGA</span>`;
+  let detachArt = () => {};
 
   // ------------------------------------------------------------------ componentes
   const toggle = (key, on, label, desc = '') =>
@@ -152,8 +95,31 @@
     return `<label class="field ${opts.cls || ''}"><span>${esc(label)}</span><input name="${esc(name)}" type="${opts.type || 'text'}" value="${esc(v)}" placeholder="${esc(opts.ph || (opts.type === 'number' ? '—' : ''))}" ${opts.attrs || ''}></label>`;
   };
   const header = (titulo, rotulo, texto) =>
-    `<section class="section"><div class="container split"><h1 class="heading-lg">${titulo}</h1><div class="intro"><span class="label">${esc(rotulo)}</span><p class="body muted">${texto}</p></div></div></section>`;
+    `<section class="page-head"><div class="container split"><h1 class="display reveal">${titulo}</h1><div class="intro reveal"><span class="label">${esc(rotulo)}</span><p class="body-lg muted">${texto}</p></div></div></section>`;
   const decisionTag = d => ({ ENVIAR: '<span class="tag enviar">● enviado</span>', AVISAR: '<span class="tag avisar">● conferir</span>', SILENCIO: '<span class="tag">● sem imóvel</span>' }[d] || `<span class="tag">${esc(d)}</span>`);
+
+  // Busca nos grupos: filtra na própria tela (não perde o que você marcou)
+  const groupSearch = (key, total) =>
+    total ? `<div class="searchbar"><input type="search" name="filtroGrupo" data-target="${key}" placeholder="Buscar grupo pelo nome… (${total} grupos)" autocomplete="off"><button type="button" class="btn-ghost" data-action="soMarcados" data-target="${key}">Só os marcados</button><span class="caption" data-count-for="${key}"></span></div>` : '';
+
+  function applyGroupFilter(key) {
+    const box = document.querySelector(`[data-filter="${key}"]`);
+    if (!box) return;
+    const q = (document.querySelector(`input[name=filtroGrupo][data-target="${key}"]`)?.value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const only = box.dataset.only === '1';
+    let shown = 0;
+    let marked = 0;
+    for (const t of box.querySelectorAll('.toggle')) {
+      const on = t.getAttribute('aria-pressed') === 'true';
+      if (on) marked++;
+      const txt = t.textContent.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const vis = (!q || txt.includes(q)) && (!only || on);
+      t.classList.toggle('hide', !vis);
+      if (vis) shown++;
+    }
+    const c = document.querySelector(`[data-count-for="${key}"]`);
+    if (c) c.textContent = `${marked} marcado(s) · mostrando ${shown}`;
+  }
 
   function formData(scope) {
     const out = {};
@@ -166,22 +132,27 @@
   function viewLogin() {
     const setup = !S.configured;
     root.innerHTML = `
-      <main class="login"><div class="container split top">
-        <div class="stack">
-          <div class="logo">${LOGO}<span>Secretária</span></div>
-          <div class="space-36"></div>
-          <span class="label">${setup ? 'Primeiro acesso' : 'Painel protegido'}</span>
-          <h1 class="display">${setup ? 'Crie sua senha.' : 'Bem-vindo de volta.'}</h1>
-          <p class="body muted intro">${setup ? 'Digite o código de configuração que aparece no log do servidor e escolha uma senha com pelo menos 8 caracteres.' : 'Sua secretária está cuidando dos grupos, das ligações e das novas conversas. Entre para ver o que aconteceu.'}</p>
-          <form id="loginForm" class="stack" autocomplete="on">
-            ${setup ? field('codigo', 'Código de configuração', '', { ph: 'Ex: 9F3A1C2B', attrs: 'autocomplete="off" required' }) : ''}
-            ${field('senha', setup ? 'Nova senha' : 'Senha', '', { type: 'password', ph: '••••••••', attrs: `required autocomplete="${setup ? 'new-password' : 'current-password'}"` })}
-            <button class="btn-primary" type="submit">${setup ? 'Criar senha e entrar' : 'Entrar'}</button>
-          </form>
+      <main class="login">
+        <div class="home"><div class="sky">${ART.skySVG()}</div></div>
+        <div class="wrap" style="position:absolute;inset:0">
+          <div class="biga-stage" id="stage"><div class="halo"></div><div class="rings"><span></span><span></span><span></span></div>${ART.bigaSVG('b')}
+            <div class="speech"><span class="wave"><i></i><i></i><i></i><i></i></span><span id="say" class="typing"></span></div></div>
+          <div class="panel stack">
+            <div class="logo">${LOGO}</div>
+            <span class="label">${setup ? 'Primeiro acesso' : 'Acesso protegido'}</span>
+            <h1 class="heading-lg">${setup ? 'Vamos começar.' : 'Bem-vindo de volta.'}</h1>
+            <p class="body muted">${setup ? 'Digite o código de configuração que aparece no log do servidor e escolha uma senha com pelo menos 8 caracteres.' : 'A BIGA cuidou dos grupos, das ligações e das novas conversas. Entre para ver o que aconteceu.'}</p>
+            <form id="loginForm" class="stack" autocomplete="on">
+              ${setup ? field('codigo', 'Código de configuração', '', { ph: 'Ex: 9F3A1C2B', attrs: 'autocomplete="off" required' }) : ''}
+              ${field('senha', setup ? 'Nova senha' : 'Senha', '', { type: 'password', ph: '••••••••', attrs: `required autocomplete="${setup ? 'new-password' : 'current-password'}"` })}
+              <button class="btn-primary" type="submit">${setup ? 'Criar senha e entrar' : 'Entrar'}</button>
+            </form>
+          </div>
         </div>
-        <div class="hero-art"><canvas id="hero"></canvas></div>
-      </div></main>`;
-    constellation($('#hero'));
+      </main>`;
+    detachArt();
+    detachArt = ART.attach($('#stage'));
+    say(setup ? 'Oi! Eu sou a BIGA. Crie sua senha para começarmos.' : 'Oi! Eu sou a BIGA. Que bom te ver de novo.');
     $('#loginForm').addEventListener('submit', async e => {
       e.preventDefault();
       const d = formData(e.target);
@@ -199,53 +170,102 @@
 
   // ------------------------------------------------------------------ SHELL
   const ROUTES = [
-    ['geral', 'Visão geral'],
-    ['radar', 'Radar'],
-    ['carteira', 'Carteira'],
-    ['vitrine', 'Vitrine'],
-    ['prospeccao', 'Prospecção'],
-    ['atendimento', 'Atendimento'],
-    ['cerebro', 'Cérebro'],
-    ['simulador', 'Simulador'],
-    ['ajustes', 'Ajustes']
+    ['inicio', 'Início', 'Volte para a BIGA'],
+    ['hoje', 'Hoje', 'Números do dia, QR Code e atividade'],
+    ['radar', 'Radar', 'Pedidos dos grupos e o que eu fiz com cada um'],
+    ['carteira', 'Carteira', 'Seus imóveis, fotos e cadastro'],
+    ['garimpo', 'Garimpo', 'Clientes procurando imóvel na internet'],
+    ['vitrine', 'Vitrine', 'Divulgação automática nos grupos'],
+    ['prospeccao', 'Prospecção', 'Mensagens para contatos escolhidos'],
+    ['atendimento', 'Atendimento', '1ª mensagem, ligações e respostas rápidas'],
+    ['cerebro', 'Cérebro', 'Mapa de Goiânia e meu jeito de falar'],
+    ['simulador', 'Simulador', 'Teste um pedido antes de valer'],
+    ['ajustes', 'Ajustes', 'Grupos, alertas, backup e segurança']
   ];
+
+  let sayTimer = null;
+  function say(text) {
+    const el = $('#say');
+    const stage = $('#stage');
+    if (!el) return;
+    clearInterval(sayTimer);
+    let i = 0;
+    el.textContent = '';
+    if (stage) stage.classList.add('talking');
+    sayTimer = setInterval(() => {
+      el.textContent = text.slice(0, ++i);
+      if (i >= text.length) {
+        clearInterval(sayTimer);
+        if (stage) setTimeout(() => stage.classList.remove('talking'), 300);
+      }
+    }, 22);
+  }
 
   function shell(inner) {
     const st = S.status || {};
     const conn = st.connectionStatus === 'CONECTADO';
     const paused = st.config && st.config.pausado;
+    detachArt();
     root.innerHTML = `
-      <nav class="nav"><div class="container">
-        <a class="logo" href="#geral">${LOGO}<span>Secretária</span></a>
-        <div class="links">${ROUTES.map(([k, l]) => `<a href="#${k}" class="${S.route === k ? 'active' : ''}">${l}</a>`).join('')}</div>
-        <span class="navlink status-dot"><span class="dot ${paused ? 'warn' : conn ? 'on' : ''}"></span>${paused ? 'Pausada' : conn ? 'Online' : st.connectionStatus === 'AGUARDANDO_QR_CODE' ? 'Ler QR' : 'Offline'}</span>
+      <nav class="nav"><div class="bar">
+        <a class="logo" href="#inicio">${LOGO}</a>
+        <div class="links">${ROUTES.filter(r => r[0] !== 'inicio').map(([k, l]) => `<a href="#${k}" class="${S.route === k ? 'active' : ''}">${l}</a>`).join('')}</div>
+        <span class="status-dot"><span class="dot ${paused ? 'warn' : conn ? 'on' : ''}"></span>${paused ? 'Pausada' : conn ? 'Online' : st.connectionStatus === 'AGUARDANDO_QR_CODE' ? 'Ler QR' : 'Offline'}</span>
       </div></nav>
-      <main>${inner}</main>
+      <main class="page-enter">${inner}</main>
       <div class="space-60"></div>`;
   }
 
-  // ------------------------------------------------------------------ VISÃO GERAL
+  // ------------------------------------------------------------------ INÍCIO (BIGA + menu)
+  function viewHome() {
+    const st = S.status || {};
+    const h = st.hoje || {};
+    const conn = st.connectionStatus === 'CONECTADO';
+    const paused = st.config && st.config.pausado;
+    const saud = st.daily?.currentPeriodGreeting || 'Olá';
+    detachArt();
+    root.innerHTML = `
+      <main class="home page-enter">
+        <div class="sky">${ART.skySVG()}</div>
+        <nav class="nav"><div class="bar"><a class="logo" href="#inicio">${LOGO}</a><div class="links"></div>
+          <span class="status-dot"><span class="dot ${paused ? 'warn' : conn ? 'on' : ''}"></span>${paused ? 'Pausada' : conn ? 'Online' : st.connectionStatus === 'AGUARDANDO_QR_CODE' ? 'Ler QR' : 'Offline'}</span></div></nav>
+        <div class="wrap">
+          <div class="biga-stage" id="stage"><div class="halo"></div><div class="rings"><span></span><span></span><span></span></div>${ART.bigaSVG('b')}
+            <div class="speech"><span class="wave"><i></i><i></i><i></i><i></i></span><span id="say" class="typing"></span></div></div>
+          <div class="home-menu">
+            <div class="hello">${esc(saud)}${st.self?.name ? ', ' + esc(st.self.name.split(' ')[0]) : ''}</div>
+            <h1 class="display">Eu sou a BIGA.</h1>
+            <p class="sub">${conn ? (paused ? 'Estou pausada. Toque em Hoje para me retomar.' : 'Estou de olho nos grupos, nas ligações e nas conversas novas. Para onde vamos?') : 'Preciso que você conecte o WhatsApp para eu começar.'}</p>
+            ${!conn && st.qrSvg ? `<div class="card" style="display:flex;gap:20px;align-items:center;margin-bottom:20px;flex-wrap:wrap"><div class="qr" style="width:180px">${st.qrSvg}</div><p class="body muted" style="flex:1;min-width:180px">WhatsApp › Configurações › Aparelhos conectados › <b>Conectar aparelho</b> e aponte para o código.</p></div>` : ''}
+            <ul class="menu-list">${ROUTES.filter(r => r[0] !== 'inicio').map(([k, l, d], i) => `<li style="animation-delay:${0.08 + i * 0.05}s"><a href="#${k}" data-say="${esc(d)}"><span><span class="t">${l}</span><span class="d">${d}</span></span><span class="arrow">→</span></a></li>`).join('')}</ul>
+            <div class="kpis"><div><b>${st.radarHoje || 0}</b>pedidos hoje</div><div><b>${h.ofertas_enviadas || 0}</b>imóveis enviados</div><div><b>${h.novas_conversas || 0}</b>conversas novas</div><div><b>${st.inventoryCount || 0}</b>imóveis ativos</div></div>
+          </div>
+        </div>
+      </main>`;
+    detachArt = ART.attach($('#stage'));
+    say(conn ? `${saud}! Tenho ${st.radarHoje || 0} pedido(s) dos grupos hoje. Escolha uma página ao lado.` : 'Oi! Escaneie o QR Code para eu me conectar ao seu WhatsApp.');
+  }
+
+  // ------------------------------------------------------------------ HOJE
   function viewGeral() {
     const st = S.status || {};
     const h = st.hoje || {};
     const conn = st.connectionStatus === 'CONECTADO';
     const logs = (st.activityLogs || []).slice(0, 25);
     shell(`
-      ${header(`${esc(st.daily?.currentPeriodGreeting || 'Olá')}.<br><span class="ash">${conn ? 'Tudo sob controle.' : 'Vamos conectar?'}</span>`, 'Hoje', conn ? `Conectada como <b>${esc(st.self?.name || st.self?.phone || '')}</b>. Monitorando ${st.connectedGroups ? st.connectedGroups.filter(g => g.monitored).length : 0} grupo(s) de busca com ${st.inventoryCount || 0} imóveis ativos.` : 'Escaneie o QR Code com o WhatsApp do seu celular: Configurações › Aparelhos conectados › Conectar aparelho.')}
-      ${!conn && st.qrSvg ? `<section class="section"><div class="container split rev"><div class="qr">${st.qrSvg}</div><div class="intro"><span class="label">QR Code</span><p class="body muted">O código muda a cada poucos segundos — esta tela atualiza sozinha.</p></div></div></section>` : ''}
-      <section class="section"><div class="container"><div class="stats">
-        ${[['Pedidos lidos', st.radarHoje || 0], ['Imóveis enviados', h.ofertas_enviadas || 0], ['Para conferir', h.duvidas || 0], ['Novas conversas', h.novas_conversas || 0], ['Ligações respondidas', h.ligacoes_perdidas || 0]].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('')}
+      ${header(`${esc(st.daily?.currentPeriodGreeting || 'Olá')}.<br><span class="muted">${conn ? 'Tudo sob controle.' : 'Vamos conectar?'}</span>`, 'Hoje', conn ? `Conectada como <b>${esc(st.self?.name || st.self?.phone || '')}</b>. Monitorando ${st.connectedGroups ? st.connectedGroups.filter(g => g.monitored).length : 0} grupo(s) de busca com ${st.inventoryCount || 0} imóveis ativos.` : 'Escaneie o QR Code com o WhatsApp do seu celular: Configurações › Aparelhos conectados › Conectar aparelho.')}
+      ${!conn && st.qrSvg ? `<section class="section"><div class="container"><div class="card split rev reveal"><div class="qr">${st.qrSvg}</div><div class="intro"><span class="label">QR Code</span><p class="body muted">O código muda a cada poucos segundos — esta tela atualiza sozinha.</p></div></div></div></section>` : ''}
+      <section class="section"><div class="container"><div class="stats reveal">
+        ${[['Pedidos lidos', st.radarHoje || 0], ['Imóveis enviados', h.ofertas_enviadas || 0], ['Para conferir', h.duvidas || 0], ['Novas conversas', h.novas_conversas || 0], ['Ligações respondidas', h.ligacoes_perdidas || 0], ['Leads do Garimpo', h.garimpo_leads || 0]].map(([l, n]) => `<div class="stat"><div class="n" data-count="${n}">${n}</div><div class="l">${l}</div></div>`).join('')}
       </div></div></section>
-      ${st.config && !st.config.dataDirPersistente ? `<section class="section"><div class="container split"><h2 class="heading-sm saffron">Memória temporária</h2><p class="body muted intro">Os dados ficam na pasta do projeto. No Render gratuito ela é apagada a cada reinício (perde a sessão, os contatos conhecidos e a carteira cadastrada pelo painel). Use um disco persistente e a variável <code>DATA_DIR</code> — veja o README.</p></div></section>` : ''}
+      ${st.config && !st.config.dataDirPersistente ? `<section class="section"><div class="container"><div class="card reveal"><h2 class="heading-sm warn">Memória temporária</h2><p class="body muted">Os dados ficam na pasta do projeto e podem ser apagados em reinícios. Use a máquina virtual com DATA_DIR (veja GUIA_VM_GRATUITA.md).</p></div></div></section>` : ''}
       <section class="section"><div class="container split top">
-        <div><span class="label">Atividade</span><div class="log">${logs.length ? logs.map(l => `<div><span class="t">${esc(l.time)}</span>${esc(l.message)}</div>`).join('') : '<div>Nenhuma atividade ainda.</div>'}</div></div>
-        <div class="stack">
-          <span class="label">Atalhos</span>
-          <a class="btn-ghost accent" href="#radar">Ver pedidos dos grupos →</a>
-          <a class="btn-ghost accent" href="#carteira">Cadastrar imóvel →</a>
-          <a class="btn-ghost accent" href="#simulador">Testar uma mensagem →</a>
-          <p class="body muted">Dica: no WhatsApp, abra a conversa <b>“Mensagem para mim”</b> e envie <b>ajuda</b> para falar direto com a secretária.</p>
-          ${toggle('pausado', st.config?.pausado, st.config?.pausado ? 'Pausada — toque para retomar' : 'Pausar tudo', 'Para tudo que é automático: grupos, vitrine, prospecção e 1ª mensagem. Também funciona mandando “pausar” no WhatsApp.')}
+        <div class="card reveal"><span class="label">Atividade</span><div class="log">${logs.length ? logs.map(l => `<div><span class="t">${esc(l.time)}</span>${esc(l.message)}</div>`).join('') : '<div>Nenhuma atividade ainda.</div>'}</div></div>
+        <div class="card stack reveal">
+          <span class="label">Controle</span>
+          ${toggle('pausado', st.config?.pausado, st.config?.pausado ? 'Pausada — toque para retomar' : 'Pausar tudo', 'Para tudo que é automático: grupos, vitrine, prospecção, garimpo e 1ª mensagem. Também funciona mandando “pausar” no WhatsApp.')}
+          <p class="body muted">Dica: no WhatsApp, abra <b>“Mensagem para mim”</b> e envie <b>ajuda</b> para falar direto com a BIGA.</p>
+          <div class="row"><a class="btn-ghost" href="#radar">Ver pedidos</a><a class="btn-ghost" href="#carteira">Cadastrar imóvel</a><a class="btn-ghost" href="#simulador">Testar mensagem</a></div>
         </div>
       </div></section>`);
   }
@@ -259,7 +279,7 @@
       return arr.length ? `<div class="bars">${arr.map(x => `<div class="bar"><span>${esc(x.nome)}</span><span class="track"><span class="fill" style="width:${(x.qtd / max) * 100}%"></span></span><span class="ash">${x.qtd}</span></div>`).join('')}</div>` : '<p class="body ash">Sem dados ainda.</p>';
     };
     shell(`
-      ${header('Radar de<br>buscas', 'O que os corretores pedem', `Todo pedido lido nos grupos fica aqui, com o que a secretária entendeu e o que ela fez. Em <span class="saffron">conferir</span> você decide com um clique.`)}
+      ${header('Radar de<br>buscas', 'O que os corretores pedem', `Todo pedido lido nos grupos fica aqui, com o que a BIGA entendeu e o que ela fez. Em <span class="saffron">conferir</span> você decide com um clique.`)}
       <section class="section"><div class="container split top">
         <div><span class="label">Mais procurados · ${r.demanda.total} pedidos em 30 dias</span>${bars(r.demanda.locais)}</div>
         <div class="stack"><div><span class="label">Tipos</span>${bars(r.demanda.tipos)}</div><div><span class="label">Faixas de preço</span>${bars(r.demanda.faixas)}</div></div>
@@ -289,7 +309,7 @@
     const list = S.inventory.filter(p => !f || JSON.stringify(p).toLowerCase().includes(f));
     const e = S.editing;
     shell(`
-      ${header('Carteira', `${S.inventory.filter(p => p.ativo).length} ativo(s) · ${S.inventory.length} no total`, 'Quanto mais completo o cadastro (edifício, suítes, vagas, condomínio, permuta), mais certeira a secretária fica. Também dá para cadastrar pelo WhatsApp: mande <b>cadastrar</b> + descrição e as fotos no “Mensagem para mim”.')}
+      ${header('Carteira', `${S.inventory.filter(p => p.ativo).length} ativo(s) · ${S.inventory.length} no total`, 'Quanto mais completo o cadastro (edifício, suítes, vagas, condomínio, permuta), mais certeira a BIGA fica. Também dá para cadastrar pelo WhatsApp: mande <b>cadastrar</b> + descrição e as fotos no “Mensagem para mim”.')}
       ${e ? editorProp(e) : `<section class="section"><div class="container row between"><div class="grow">${field('busca', 'Buscar na carteira', S.filtro, { type: 'search', ph: 'bairro, edifício, tipo…' })}</div><button class="btn-primary" data-action="novoImovel">Novo imóvel</button></div></section>`}
       <section class="section"><div class="container">
         <div class="row tight"><a class="btn-ghost" href="/api/export-csv">Baixar planilha (.csv)</a><button class="btn-ghost" data-action="importGoogle">Importar do Google Sheets</button></div>
@@ -348,13 +368,14 @@
     const horarios = [...v.config.horarios, '', '', '', ''].slice(0, 4);
     const dias = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
     shell(`
-      ${header('Vitrine', 'Divulgação automática', 'Em até 4 horários por dia a secretária publica sua carteira nos grupos de divulgação que você escolher (diferentes dos grupos de busca). Só vão posts que você aprovou, em rodízio.')}
+      ${header('Vitrine', 'Divulgação automática', 'Em até 4 horários por dia a BIGA publica sua carteira nos grupos de divulgação que você escolher (diferentes dos grupos de busca). Só vão posts que você aprovou, em rodízio.')}
       <section class="section"><div class="container stack" id="vitrineCfg">
         ${toggle('ativo', v.config.ativo, v.config.ativo ? 'Vitrine ligada' : 'Vitrine desligada')}
         <div class="row">${horarios.map((h, i) => field(`h${i}`, `Horário ${i + 1}`, h, { type: 'time' })).join('')}${field('porHorario', 'Imóveis por horário', v.config.porHorario, { type: 'number', attrs: 'min="1" max="5"' })}</div>
         <div><span class="field"><span>Dias</span></span><div class="chips">${dias.map((d, i) => toggle(`d${i}`, v.config.diasSemana.includes(i), d)).join('')}</div></div>
         <div><span class="field"><span>Grupos de divulgação (${v.config.grupos.length})</span></span>
-          <div class="chips">${groups.length ? groups.map(g => toggle(`g:${g.id}`, v.config.grupos.includes(g.id), g.subject + (g.monitored ? ' · busca' : ''))).join('') : '<span class="body ash">Conecte o WhatsApp para listar seus grupos.</span>'}</div></div>
+          ${groupSearch('vit', groups.length)}
+          <div class="chips scroll" data-filter="vit">${groups.length ? groups.map(g => toggle(`g:${g.id}`, v.config.grupos.includes(g.id), g.subject + (g.monitored ? ' · busca' : ''))).join('') : '<span class="body ash">Conecte o WhatsApp para listar seus grupos.</span>'}</div></div>
         <div class="row"><button class="btn-primary" data-action="salvarVitrine">Salvar vitrine</button><button class="btn-ghost accent" data-action="gerarPosts">Gerar rascunhos da carteira</button><button class="btn-ghost" data-action="vitrineAgora">Publicar agora</button></div>
       </div></section>
       <section class="section"><div class="container">
@@ -378,7 +399,7 @@
     const f = (S.filtroContato || '').toLowerCase();
     const contatos = S.contatos.filter(c => !f || (c.nome + c.telefone).toLowerCase().includes(f)).slice(0, 300);
     shell(`
-      ${header('Prospecção', `${p.enviadosHoje || 0} de ${p.config.limiteDiario || 0} hoje`, 'Escolha os contatos, escreva a mensagem (com ou sem imagem) e a secretária envia um por vez, no ritmo de uma pessoa, dentro do horário comercial. Quem responder <b>SAIR</b> nunca mais recebe.')}
+      ${header('Prospecção', `${p.enviadosHoje || 0} de ${p.config.limiteDiario || 0} hoje`, 'Escolha os contatos, escreva a mensagem (com ou sem imagem) e a BIGA envia um por vez, no ritmo de uma pessoa, dentro do horário comercial. Quem responder <b>SAIR</b> nunca mais recebe.')}
       <section class="section"><div class="container stack" id="campForm">
         <span class="label">Nova campanha</span>
         <div class="fields wide">${field('nome', 'Nome da campanha', '', { ph: 'Ex: Lançamento Setor Bueno' })}</div>
@@ -428,13 +449,13 @@
     const d = (S.status && S.status.daily) || {};
     const rules = c.dailySimpleReplies || [];
     shell(`
-      ${header('Atendimento', `${d.knownContactsCount || 0} contatos conhecidos`, 'A secretária responde a 1ª mensagem só de quem nunca falou com você (nem pelo telefone, nem pelo novo ID do WhatsApp, nem salvo na agenda) e avisa quem ligou e você não atendeu.')}
+      ${header('Atendimento', `${d.knownContactsCount || 0} contatos conhecidos`, 'A BIGA responde a 1ª mensagem só de quem nunca falou com você (nem pelo telefone, nem pelo novo ID do WhatsApp, nem salvo na agenda) e avisa quem ligou e você não atendeu.')}
       <section class="section"><div class="container stack" id="atdForm">
         ${toggle('firstContactEnabled', c.firstContactEnabled, 'Responder 1ª mensagem', 'Use {saudacao} (Bom dia/Boa tarde/Boa noite) e {nome}.')}
         ${field('firstContactMessage', 'Mensagem de 1º contato', c.firstContactMessage, { area: true, rows: 3 })}
         ${toggle('firstContactIgnorarAgenda', c.firstContactIgnorarAgenda, 'Nunca responder contatos salvos na minha agenda')}
         <div class="fields">${field('firstContactAquecimentoMin', 'Aquecimento após conectar (min)', c.firstContactAquecimentoMin, { type: 'number', attrs: 'min="0" max="240"' })}</div>
-        <p class="caption">O aquecimento só vale quando a memória ainda está vazia (primeira conexão ou disco novo): a secretária aprende seus contatos antes de responder alguém.</p>
+        <p class="caption">O aquecimento só vale quando a memória ainda está vazia (primeira conexão ou disco novo): a BIGA aprende seus contatos antes de responder alguém.</p>
         <div class="space-36"></div>
         ${toggle('missedCallEnabled', c.missedCallEnabled, 'Responder ligação não atendida')}
         ${field('missedCallMessage', 'Mensagem após ligação perdida', c.missedCallMessage, { area: true, rows: 3 })}
@@ -456,7 +477,7 @@
     const c = (S.status && S.status.config) || {};
     const fb = (S.filtroBairro || '').toLowerCase();
     shell(`
-      ${header('Cérebro', 'Mapa de Goiânia', `A secretária conhece ${cb.base.bairros || 0} bairros, ${cb.base.condominios || 0} condomínios, ${cb.base.marcos || 0} marcos e avenidas e ${cb.base.cidades || 0} cidades da região. Ensine edifícios e lugares novos aqui — vale na hora.`)}
+      ${header('Cérebro', 'Mapa de Goiânia', `A BIGA conhece ${cb.base.bairros || 0} bairros, ${cb.base.condominios || 0} condomínios, ${cb.base.marcos || 0} marcos e avenidas e ${cb.base.cidades || 0} cidades da região. Ensine edifícios e lugares novos aqui — vale na hora.`)}
       <section class="section"><div class="container stack" id="places">
         <span class="label">Lugares que você ensinou</span>
         ${(cb.extraPlaces || []).map((p, i) => `<div class="fields" data-place="${i}">${field('name', 'Nome', p.name)}${field('kind', 'Tipo', p.kind, { options: [['edificio', 'Edifício'], ['condominio', 'Condomínio'], ['bairro', 'Bairro'], ['marco', 'Ponto de referência']] })}${field('bairro', 'Fica no bairro', p.bairro)}${field('aliases', 'Apelidos (vírgula)', p.aliases)}<div><button class="btn-ghost danger" data-action="rmPlace" data-i="${i}">Remover</button></div></div>`).join('') || '<p class="body ash">Nenhum ainda. Ex: Edifício Metropolitan · Setor Marista · apelidos: metropolitan, metropolitan flat.</p>'}
@@ -482,7 +503,7 @@
     const r = S.sim;
     const a = r && r.analysis;
     shell(`
-      ${header('Simulador', 'Teste antes de valer', 'Cole um pedido real de grupo e veja exatamente o que a secretária entende, o que ela faria e a mensagem que mandaria.')}
+      ${header('Simulador', 'Teste antes de valer', 'Cole um pedido real de grupo e veja exatamente o que a BIGA entende, o que ela faria e a mensagem que mandaria.')}
       <section class="section"><div class="container stack" id="simForm">
         ${field('message', 'Mensagem do grupo', S.simMsg || '', { area: true, rows: 6, ph: 'BUSCO\nApto 3Q sendo 1 suíte no Setor Bueno até 600 mil' })}
         <div class="fields wide">${field('senderName', 'Quem mandou', S.simSender || 'Sara Corretora')}</div>
@@ -502,6 +523,68 @@
       </div></section>` : ''}`);
   }
 
+  // ------------------------------------------------------------------ GARIMPO
+  function viewGarimpo() {
+    const g = S.garimpo || { config: {}, chaves: {}, leads: [], execucoes: [], campanhas: [] };
+    const f = S.filtroLead || 'NOVO';
+    const leads = g.leads.filter(l => f === 'TODOS' || l.status === f);
+    const fonteNome = { web: 'Web pública', instagram: 'Seu Instagram', facebook: 'Seu Facebook' };
+    const ult = g.execucoes[0];
+    shell(`
+      ${header('Garimpo', g.config.ativo ? 'Escavando 24h' : 'Desligado', 'Eu procuro na internet pessoas pedindo imóvel em Goiânia na última semana, leio o que querem e cruzo com a sua carteira. Também acompanho quem comenta nos <b>seus</b> posts e mapeio as campanhas de imóveis no ar.')}
+      <section class="section"><div class="container"><div class="stats reveal">
+        <div class="stat"><div class="n" data-count="${g.leads.filter(l => l.status === 'NOVO').length}">0</div><div class="l">leads novos</div></div>
+        <div class="stat"><div class="n" data-count="${g.leads.filter(l => (l.matches || []).length).length}">0</div><div class="l">com imóvel compatível</div></div>
+        <div class="stat"><div class="n" data-count="${g.leads.filter(l => l.status === 'CONTATADO').length}">0</div><div class="l">contatados</div></div>
+        <div class="stat"><div class="n" style="font-size:22px">${g.ultimaExecucao ? esc(when(g.ultimaExecucao)) : '—'}</div><div class="l">última varredura${ult ? ` · ${ult.web} páginas lidas` : ''}</div></div>
+      </div></div></section>
+      ${!g.chaves.busca || !g.chaves.meta ? `<section class="section"><div class="container"><div class="card reveal stack-sm"><span class="label">Para eu começar a escavar</span>
+        ${!g.chaves.busca ? '<p class="body">🌐 <b>Busca na web:</b> crie uma chave grátis em <a href="https://brave.com/search/api/" target="_blank" rel="noopener">brave.com/search/api</a> (2.000 buscas/mês) ou no Google Programmable Search, e cole abaixo.</p>' : ''}
+        ${!g.chaves.meta ? '<p class="body">📸 <b>Seus posts:</b> com um token da sua Página do Facebook (Meta for Developers › Graph API Explorer) eu leio os comentários de quem pergunta valor e disponibilidade no seu Instagram e Facebook.</p>' : ''}
+      </div></div></section>` : ''}
+      <section class="section"><div class="container">
+        <div class="row between reveal" style="margin-bottom:16px"><div class="row tight">${[['NOVO', 'Novos'], ['CONTATADO', 'Contatados'], ['DESCARTADO', 'Descartados'], ['TODOS', 'Todos']].map(([k, l]) => `<button class="btn-ghost ${f === k ? 'accent' : ''}" data-action="filtroLead" data-v="${k}">${l}</button>`).join('')}</div>
+          <button class="btn-primary" data-action="garimpoRodar">${g.rodando ? 'Escavando…' : 'Escavar agora'}</button></div>
+        <div class="list">${leads.length ? leads.map(l => `
+          <div class="item reveal">
+            <div class="row between"><div class="row tight"><span class="tag src ${esc(l.fonte)}"><i></i>${esc(fonteNome[l.fonte] || l.fonte)}</span>${(l.matches || []).length ? `<span class="tag enviar">● você tem #${l.matches.map(esc).join(', #')}</span>` : ''}<span class="caption">${esc(when(l.encontradoEm))}</span></div><span class="lead-score" title="Pontuação do lead">${l.score}</span></div>
+            <h3 class="hxs" style="margin-top:10px">${esc(l.titulo || '')}</h3>
+            <p class="body muted" style="margin-top:6px">${esc(l.texto || '')}</p>
+            <p class="caption">🧠 ${esc(l.resumo || '')}${l.post ? ` · no post: “${esc(l.post)}”` : ''}</p>
+            <div class="row tight"><a class="btn-ghost accent" href="${esc(l.link)}" target="_blank" rel="noopener noreferrer">Abrir publicação ↗</a>${l.status !== 'CONTATADO' ? `<button class="btn-ghost" data-action="leadStatus" data-id="${esc(l.id)}" data-s="CONTATADO">Marcar contatado</button>` : ''}${l.status !== 'DESCARTADO' ? `<button class="btn-ghost danger" data-action="leadStatus" data-id="${esc(l.id)}" data-s="DESCARTADO">Descartar</button>` : `<button class="btn-ghost" data-action="leadStatus" data-id="${esc(l.id)}" data-s="NOVO">Restaurar</button>`}</div>
+          </div>`).join('') : `<div class="card"><p class="body muted">${g.leads.length ? 'Nada nesta lista.' : 'Ainda não encontrei leads. Configure a busca abaixo e toque em “Escavar agora”.'}</p></div>`}</div>
+      </div></section>
+      <section class="section"><div class="container split top">
+        <div class="card reveal"><span class="label">Campanhas de imóveis no ar (bibliotecas oficiais)</span><p class="body muted">Anúncios ativos de imobiliárias e construtoras em Goiânia, e o interesse de busca na região nos últimos 7 dias.</p>
+          <div class="linkout">${(g.campanhas || []).map(c => `<a href="${esc(c.meta)}" target="_blank" rel="noopener noreferrer"><span>Meta (Instagram/Facebook) · ${esc(c.termo)}</span><span>↗</span></a><a href="${esc(c.trends)}" target="_blank" rel="noopener noreferrer"><span>Google Trends Goiás · ${esc(c.termo)}</span><span>↗</span></a>`).join('')}
+          <a href="https://adstransparency.google.com/?region=BR" target="_blank" rel="noopener noreferrer"><span>Google (Central de Transparência de Anúncios)</span><span>↗</span></a>
+          <a href="https://library.tiktok.com/ads?region=BR" target="_blank" rel="noopener noreferrer"><span>TikTok (Biblioteca de Anúncios)</span><span>↗</span></a></div></div>
+        <div class="card reveal stack-sm"><span class="label">O que eu não faço (e por quê)</span>
+          <p class="body muted">• Ver <b>quem</b> pesquisou no Google ou visitou ZAP/VivaReal/OLX: esses dados são privados das empresas e não existem para ninguém.</p>
+          <p class="body muted">• Ler comentários em posts de <b>outras</b> pessoas no Instagram/TikTok/Facebook: viola as regras das plataformas (pode bloquear sua conta) e a LGPD.</p>
+          <p class="body muted">Guardo só o link público, o trecho e o nome exibido, por 30 dias. O contato com o lead é sempre feito por você.</p></div>
+      </div></section>
+      <section class="section"><div class="container"><div id="garimpoCfg" class="stack reveal">
+        <span class="label">Configuração</span>
+        ${toggle('ativo', g.config.ativo, g.config.ativo ? 'Garimpo ligado (24h)' : 'Garimpo desligado')}
+        ${toggle('alertarNoWhatsApp', g.config.alertarNoWhatsApp !== false, 'Me avisar no WhatsApp quando achar leads novos')}
+        <div class="fields">${field('intervaloHoras', 'Escavar a cada (horas)', g.config.intervaloHoras, { type: 'number', attrs: 'min="2" max="48"' })}</div>
+        ${field('consultas', 'O que procurar na web (uma busca por linha)', (g.config.consultas || []).join('\n'), { area: true, rows: 8 })}
+        ${field('termosCampanha', 'Termos para mapear campanhas (um por linha)', (g.config.termosCampanha || []).join('\n'), { area: true, rows: 4 })}
+        <div class="row"><button class="btn-ghost accent" data-action="garimpoSalvar">Salvar configuração</button></div>
+        <span class="label" style="margin-top:24px">Chaves das fontes ${g.chaves.buscaProvedor ? `· busca: ${esc(g.chaves.buscaProvedor)} ✓` : ''} ${g.chaves.meta ? '· Meta ✓' : ''}</span>
+        <div class="fields wide" id="garimpoKeys">
+          ${field('braveKey', 'Brave Search API key', '', { type: 'password', ph: g.chaves.buscaProvedor === 'Brave' ? '•••••• (manter)' : 'cole aqui', attrs: 'autocomplete="off"' })}
+          ${field('googleKey', 'Google Programmable Search — API key', '', { type: 'password', ph: 'opcional', attrs: 'autocomplete="off"' })}
+          ${field('googleCx', 'Google Programmable Search — ID (cx)', '', { ph: 'opcional' })}
+          ${field('metaToken', 'Token da Página (Meta)', '', { type: 'password', ph: g.chaves.meta ? '•••••• (manter)' : 'opcional', attrs: 'autocomplete="off"' })}
+          ${field('metaPageId', 'ID da Página do Facebook', '', { ph: 'opcional' })}
+          ${field('igUserId', 'ID da conta Instagram Business', '', { ph: 'opcional' })}
+        </div>
+        <div class="row"><button class="btn-ghost accent" data-action="garimpoChaves">Salvar chaves</button></div>
+      </div></div></section>`);
+  }
+
   // ------------------------------------------------------------------ AJUSTES
   function viewAjustes() {
     const c = (S.status && S.status.config) || {};
@@ -509,12 +592,13 @@
     shell(`
       ${header('Ajustes', 'Configurações', 'Grupos de busca, número de alerta, inteligência artificial, planilha e segurança.')}
       <section class="section"><div class="container stack" id="cfgForm">
-        <span class="label">Grupos de busca (onde a secretária lê os pedidos)</span>
-        <div class="chips">${groups.length ? groups.map(g => toggle(`mg:${g.id}`, g.monitored, `${g.subject} · ${g.participantsCount}`)).join('') : '<span class="body ash">Conecte o WhatsApp para listar os grupos.</span>'}</div>
+        <span class="label">Grupos de busca (onde a BIGA lê os pedidos)</span>
+        ${groupSearch('mg', groups.length)}
+        <div class="chips scroll" data-filter="mg">${groups.length ? groups.map(g => toggle(`mg:${g.id}`, g.monitored, `${g.subject} · ${g.participantsCount}`)).join('') : '<span class="body ash">Conecte o WhatsApp para listar os grupos.</span>'}</div>
         <div class="row tight"><button class="btn-ghost" data-action="refreshGroups">Atualizar lista de grupos</button></div>
         <div class="fields wide">
           ${field('meuWhatsappAlerta', 'Seu WhatsApp para alertas', c.meuWhatsappAlerta, { type: 'tel', ph: 'vazio = conversa “Mensagem para mim”' })}
-          ${field('assistenteNumerosExtras', 'Outros números que podem comandar a secretária', c.assistenteNumerosExtras, { ph: '62999990000, 62988880000' })}
+          ${field('assistenteNumerosExtras', 'Outros números que podem comandar a BIGA', c.assistenteNumerosExtras, { ph: '62999990000, 62988880000' })}
           ${field('minCriteriosParaEnvio', 'Mínimo de critérios para enviar sozinha', c.minCriteriosParaEnvio, { type: 'number', attrs: 'min="1" max="6"' })}
           ${field('maxOfertasPorPedido', 'Máximo de imóveis por pedido', c.maxOfertasPorPedido, { type: 'number', attrs: 'min="1" max="5"' })}
           ${field('maxPhotosPerMatch', 'Fotos por imóvel enviado', c.maxPhotosPerMatch, { type: 'number', attrs: 'min="0" max="10"' })}
@@ -537,7 +621,7 @@
       </div></section>
       <section class="section"><div class="container split top">
         <div class="stack" id="pwForm"><span class="label">Senha do painel</span>${field('atual', 'Senha atual', '', { type: 'password', attrs: 'autocomplete="current-password"' })}${field('nova', 'Nova senha (mín. 8)', '', { type: 'password', attrs: 'autocomplete="new-password"' })}<div><button class="btn-ghost accent" data-action="trocarSenha">Trocar senha</button></div></div>
-        <div class="stack" id="bkForm"><span class="label">Backup da memória</span><p class="body muted">Um arquivo com carteira, fotos, configurações, contatos conhecidos, radar, vitrine e prospecção. Use para mudar de servidor ou se algo der errado. Todo domingo a secretária também manda um backup no seu WhatsApp.</p>
+        <div class="stack" id="bkForm"><span class="label">Backup da memória</span><p class="body muted">Um arquivo com carteira, fotos, configurações, contatos conhecidos, radar, vitrine e prospecção. Use para mudar de servidor ou se algo der errado. Todo domingo a BIGA também manda um backup no seu WhatsApp.</p>
           ${toggle('backupSemanalAtivo', c.backupSemanalAtivo !== false, 'Backup semanal no meu WhatsApp')}
           <div class="row tight"><a class="btn-ghost accent" href="/api/backup" download>Baixar backup agora</a><label class="btn-ghost" style="cursor:pointer">Restaurar backup…<input type="file" id="restoreInput" accept=".gz,application/gzip"></label></div></div>
         <div class="stack"><span class="label">Sessão</span><p class="body muted">Desconectar o WhatsApp apaga a sessão e gera um novo QR Code.</p><div class="row tight"><button class="btn-ghost danger" data-action="resetWa">Desconectar WhatsApp</button><button class="btn-ghost" data-action="logout">Sair do painel</button></div></div>
@@ -549,7 +633,10 @@
     S.status = await api('GET', '/api/status');
   }
   const loaders = {
+    inicio: loadStatus,
+    hoje: loadStatus,
     geral: loadStatus,
+    garimpo: async () => (S.garimpo = await api('GET', '/api/garimpo')),
     radar: async () => (S.radar = await api('GET', '/api/radar')),
     carteira: async () => (S.inventory = (await api('GET', '/api/inventory')).inventory),
     vitrine: async () => {
@@ -565,31 +652,81 @@
     simulador: async () => {},
     ajustes: loadStatus
   };
-  const views = { geral: viewGeral, radar: viewRadar, carteira: viewCarteira, vitrine: viewVitrine, prospeccao: viewProspeccao, atendimento: viewAtendimento, cerebro: viewCerebro, simulador: viewSimulador, ajustes: viewAjustes };
+  const views = { inicio: viewHome, hoje: viewGeral, geral: viewGeral, garimpo: (...a) => viewGarimpo(...a), radar: viewRadar, carteira: viewCarteira, vitrine: viewVitrine, prospeccao: viewProspeccao, atendimento: viewAtendimento, cerebro: viewCerebro, simulador: viewSimulador, ajustes: viewAjustes };
 
   function render() {
     if (!S.authed) return viewLogin();
-    (views[S.route] || viewGeral)();
+    (views[S.route] || viewHome)();
+    afterRender();
+  }
+
+  // Animações de entrada (cada bloco aparece ao entrar na tela) e contadores
+  let io = null;
+  function afterRender() {
+    if (io) io.disconnect();
+    io = new IntersectionObserver(entries => {
+      for (const e of entries) if (e.isIntersecting) {
+        e.target.classList.add('in');
+        io.unobserve(e.target);
+      }
+    }, { threshold: 0.08 });
+    $$('.reveal').forEach((el, i) => {
+      el.style.transitionDelay = `${Math.min(i, 6) * 60}ms`;
+      io.observe(el);
+    });
+    // garantia: nada fica invisível se o observador não disparar (impressão, captura, navegador antigo)
+    clearTimeout(S._revealFallback);
+    S._revealFallback = setTimeout(() => $$('.reveal:not(.in)').forEach(el => el.classList.add('in')), 1200);
+    $$('.stat .n[data-count]').forEach(el => {
+      const target = Number(el.dataset.count) || 0;
+      if (!target) return;
+      const t0 = performance.now();
+      const step = t => {
+        const k = Math.min(1, (t - t0) / 900);
+        el.textContent = Math.round(target * (1 - Math.pow(1 - k, 3)));
+        if (k < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+    ['vit', 'mg'].forEach(applyGroupFilter);
+  }
+
+  // Cortina circular entre páginas (sai do ponto do clique)
+  let lastClick = { x: innerWidth / 2, y: innerHeight / 2 };
+  addEventListener('pointerdown', e => (lastClick = { x: e.clientX, y: e.clientY }), true);
+  const curtain = document.createElement('div');
+  curtain.className = 'curtain';
+  document.body.appendChild(curtain);
+  function playCurtain(phase) {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return Promise.resolve();
+    curtain.style.setProperty('--cx', `${lastClick.x}px`);
+    curtain.style.setProperty('--cy', `${lastClick.y}px`);
+    curtain.className = `curtain ${phase}`;
+    return new Promise(r => setTimeout(r, phase === 'go' ? 420 : 600));
   }
 
   async function go() {
-    const r = (location.hash || '#geral').slice(1);
-    S.route = views[r] ? r : location.pathname === '/dia-a-dia' ? 'atendimento' : 'geral';
+    const r = (location.hash || '#inicio').slice(1);
+    S.route = views[r] ? r : location.pathname === '/dia-a-dia' ? 'atendimento' : 'inicio';
     S.editing = null;
     if (!S.authed) return render();
+    const animate = S._booted;
+    S._booted = true;
+    const curtainIn = animate ? playCurtain('go') : Promise.resolve();
     try {
       if (!S.status) await loadStatus();
-      await loaders[S.route]();
+      await Promise.all([loaders[S.route](), curtainIn]);
     } catch (err) {
       toast(err.message, true);
     }
     render();
     scrollTo(0, 0);
+    if (animate) playCurtain('out');
   }
 
   // Atualização automática da visão geral (QR Code, atividade)
   setInterval(async () => {
-    if (!S.authed || document.hidden || !['geral'].includes(S.route)) return;
+    if (!S.authed || document.hidden || !['hoje', 'geral'].includes(S.route)) return;
     if (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
     try {
       await loadStatus();
@@ -626,6 +763,41 @@
   }
 
   const actions = {
+    filtroLead: el => {
+      S.filtroLead = el.dataset.v;
+      render();
+    },
+    garimpoRodar: async () => {
+      toast('Escavando a internet… pode levar alguns minutos.');
+      const r = await api('POST', '/api/garimpo/rodar');
+      S.garimpo = r.state;
+      toast(r.ok === false ? r.erro : `${r.novos || 0} lead(s) novo(s).${r.semChave && r.semChave.length ? ' Falta configurar: ' + r.semChave.join(', ') : ''}`, r.ok === false);
+      render();
+    },
+    garimpoSalvar: async () => {
+      const r = await api('POST', '/api/garimpo/config', formData($('#garimpoCfg')));
+      S.garimpo.config = r.config;
+      toast('Garimpo salvo!');
+      render();
+    },
+    garimpoChaves: async () => {
+      const r = await api('POST', '/api/garimpo/chaves', formData($('#garimpoKeys')));
+      S.garimpo = r.state;
+      toast('Chaves salvas.');
+      render();
+    },
+    leadStatus: async el => {
+      S.garimpo = (await api('POST', `/api/garimpo/lead/${el.dataset.id}`, { status: el.dataset.s })).state;
+      render();
+    },
+    soMarcados: el => {
+      const box = document.querySelector(`[data-filter="${el.dataset.target}"]`);
+      if (!box) return;
+      box.dataset.only = box.dataset.only === '1' ? '0' : '1';
+      el.classList.toggle('accent', box.dataset.only === '1');
+      el.textContent = box.dataset.only === '1' ? 'Mostrar todos' : 'Só os marcados';
+      applyGroupFilter(el.dataset.target);
+    },
     filtroRadar: el => {
       S.filtroRadar = el.dataset.v;
       render();
@@ -814,7 +986,7 @@
     salvarPlaces: async () => {
       const r = await api('POST', '/api/cerebro/lugares', { extraPlaces: collectPlaces() });
       S.cerebro.extraPlaces = r.extraPlaces;
-      toast('Lugares salvos — a secretária já aprendeu.');
+      toast('Lugares salvos — a BIGA já aprendeu.');
       render();
     },
     salvarTreino: async () => {
@@ -899,9 +1071,11 @@
         on ? S.selContacts.add(k.slice(2)) : S.selContacts.delete(k.slice(2));
         return;
       }
-      if (k === 'pausado' && S.route === 'geral') {
+      if (k.startsWith('g:')) applyGroupFilter('vit');
+      if (k.startsWith('mg:')) applyGroupFilter('mg');
+      if (k === 'pausado' && ['hoje', 'geral'].includes(S.route)) {
         try {
-          await saveConfig({ pausado: on }, on ? 'Secretária pausada.' : 'Secretária de volta ao trabalho!');
+          await saveConfig({ pausado: on }, on ? 'BIGA pausada.' : 'BIGA de volta ao trabalho!');
           render();
         } catch (err) {
           toast(err.message, true);
@@ -923,9 +1097,22 @@
     }
   });
 
+  root.addEventListener('pointerover', e => {
+    const a = e.target.closest('[data-say]');
+    if (a && a !== S._lastSay) {
+      S._lastSay = a;
+      say(a.dataset.say + '.');
+    }
+  });
+  root.addEventListener('focusin', e => {
+    const a = e.target.closest('[data-say]');
+    if (a) say(a.dataset.say + '.');
+  });
+
   // Campos de filtro / upload
   root.addEventListener('input', e => {
     const n = e.target.name;
+    if (n === 'filtroGrupo') return applyGroupFilter(e.target.dataset.target);
     if (n === 'busca' || n === 'filtroContato' || n === 'filtroBairro') {
       const key = { busca: 'filtro', filtroContato: 'filtroContato', filtroBairro: 'filtroBairro' }[n];
       S[key] = e.target.value;
@@ -950,7 +1137,7 @@
         render();
       }
       if (e.target.id === 'restoreInput' && e.target.files.length) {
-        if (!confirm('Restaurar este backup? A carteira, as configurações e a memória atuais serão substituídas e a secretária reinicia.')) {
+        if (!confirm('Restaurar este backup? A carteira, as configurações e a memória atuais serão substituídas e a BIGA reinicia.')) {
           e.target.value = '';
           return;
         }
