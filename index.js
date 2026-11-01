@@ -1,347 +1,410 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const express = require('express');
-const cors = require('cors');
 const multer = require('multer');
+const QRCode = require('qrcode');
 
-const {
-  LOCAL_CSV_PATH,
-  loadInventory,
-  loadAllProperties,
-  createProperty,
-  updateProperty,
-  deleteProperty
-} = require('./src/sheets');
+const { FOTOS_DIR, DATA_DIR, ROOT_DIR } = require('./src/paths');
+const sheets = require('./src/sheets');
 const { analyzeMessageAndMatch, formatOutreachMessage } = require('./src/matcher');
 const { loadSettings, saveSettings, DEFAULT_MESSAGE_TEMPLATE, DEFAULT_HUMAN_TRAINING } = require('./src/settings');
-const { startWhatsAppAgent, getAgentState, addLog, sendOwnerWhatsAppAlert } = require('./src/whatsapp');
-const { getDailyState, removeKnownContact, addDailyLog } = require('./src/atendimento-diario');
+const wa = require('./src/whatsapp');
+const daily = require('./src/atendimento-diario');
+const contacts = require('./src/contacts');
+const radar = require('./src/radar');
+const metrics = require('./src/metrics');
+const vitrine = require('./src/vitrine');
+const prospeccao = require('./src/prospeccao');
+const scheduler = require('./src/scheduler');
+const auth = require('./src/auth');
+const { BASE } = require('./src/brain/locations');
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
+app.use(express.json({ limit: '1mb' }));
 
-const FOTOS_DIR = path.join(__dirname, 'fotos');
-if (!fs.existsSync(FOTOS_DIR)) {
-  fs.mkdirSync(FOTOS_DIR, { recursive: true });
-}
-app.use('/fotos', express.static(FOTOS_DIR));
+// Cabeçalhos de segurança
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+  );
+  next();
+});
 
-// Configuração do Multer para upload de fotos de imóveis direto pelo Mini-CRM
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, FOTOS_DIR),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname || '.jpg').toLowerCase() || '.jpg';
-    const safeName = file.originalname
-      .replace(ext, '')
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]/g, '_')
-      .slice(0, 30);
-    cb(null, `${Date.now()}_${safeName}${ext}`);
+if (!fs.existsSync(FOTOS_DIR)) fs.mkdirSync(FOTOS_DIR, { recursive: true });
+
+// ---------------------------------------------------------------------------
+// Rotas públicas
+// ---------------------------------------------------------------------------
+app.get('/ping', (req, res) => res.json({ ok: true, status: 'awake', time: new Date().toISOString() }));
+app.get('/health', (req, res) => res.json({ ok: true, whatsapp: wa.getAgentState().connectionStatus }));
+app.use('/assets', express.static(path.join(__dirname, 'src', 'public'), { maxAge: '1h', index: false }));
+app.get(['/', '/dia-a-dia'], (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.sendFile(path.join(__dirname, 'src', 'public', 'index.html'));
+});
+
+app.use('/api', auth.requireAppHeader);
+auth.routes(app);
+
+// Tudo abaixo exige login
+app.use('/api', auth.requireAuth);
+app.use('/fotos', auth.requireAuth, express.static(FOTOS_DIR, { index: false, dotfiles: 'deny' }));
+
+const ah = fn => (req, res) => Promise.resolve(fn(req, res)).catch(err => res.status(err.status || 500).json({ error: err.message || 'Erro interno' }));
+const str = (v, max = 5000) => (typeof v === 'string' ? v.slice(0, max) : '');
+
+// Upload de fotos: só imagens, até 10 MB cada, nome aleatório
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, FOTOS_DIR),
+    filename: (req, file, cb) => {
+      const ext = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' }[file.mimetype] || '.jpg';
+      cb(null, `${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`);
+    }
+  }),
+  limits: { fileSize: 10 * 1024 * 1024, files: 20 },
+  fileFilter: (req, file, cb) => {
+    const ok = ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype) && /\.(jpe?g|png|webp)$/i.test(file.originalname || '');
+    cb(ok ? null : Object.assign(new Error('Envie apenas fotos JPG, PNG ou WEBP.'), { status: 400 }), ok);
   }
 });
-const upload = multer({ storage });
 
-const ENV_PATH = path.join(__dirname, '.env');
-
-/**
- * Atualiza variáveis no arquivo .env sem perder comentários
- */
+// Atualiza variáveis no .env (somente chaves permitidas e sem quebra de linha)
+const ENV_PATH = path.join(ROOT_DIR, '.env');
+const ENV_ALLOWED = new Set(['GEMINI_API_KEY', 'GOOGLE_SHEETS_CSV_URL', 'GOOGLE_SHEETS_WEBHOOK_URL', 'MEU_WHATSAPP_ALERTA']);
 function updateEnvFile(updates) {
   let content = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf-8') : '';
-
-  for (const [key, value] of Object.entries(updates)) {
-    process.env[key] = String(value);
-    const regex = new RegExp(`^${key}=.*$`, 'm');
-    if (regex.test(content)) {
-      content = content.replace(regex, `${key}=${value}`);
-    } else {
-      content += `\n${key}=${value}`;
-    }
+  for (const [key, raw] of Object.entries(updates)) {
+    if (!ENV_ALLOWED.has(key)) continue;
+    const value = String(raw).replace(/[\r\n]/g, '').trim().slice(0, 500);
+    process.env[key] = value;
+    const rx = new RegExp(`^${key}=.*$`, 'm');
+    content = rx.test(content) ? content.replace(rx, () => `${key}=${value}`) : `${content}\n${key}=${value}`;
   }
-
-  fs.writeFileSync(ENV_PATH, content.trim() + '\n', 'utf-8');
+  try {
+    fs.writeFileSync(ENV_PATH, content.trim() + '\n', { encoding: 'utf-8', mode: 0o600 });
+  } catch (err) {
+    console.error('Aviso: não consegui gravar o .env:', err.message);
+  }
 }
 
-// Endpoint: Status geral do agente, grupos, logs e carteira completa para o Mini-CRM
-app.get('/api/status', async (req, res) => {
-  const refreshMode = req.query.refresh === 'google' ? 'from_google' : req.query.refresh === 'true';
-  const allProperties = await loadAllProperties(refreshMode);
-  const activeInventory = allProperties.filter(p => p.ativo);
-  const state = getAgentState();
-  const settings = loadSettings();
+function publicConfig() {
+  const s = loadSettings();
+  return {
+    hasGeminiKey: Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'coloque_sua_chave_aqui'),
+    googleSheetsUrl: s.googleSheetsUrl || process.env.GOOGLE_SHEETS_CSV_URL || '',
+    googleSheetsWebhookUrl: s.googleSheetsWebhookUrl || process.env.GOOGLE_SHEETS_WEBHOOK_URL || '',
+    gruposMonitorados: s.gruposMonitorados,
+    gruposMonitoradosIds: s.gruposMonitoradosIds || [],
+    modoApenasAvisar: s.modoApenasAvisar,
+    meuWhatsappAlerta: s.meuWhatsappAlerta,
+    messageTemplate: s.messageTemplate,
+    defaultMessageTemplate: DEFAULT_MESSAGE_TEMPLATE,
+    maxPhotosPerMatch: s.maxPhotosPerMatch,
+    humanTraining: s.humanTraining,
+    defaultHumanTraining: DEFAULT_HUMAN_TRAINING,
+    humanModeEnabled: s.humanModeEnabled,
+    minCriteriosParaEnvio: s.minCriteriosParaEnvio,
+    maxOfertasPorPedido: s.maxOfertasPorPedido,
+    alertarQuase: s.alertarQuase,
+    usarIaGemini: s.usarIaGemini,
+    enviarPdfQuandoPedir: s.enviarPdfQuandoPedir,
+    firstContactEnabled: s.firstContactEnabled,
+    firstContactMessage: s.firstContactMessage,
+    firstContactIgnorarAgenda: s.firstContactIgnorarAgenda,
+    firstContactAquecimentoMin: s.firstContactAquecimentoMin,
+    missedCallEnabled: s.missedCallEnabled,
+    missedCallMessage: s.missedCallMessage,
+    dailySimpleReplies: s.dailySimpleReplies,
+    assistenteAtivo: s.assistenteAtivo,
+    assistenteNumerosExtras: s.assistenteNumerosExtras,
+    resumoDiarioAtivo: s.resumoDiarioAtivo,
+    resumoDiarioHorario: s.resumoDiarioHorario,
+    pausado: s.pausado,
+    dataDirPersistente: Boolean(process.env.DATA_DIR)
+  };
+}
 
+// ---------------------------------------------------------------------------
+// Status / visão geral
+// ---------------------------------------------------------------------------
+app.get('/api/status', ah(async (req, res) => {
+  const all = await sheets.loadAllProperties(req.query.refresh === 'google' ? 'from_google' : false);
+  const state = wa.getAgentState();
+  const qrSvg = state.latestQrCode ? await QRCode.toString(state.latestQrCode, { type: 'svg', margin: 1 }) : null;
   res.json({
     ...state,
-    config: {
-      hasGeminiKey: Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'coloque_sua_chave_aqui'),
-      googleSheetsUrl: settings.googleSheetsUrl || process.env.GOOGLE_SHEETS_CSV_URL || '',
-      googleSheetsWebhookUrl: settings.googleSheetsWebhookUrl || process.env.GOOGLE_SHEETS_WEBHOOK_URL || '',
-      gruposMonitorados: settings.gruposMonitorados !== undefined ? settings.gruposMonitorados : (process.env.GRUPOS_MONITORADOS || 'teste'),
-      modoApenasAvisar: settings.modoApenasAvisar !== undefined ? Boolean(settings.modoApenasAvisar) : ((process.env.MODO_APENAS_AVISAR || 'false').toLowerCase() === 'true'),
-      meuWhatsappAlerta: settings.meuWhatsappAlerta || process.env.MEU_WHATSAPP_ALERTA || '5562900000000',
-      messageTemplate: settings.messageTemplate,
-      defaultMessageTemplate: DEFAULT_MESSAGE_TEMPLATE,
-      maxPhotosPerMatch: settings.maxPhotosPerMatch || 5,
-      humanTraining: settings.humanTraining,
-      defaultHumanTraining: DEFAULT_HUMAN_TRAINING,
-      humanModeEnabled: settings.humanModeEnabled !== false,
-      firstContactEnabled: settings.firstContactEnabled !== false,
-      firstContactMessage: settings.firstContactMessage,
-      missedCallEnabled: settings.missedCallEnabled !== false,
-      missedCallMessage: settings.missedCallMessage,
-      dailySimpleReplies: settings.dailySimpleReplies || []
-    },
-    daily: getDailyState(),
-    inventoryCount: activeInventory.length,
-    totalCount: allProperties.length,
-    inventory: allProperties
+    latestQrCode: undefined,
+    qrSvg,
+    config: publicConfig(),
+    daily: daily.getDailyState(),
+    contatos: contacts.stats(),
+    hoje: metrics.getDay(),
+    semana: metrics.lastDays(7),
+    inventoryCount: all.filter(p => p.ativo).length,
+    totalCount: all.length,
+    radarHoje: radar.since(Date.now() - require('./src/timeutil').nowParts().minutes * 60000).length
+  });
+}));
+
+// ---------------------------------------------------------------------------
+// Carteira
+// ---------------------------------------------------------------------------
+app.get('/api/inventory', ah(async (req, res) => {
+  res.json({ inventory: await sheets.loadAllProperties(req.query.refresh === 'google' ? 'from_google' : false) });
+}));
+
+app.post('/api/upload-photos', (req, res) => {
+  upload.array('photos', 20)(req, res, err => {
+    if (err) return res.status(err.status || 400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Foto maior que 10 MB.' : err.message });
+    res.json({ ok: true, files: (req.files || []).map(f => f.filename) });
   });
 });
 
-// Endpoint: Upload de fotos do computador pelo Mini-CRM
-app.post('/api/upload-photos', upload.array('photos', 15), (req, res) => {
-  try {
-    const files = (req.files || []).map(f => f.filename);
-    res.json({ ok: true, files });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.post('/api/property', ah(async (req, res) => {
+  const created = await sheets.createProperty(req.body || {});
+  wa.addLog('CRM_CADASTRO', `Imóvel #${created.id} (${created.tipo} - ${created.setor}) cadastrado.`);
+  res.json({ ok: true, property: created, inventory: await sheets.loadAllProperties() });
+}));
 
-// Endpoint: Cadastrar novo imóvel pelo Mini-CRM (já valida e grava na planilha)
-app.post('/api/property', async (req, res) => {
-  try {
-    const created = await createProperty(req.body);
-    const allProperties = await loadAllProperties(true);
-    addLog('CRM_CADASTRO', `Imóvel #${created.id} (${created.tipo} - ${created.setor}) salvo na planilha.`);
-    res.json({ ok: true, property: created, inventory: allProperties });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.put('/api/property/:id', ah(async (req, res) => {
+  const updated = await sheets.updateProperty(req.params.id, req.body || {});
+  wa.addLog('CRM_EDICAO', `Imóvel #${updated.id} atualizado.`);
+  res.json({ ok: true, property: updated, inventory: await sheets.loadAllProperties() });
+}));
 
-// Endpoint: Editar imóvel ou alternar Ativo/Inativo pelo Mini-CRM
-app.put('/api/property/:id', async (req, res) => {
-  try {
-    const updated = await updateProperty(req.params.id, req.body);
-    const allProperties = await loadAllProperties(true);
-    addLog('CRM_EDICAO', `Imóvel #${updated.id} (${updated.tipo} - ${updated.setor}) atualizado na planilha.`);
-    res.json({ ok: true, property: updated, inventory: allProperties });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.delete('/api/property/:id', ah(async (req, res) => {
+  const inventory = await sheets.deleteProperty(req.params.id);
+  vitrine.removePost(req.params.id);
+  wa.addLog('CRM_EXCLUSAO', `Imóvel #${req.params.id} excluído.`);
+  res.json({ ok: true, inventory });
+}));
 
-// Endpoint: Excluir imóvel pelo Mini-CRM
-app.delete('/api/property/:id', async (req, res) => {
-  try {
-    const allProperties = await deleteProperty(req.params.id);
-    addLog('CRM_EXCLUSAO', `Imóvel #${req.params.id} removido da planilha.`);
-    res.json({ ok: true, inventory: allProperties });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Endpoint: Baixar a planilha ideal (.csv) pronta para abrir no Excel ou importar no Google Sheets
 app.get('/api/export-csv', (req, res) => {
-  if (!fs.existsSync(LOCAL_CSV_PATH)) {
-    return res.status(404).send('Planilha não encontrada.');
-  }
-  res.download(LOCAL_CSV_PATH, 'carteira_imoveis_ideal.csv');
+  if (!fs.existsSync(sheets.LOCAL_CSV_PATH)) return res.status(404).send('Planilha não encontrada.');
+  res.download(sheets.LOCAL_CSV_PATH, 'carteira_imoveis.csv');
 });
 
-// Endpoint: Ler o código do Google Apps Script para copiar com 1 clique
 app.get('/api/google-script', (req, res) => {
-  const scriptPath = path.join(__dirname, 'GOOGLE_SHEETS_SCRIPT.gs');
-  const code = fs.existsSync(scriptPath) ? fs.readFileSync(scriptPath, 'utf-8') : '';
-  res.json({ code });
+  const p = path.join(__dirname, 'GOOGLE_SHEETS_SCRIPT.gs');
+  res.json({ code: fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : '' });
 });
 
-// Endpoint: Simulador de mensagens de grupo para testar a IA e os filtros na hora
-app.post('/api/simulate', async (req, res) => {
-  try {
-    const { message, senderName } = req.body;
-    const inventory = await loadInventory();
-    const analysis = await analyzeMessageAndMatch(message, senderName || 'Cliente Teste', inventory);
+// ---------------------------------------------------------------------------
+// Simulador
+// ---------------------------------------------------------------------------
+app.post('/api/simulate', ah(async (req, res) => {
+  const message = str(req.body?.message, 4000);
+  const senderName = str(req.body?.senderName, 80) || 'Corretor Teste';
+  const inventory = await sheets.loadInventory();
+  const analysis = await analyzeMessageAndMatch(message, senderName, inventory, { useAi: req.body?.useAi !== false });
+  const previews = (analysis.matches || []).map(p => ({ property: p, whatsappMessagePreview: formatOutreachMessage(senderName, message, p, analysis) }));
+  res.json({ analysis: { ...analysis, quase: (analysis.quase || []).map(q => ({ id: q.property.id, setor: q.property.setor, tipo: q.property.tipo, unknowns: q.unknowns })) }, previews });
+}));
 
-    const previews = (analysis.matches || []).map(prop => ({
-      property: prop,
-      whatsappMessagePreview: formatOutreachMessage(
-        senderName || 'João',
-        message,
-        prop,
-        analysis
-      )
-    }));
+// ---------------------------------------------------------------------------
+// Configurações
+// ---------------------------------------------------------------------------
+const BOOL_KEYS = ['modoApenasAvisar', 'humanModeEnabled', 'alertarQuase', 'usarIaGemini', 'enviarPdfQuandoPedir', 'firstContactEnabled', 'firstContactIgnorarAgenda', 'missedCallEnabled', 'assistenteAtivo', 'resumoDiarioAtivo', 'pausado'];
+const TEXT_KEYS = { messageTemplate: 3000, humanTraining: 5000, firstContactMessage: 1000, missedCallMessage: 1000, gruposMonitorados: 500, assistenteNumerosExtras: 200 };
+const NUM_KEYS = { maxPhotosPerMatch: [0, 10], minCriteriosParaEnvio: [1, 6], maxOfertasPorPedido: [1, 5], firstContactAquecimentoMin: [0, 240] };
 
-    // Mesmo se não houver imóvel compatível na carteira, gera prévia de como a secretária falaria
-    const sampleHumanPreview = analysis.isLookingForProperty
-      ? formatOutreachMessage(
-          senderName || 'João',
-          message,
-          (analysis.matches && analysis.matches[0]) || {
-            tipo: analysis.criteria?.tipo || 'Apartamento',
-            setor: analysis.criteria?.setor || 'Setor Bueno',
-            regiao: analysis.criteria?.regiao || 'Região Sul',
-            mobiliado: analysis.criteria?.mobiliado || 'SIM',
-            quartos: analysis.criteria?.quartos || 3,
-            tamanho_m2: analysis.criteria?.tamanho_m2 || 95,
-            valor: analysis.criteria?.valor_maximo || 480000,
-            descricao: 'Imóvel exemplo para demonstrar o tom humano da secretária.'
-          },
-          analysis
-        )
-      : null;
-
-    res.json({
-      analysis,
-      previews,
-      sampleHumanPreview
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+app.post('/api/config', ah(async (req, res) => {
+  const b = req.body || {};
+  const upd = {};
+  for (const k of BOOL_KEYS) if (b[k] !== undefined) upd[k] = Boolean(b[k]);
+  for (const [k, max] of Object.entries(TEXT_KEYS)) if (typeof b[k] === 'string') upd[k] = b[k].slice(0, max);
+  for (const [k, [min, max]] of Object.entries(NUM_KEYS)) if (b[k] !== undefined) upd[k] = Math.min(max, Math.max(min, parseInt(b[k], 10) || 0));
+  if (typeof b.resumoDiarioHorario === 'string' && /^\d{2}:\d{2}$/.test(b.resumoDiarioHorario)) upd.resumoDiarioHorario = b.resumoDiarioHorario;
+  if (Array.isArray(b.gruposMonitoradosIds)) upd.gruposMonitoradosIds = b.gruposMonitoradosIds.map(String).filter(g => /@g\.us$/.test(g)).slice(0, 100);
+  if (Array.isArray(b.dailySimpleReplies)) {
+    upd.dailySimpleReplies = b.dailySimpleReplies.slice(0, 50).map(r => ({ trigger: str(r.trigger, 100), response: str(r.response, 1000), active: r.active !== false })).filter(r => r.trigger && r.response);
   }
-});
-
-// Endpoint: Salvar configurações pelo Painel Web (incluindo Modelo de Mensagem, Treinamento Humano e Limite de 5 Fotos)
-app.post('/api/config', async (req, res) => {
-  try {
-    const {
-      geminiApiKey,
-      googleSheetsUrl,
-      googleSheetsWebhookUrl,
-      gruposMonitorados,
-      modoApenasAvisar,
-      meuWhatsappAlerta,
-      messageTemplate,
-      maxPhotosPerMatch,
-      humanTraining,
-      humanModeEnabled,
-      firstContactEnabled,
-      firstContactMessage,
-      missedCallEnabled,
-      missedCallMessage,
-      dailySimpleReplies
-    } = req.body;
-    const updates = {};
-
-    if (geminiApiKey !== undefined && geminiApiKey.trim() !== '') {
-      updates.GEMINI_API_KEY = geminiApiKey.trim();
+  if (typeof b.meuWhatsappAlerta === 'string') upd.meuWhatsappAlerta = b.meuWhatsappAlerta.replace(/\D/g, '').slice(0, 13);
+  const envUpd = {};
+  if (typeof b.geminiApiKey === 'string' && b.geminiApiKey.trim()) envUpd.GEMINI_API_KEY = b.geminiApiKey.trim();
+  for (const [k, envK] of [['googleSheetsUrl', 'GOOGLE_SHEETS_CSV_URL'], ['googleSheetsWebhookUrl', 'GOOGLE_SHEETS_WEBHOOK_URL']]) {
+    if (typeof b[k] === 'string') {
+      const v = b[k].trim();
+      if (v && !/^https:\/\/(docs\.google\.com|script\.google\.com)\//.test(v)) return res.status(400).json({ error: 'Use um link do Google Sheets / Apps Script (https).' });
+      upd[k] = v;
+      envUpd[envK] = v;
     }
-    if (googleSheetsUrl !== undefined) {
-      updates.GOOGLE_SHEETS_CSV_URL = googleSheetsUrl.trim();
-    }
-    if (googleSheetsWebhookUrl !== undefined) {
-      updates.GOOGLE_SHEETS_WEBHOOK_URL = googleSheetsWebhookUrl.trim();
-    }
-    if (gruposMonitorados !== undefined) {
-      updates.GRUPOS_MONITORADOS = gruposMonitorados.trim();
-    }
-    if (modoApenasAvisar !== undefined) {
-      updates.MODO_APENAS_AVISAR = String(Boolean(modoApenasAvisar));
-    }
-    if (meuWhatsappAlerta !== undefined) {
-      updates.MEU_WHATSAPP_ALERTA = meuWhatsappAlerta.replace(/\D/g, '');
-    }
-
-    updateEnvFile(updates);
-
-    saveSettings({
-      ...(googleSheetsUrl !== undefined ? { googleSheetsUrl: googleSheetsUrl.trim() } : {}),
-      ...(googleSheetsWebhookUrl !== undefined ? { googleSheetsWebhookUrl: googleSheetsWebhookUrl.trim() } : {}),
-      ...(gruposMonitorados !== undefined ? { gruposMonitorados: gruposMonitorados.trim() } : {}),
-      ...(modoApenasAvisar !== undefined ? { modoApenasAvisar: Boolean(modoApenasAvisar) } : {}),
-      ...(meuWhatsappAlerta !== undefined ? { meuWhatsappAlerta: meuWhatsappAlerta.replace(/\D/g, '') } : {}),
-      ...(messageTemplate !== undefined ? { messageTemplate } : {}),
-      ...(maxPhotosPerMatch !== undefined ? { maxPhotosPerMatch: Number(maxPhotosPerMatch) || 5 } : {}),
-      ...(humanTraining !== undefined ? { humanTraining } : {}),
-      ...(humanModeEnabled !== undefined ? { humanModeEnabled: Boolean(humanModeEnabled) } : {}),
-      ...(firstContactEnabled !== undefined ? { firstContactEnabled: Boolean(firstContactEnabled) } : {}),
-      ...(firstContactMessage !== undefined ? { firstContactMessage } : {}),
-      ...(missedCallEnabled !== undefined ? { missedCallEnabled: Boolean(missedCallEnabled) } : {}),
-      ...(missedCallMessage !== undefined ? { missedCallMessage: missedCallMessage } : {}),
-      ...(dailySimpleReplies !== undefined ? { dailySimpleReplies } : {})
-    });
-
-    await loadAllProperties(true);
-    addLog('CONFIG', 'Configurações atualizadas pelo Painel Web.');
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
+  if (upd.meuWhatsappAlerta !== undefined) envUpd.MEU_WHATSAPP_ALERTA = upd.meuWhatsappAlerta;
+  updateEnvFile(envUpd);
+  saveSettings(upd);
+  wa.addLog('CONFIG', 'Configurações atualizadas pelo painel.');
+  res.json({ ok: true, config: publicConfig() });
+}));
+
+app.post('/api/test-alert', ah(async (req, res) => {
+  const result = await wa.sendOwnerWhatsAppAlert('🔔 *TESTE DE ALERTA*\n\n✅ Seu número de alerta está funcionando. Responda *ajuda* para ver os comandos da sua secretária.');
+  res.json(result);
+}));
+
+// ---------------------------------------------------------------------------
+// WhatsApp / grupos
+// ---------------------------------------------------------------------------
+app.get('/api/groups', ah(async (req, res) => {
+  if (req.query.refresh) await wa.refreshGroups();
+  res.json({ groups: wa.getAgentState().connectedGroups });
+}));
+
+app.post('/api/whatsapp/reset-session', ah(async (req, res) => {
+  await wa.resetSession();
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// Radar de buscas
+// ---------------------------------------------------------------------------
+app.get('/api/radar', (req, res) => {
+  res.json({ items: radar.list({ limit: Math.min(500, parseInt(req.query.limit, 10) || 200), decision: req.query.decision || undefined }), demanda: radar.demand(Number(req.query.dias) || 30) });
 });
 
-// Endpoint para testar o envio de Alerta diretamente para o WhatsApp do Corretor
-app.post('/api/test-alert', async (req, res) => {
-  try {
-    const { phone } = req.body || {};
-    if (phone && phone.replace(/\D/g, '').length >= 10) {
-      const clean = phone.replace(/\D/g, '');
-      updateEnvFile({ MEU_WHATSAPP_ALERTA: clean });
-      saveSettings({ meuWhatsappAlerta: clean });
-    }
-    const result = await sendOwnerWhatsAppAlert(
-      `🔔 *TESTE DE ALERTA DA SUA SECRETÁRIA IMOBILIÁRIA!*\n\n` +
-      `✅ Seu número de alerta está configurado e funcionando perfeitamente.\n` +
-      `Sempre que surgir uma oportunidade 100% compatível nos grupos — ou sempre que a secretária ficar com alguma dúvida e bloquear o envio por precaução — você receberá o aviso aqui na hora!`
-    );
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
+app.post('/api/radar/:code/enviar', ah(async (req, res) => {
+  const r = await wa.approveAlert(null, String(req.params.code).toUpperCase(), req.body?.propId ? String(req.body.propId) : null);
+  res.status(r.ok ? 200 : 400).json(r.ok ? r : { error: r.message });
+}));
+
+// ---------------------------------------------------------------------------
+// Vitrine
+// ---------------------------------------------------------------------------
+app.get('/api/vitrine', (req, res) => res.json(vitrine.getState()));
+app.post('/api/vitrine/config', (req, res) => res.json({ ok: true, config: vitrine.updateConfig(req.body || {}) }));
+app.post('/api/vitrine/gerar', ah(async (req, res) => {
+  const inv = await sheets.loadInventory();
+  let n = 0;
+  for (const p of inv) if (!vitrine.getState().posts[p.id]) {
+    vitrine.upsertPost(p);
+    n++;
   }
+  res.json({ ok: true, criados: n, state: vitrine.getState() });
+}));
+app.post('/api/vitrine/post/:id', ah(async (req, res) => {
+  const p = await sheets.getPropertyById(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Imóvel não encontrado.' });
+  const foto = typeof req.body?.foto === 'string' ? sheets.sanitizePhotoRef(req.body.foto) : undefined;
+  res.json({ ok: true, post: vitrine.upsertPost(p, { texto: typeof req.body?.texto === 'string' ? req.body.texto : undefined, foto }) });
+}));
+app.post('/api/vitrine/post/:id/status', (req, res) => {
+  const st = String(req.body?.status || '');
+  if (!['APROVADO', 'REPROVADO', 'PENDENTE'].includes(st)) return res.status(400).json({ error: 'Status inválido.' });
+  const post = vitrine.setStatus(req.params.id, st);
+  if (!post) return res.status(404).json({ error: 'Post não encontrado.' });
+  res.json({ ok: true, post });
+});
+app.post('/api/vitrine/enviar-agora', ah(async (req, res) => {
+  const r = await vitrine.runSlot(wa.api, await sheets.loadInventory(), 'manual', wa.addLog);
+  res.status(r.ok ? 200 : 400).json(r.ok ? r : { error: r.error });
+}));
+
+// ---------------------------------------------------------------------------
+// Prospecção
+// ---------------------------------------------------------------------------
+app.get('/api/prospeccao', (req, res) => res.json(prospeccao.getState()));
+app.get('/api/contatos', (req, res) => res.json({ contatos: contacts.listContacts() }));
+app.post('/api/prospeccao/parse', (req, res) => res.json({ contatos: prospeccao.parseContactsInput(str(req.body?.texto, 200000)) }));
+app.post('/api/prospeccao/config', (req, res) => res.json({ ok: true, config: prospeccao.updateConfig(req.body || {}) }));
+app.post('/api/prospeccao/campanha', ah(async (req, res) => {
+  const b = req.body || {};
+  const camp = prospeccao.createCampaign({ nome: str(b.nome, 80), mensagem: str(b.mensagem, 3000), imagem: b.imagem ? sheets.sanitizePhotoRef(b.imagem) : '', contatos: Array.isArray(b.contatos) ? b.contatos.slice(0, 1000) : [] });
+  if (b.iniciar) prospeccao.setCampaignStatus(camp.id, 'ATIVA');
+  res.json({ ok: true, state: prospeccao.getState() });
+}));
+app.post('/api/prospeccao/campanha/:id/status', ah(async (req, res) => {
+  prospeccao.setCampaignStatus(req.params.id, String(req.body?.status || ''));
+  res.json({ ok: true, state: prospeccao.getState() });
+}));
+app.delete('/api/prospeccao/campanha/:id', (req, res) => {
+  prospeccao.deleteCampaign(req.params.id);
+  res.json({ ok: true, state: prospeccao.getState() });
+});
+app.get('/api/prospeccao/campanha/:id', (req, res) => {
+  const c = prospeccao.getCampaign(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Campanha não encontrada.' });
+  res.json(c);
 });
 
-// Endpoint exclusivo da Página 2 (Dia a Dia): Liberar um número da memória para testar 1ª mensagem
-app.post('/api/daily/reset-contact', (req, res) => {
-  const { phone } = req.body || {};
-  const removed = removeKnownContact(phone);
-  addDailyLog('TESTE', `Número ${phone} liberado na memória para teste de 1ª mensagem.`);
+// ---------------------------------------------------------------------------
+// Cérebro (lugares personalizados)
+// ---------------------------------------------------------------------------
+app.get('/api/cerebro', (req, res) => {
   res.json({
-    ok: true,
-    removed,
-    message: `✅ Número ${phone} liberado! A próxima mensagem que ele te mandar no privado será tratada como 1ª mensagem ("Nova Conversa").`
+    base: { bairros: BASE.bairros.length, condominios: BASE.condominios.length, marcos: BASE.marcos.length, cidades: BASE.cidades.length },
+    bairros: BASE.bairros.map(b => ({ nome: b.name, regiao: b.region })),
+    condominios: BASE.condominios.map(c => c.name),
+    marcos: BASE.marcos.map(m => ({ nome: m.name, bairro: m.bairro })),
+    cidades: BASE.cidades.map(c => c.name),
+    extraPlaces: loadSettings().extraPlaces
   });
 });
-
-// Endpoint de Keep-Alive (Despertador automático para nuvem gratuita não dormir)
-app.get('/ping', (req, res) => {
-  res.status(200).json({ ok: true, status: 'awake', time: new Date().toISOString() });
+app.post('/api/cerebro/lugares', (req, res) => {
+  const list = Array.isArray(req.body?.extraPlaces) ? req.body.extraPlaces : [];
+  const clean = list.slice(0, 500).map(p => ({
+    name: str(p.name, 80).trim(),
+    kind: ['bairro', 'condominio', 'edificio', 'marco', 'cidade'].includes(p.kind) ? p.kind : 'edificio',
+    bairro: str(p.bairro, 80).trim(),
+    region: str(p.region, 20).trim(),
+    aliases: str(Array.isArray(p.aliases) ? p.aliases.join(',') : p.aliases, 300)
+  })).filter(p => p.name.length >= 3);
+  saveSettings({ extraPlaces: clean });
+  res.json({ ok: true, extraPlaces: clean });
 });
 
-// ============================================================================
-// PÁGINA 1: SECRETÁRIA DOS GRUPOS DE IMÓVEIS + MINI-CRM (/)
-// ============================================================================
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'src', 'dashboard.html'));
+// ---------------------------------------------------------------------------
+// Atendimento
+// ---------------------------------------------------------------------------
+app.post('/api/daily/reset-contact', (req, res) => {
+  const phone = str(req.body?.phone, 30).replace(/\D/g, '');
+  if (phone.length < 10) return res.status(400).json({ error: 'Número inválido.' });
+  const removed = contacts.forget(phone);
+  daily.addDailyLog('TESTE', `Número ${phone} liberado para testar a 1ª mensagem.`);
+  res.json({ ok: true, removed, message: `Número ${phone} liberado: a próxima mensagem dele será tratada como 1ª mensagem.` });
 });
 
-// ============================================================================
-// PÁGINA 2: SAUDAÇÕES, 1ª MENSAGEM, LIGAÇÕES E DIA A DIA (/dia-a-dia)
-// ============================================================================
-app.get('/dia-a-dia', (req, res) => {
-  res.sendFile(path.join(__dirname, 'src', 'dashboard-diario.html'));
-});
+app.use('/api', (req, res) => res.status(404).json({ error: 'Rota não encontrada.' }));
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => res.status(err.status || 500).json({ error: err.status ? err.message : 'Erro interno' }));
 
-const PORT = process.env.PORT || 3000;
+// ---------------------------------------------------------------------------
+// Partida
+// ---------------------------------------------------------------------------
+function shutdown() {
+  try {
+    contacts.flush();
+    radar.flush();
+  } catch {}
+  process.exit(0);
+}
 
-app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`\n🚀 MINI-CRM & SECRETÁRIA IMOBILIÁRIA ATIVO EM: http://0.0.0.0:${PORT}`);
-  console.log(`📂 Planilha ideal (${LOCAL_CSV_PATH}) carregada com ${(await loadInventory()).length} imóveis disponíveis.`);
-  startWhatsAppAgent().catch(err => {
-    console.error('Erro ao iniciar WhatsApp:', err);
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, '0.0.0.0', async () => {
+    console.log(`\n🚀 SECRETÁRIA IMOBILIÁRIA ATIVA EM: http://0.0.0.0:${PORT}`);
+    console.log(`📂 Dados em: ${DATA_DIR}${process.env.DATA_DIR ? '' : ' (defina DATA_DIR para um disco persistente na nuvem)'}`);
+    console.log(`🏠 ${(await sheets.loadInventory()).length} imóveis ativos.`);
+    if (!auth.isConfigured()) auth.getSetupCode();
+    wa.startWhatsAppAgent().catch(err => console.error('Erro ao iniciar WhatsApp:', err));
+    scheduler.start(wa.api, wa.addLog);
+
+    const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL;
+    if (externalUrl) {
+      setInterval(() => fetch(`${externalUrl.replace(/\/$/, '')}/ping`).catch(() => {}), 10 * 60 * 1000);
+    }
   });
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+}
 
-  // Despertador automático para manter o Render gratuito acordado 24h
-  const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL;
-  if (externalUrl) {
-    console.log(`⏰ Despertador 24h ativado para: ${externalUrl}/ping`);
-    setInterval(() => {
-      fetch(`${externalUrl.replace(/\/$/, '')}/ping`).catch(() => {});
-    }, 10 * 60 * 1000); // A cada 10 minutos
-  }
-});
+module.exports = { app };
