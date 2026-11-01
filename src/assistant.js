@@ -151,7 +151,7 @@ const HELP = `${BOT} *Oi, eu sou a BIGA!* Seus comandos:
 🪟 *Vitrine*
 • *vitrine* (pendentes) · *vitrine 12* (prévia) · *aprovar 12* · *reprovar 12*
 
-💾 *backup* (arquivo com toda a memória)
+💾 *backup* (arquivo com toda a memória) · 🔄 *atualizar* · *versão*
 ⚙️ *status* · *pausar* · *retomar* · *ajuda*`;
 
 async function reply(wa, chatJid, text) {
@@ -225,6 +225,22 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
   }
 
   let m;
+  if (/^(atualizar|atualiza|atualizacao|update)$/.test(norm)) {
+    const sistema = require('./sistema');
+    try {
+      sistema.requestUpdate();
+      await reply(wa, chatJid, `🔄 Atualização pedida (versão atual ${sistema.version() || '?'}). Se houver versão nova, eu reinicio em 1 a 2 minutos e continuo conectada.`);
+    } catch (err) {
+      await reply(wa, chatJid, err.message);
+    }
+    return true;
+  }
+  if (/^(versao|versão)$/.test(norm)) {
+    const sistema = require('./sistema');
+    const ult = sistema.lastResults(1)[0];
+    await reply(wa, chatJid, `Versão ${sistema.version() || '?'}${ult ? `\nÚltima atualização: ${ult}` : ''}`);
+    return true;
+  }
   if (/^(backup|copia de seguranca|salvar memoria)$/.test(norm)) {
     if (!ctx.sendBackup) return false;
     await reply(wa, chatJid, 'Gerando o backup da memória…');

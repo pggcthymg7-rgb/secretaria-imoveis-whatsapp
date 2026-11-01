@@ -624,6 +624,9 @@
         <div class="stack" id="bkForm"><span class="label">Backup da memória</span><p class="body muted">Um arquivo com carteira, fotos, configurações, contatos conhecidos, radar, vitrine e prospecção. Use para mudar de servidor ou se algo der errado. Todo domingo a BIGA também manda um backup no seu WhatsApp.</p>
           ${toggle('backupSemanalAtivo', c.backupSemanalAtivo !== false, 'Backup semanal no meu WhatsApp')}
           <div class="row tight"><a class="btn-ghost accent" href="/api/backup" download>Baixar backup agora</a><label class="btn-ghost" style="cursor:pointer">Restaurar backup…<input type="file" id="restoreInput" accept=".gz,application/gzip"></label></div></div>
+        <div class="stack" id="sysBox"><span class="label">Sistema</span><p class="body muted">Versão em uso: <b>${esc((S.sistema && S.sistema.versao) || '?')}</b>. A BIGA se atualiza sozinha toda madrugada; aqui você puxa a versão nova na hora, direto do celular.</p>
+          ${S.sistema && S.sistema.resultados && S.sistema.resultados.length ? `<div class="log">${S.sistema.resultados.map(r => `<div>${esc(r)}</div>`).join('')}</div>` : ''}
+          <div class="row tight"><button class="btn-ghost accent" data-action="atualizarAgora" ${S.sistema && !S.sistema.naVM ? 'disabled' : ''}>Atualizar agora</button></div></div>
         <div class="stack"><span class="label">Sessão</span><p class="body muted">Desconectar o WhatsApp apaga a sessão e gera um novo QR Code.</p><div class="row tight"><button class="btn-ghost danger" data-action="resetWa">Desconectar WhatsApp</button><button class="btn-ghost" data-action="logout">Sair do painel</button></div></div>
       </div></section>`);
   }
@@ -650,7 +653,10 @@
     atendimento: loadStatus,
     cerebro: async () => (S.cerebro = await api('GET', '/api/cerebro')),
     simulador: async () => {},
-    ajustes: loadStatus
+    ajustes: async () => {
+      await loadStatus();
+      S.sistema = await api('GET', '/api/sistema').catch(() => null);
+    }
   };
   const views = { inicio: viewHome, hoje: viewGeral, geral: viewGeral, garimpo: (...a) => viewGarimpo(...a), radar: viewRadar, carteira: viewCarteira, vitrine: viewVitrine, prospeccao: viewProspeccao, atendimento: viewAtendimento, cerebro: viewCerebro, simulador: viewSimulador, ajustes: viewAjustes };
 
@@ -763,6 +769,14 @@
   }
 
   const actions = {
+    atualizarAgora: async () => {
+      const r = await api('POST', '/api/sistema/atualizar');
+      toast(r.message);
+      setTimeout(async () => {
+        S.sistema = await api('GET', '/api/sistema').catch(() => S.sistema);
+        if (S.route === 'ajustes') render();
+      }, 120000);
+    },
     filtroLead: el => {
       S.filtroLead = el.dataset.v;
       render();

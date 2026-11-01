@@ -221,6 +221,15 @@ Type=oneshot
 Environment=APP_DIR=$APP_DIR BRANCH=$BRANCH
 ExecStart=/usr/bin/env bash $APP_DIR/deploy/atualizar.sh
 EOF
+cat > /etc/systemd/system/secretaria-update-now.path <<EOF
+[Unit]
+Description=Atualizar a BIGA quando pedido pelo painel ou WhatsApp
+[Path]
+PathExists=$DATA_DIR/atualizar-agora
+Unit=secretaria-update.service
+[Install]
+WantedBy=multi-user.target
+EOF
 cat > /etc/systemd/system/secretaria-update.timer <<EOF
 [Unit]
 Description=Atualizacao automatica da Secretaria (04:15)
@@ -234,7 +243,7 @@ EOF
 
 timedatectl set-timezone America/Sao_Paulo 2>/dev/null || true
 systemctl daemon-reload || warn "systemd indisponível"
-systemctl enable --now secretaria-backup.timer secretaria-update.timer >/dev/null 2>&1 || warn "timers não habilitados"
+systemctl enable --now secretaria-backup.timer secretaria-update.timer secretaria-update-now.path >/dev/null 2>&1 || warn "timers não habilitados"
 systemctl enable secretaria.service >/dev/null 2>&1 || true
 systemctl restart secretaria.service || warn "não consegui iniciar o serviço (veja: journalctl -u secretaria -n 50)"
 
