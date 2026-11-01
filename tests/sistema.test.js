@@ -51,3 +51,53 @@ test('API do sistema exige login', async () => {
     server.close();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Corretores extras (uma BIGA por corretor na mesma VM)
+const { execFileSync, spawnSync } = require('child_process');
+const os = require('os');
+const ROOT = path.join(__dirname, '..');
+
+test('corretores.conf é válido: a Laura tem BIGA própria em endereço e porta próprios', () => {
+  const out = execFileSync('bash', [path.join(ROOT, 'deploy/corretores.sh'), '--checar'], { env: { ...process.env, APP_DIR: ROOT }, encoding: 'utf-8' });
+  const linhas = out.trim().split('\n').map(l => l.split(' '));
+  const laura = linhas.find(l => l[0] === 'laura');
+  assert.deepEqual(laura, ['laura', 'laura.147-15-87-168.sslip.io', '3001']);
+  assert.ok(linhas.every(l => l[2] !== '3000'), 'porta 3000 é da BIGA principal');
+});
+
+test('corretores.sh recusa linhas perigosas ou repetidas (roda como root)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'conf-'));
+  const ruins = ['Laura x.sslip.io 3001', 'ana x.sslip.io;rm 3001', 'ana x.sslip.io 3000', 'ana x.sslip.io 3001 extra', 'ana a.sslip.io 3001\nbia b.sslip.io 3001', 'ana$(id) a.sslip.io 3001'];
+  for (const conteudo of ruins) {
+    const f = path.join(dir, 'c.conf');
+    fs.writeFileSync(f, conteudo + '\n');
+    const r = spawnSync('bash', [path.join(ROOT, 'deploy/corretores.sh'), '--checar'], { env: { ...process.env, CORRETORES_CONF: f }, encoding: 'utf-8' });
+    assert.notEqual(r.status, 0, `deveria recusar: ${conteudo}`);
+  }
+});
+
+test('SETUP_CODE fixo vira o código de criar senha da BIGA nova (e só enquanto não há senha)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'biga-nova-'));
+  const env = { ...process.env, DATA_DIR: dir, SETUP_CODE: 'abcdef1234', PAINEL_SENHA: '' };
+  const code = execFileSync(process.execPath, ['-e', "process.stdout.write(String(require('./src/auth').getSetupCode()))"], { cwd: ROOT, env, encoding: 'utf-8' });
+  assert.equal(code.trim().split('\n').pop(), 'ABCDEF1234');
+  const fraco = execFileSync(process.execPath, ['-e', "process.stdout.write(String(require('./src/auth').getSetupCode()))"], { cwd: ROOT, env: { ...env, SETUP_CODE: '12' }, encoding: 'utf-8' });
+  assert.notEqual(fraco.trim().split('\n').pop(), '12', 'código curto demais é ignorado');
+});
+
+test('Comando "corretores" mostra o endereço e o código da Laura para o João', async () => {
+  const sent = [];
+  const wa = { sendText: async (j, t) => sent.push(t) };
+  fs.rmSync(path.join(tmp, 'corretores.json'), { force: true });
+  assert.equal(await assistant.handleOwnerMessage(wa, { chatJid: 'x@s.whatsapp.net', text: 'corretores' }), true);
+  assert.match(sent[0], /Nenhuma BIGA/);
+  fs.writeFileSync(path.join(tmp, 'corretores.json'), JSON.stringify([{ nome: 'laura', url: 'https://laura.147-15-87-168.sslip.io', codigo: 'ABCDEF1234' }]));
+  await assistant.handleOwnerMessage(wa, { chatJid: 'x@s.whatsapp.net', text: 'corretores' });
+  assert.match(sent[1], /Laura.*laura\.147-15-87-168\.sslip\.io/s);
+  assert.match(sent[1], /ABCDEF1234/);
+  fs.writeFileSync(path.join(tmp, 'corretores.json'), JSON.stringify([{ nome: 'laura', url: 'https://laura.147-15-87-168.sslip.io', codigo: '' }]));
+  await assistant.handleOwnerMessage(wa, { chatJid: 'x@s.whatsapp.net', text: 'corretores' });
+  assert.match(sent[2], /senha já criada/);
+  assert.doesNotMatch(sent[2], /ABCDEF1234/);
+});
