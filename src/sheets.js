@@ -2,70 +2,42 @@ const fs = require('fs');
 const path = require('path');
 const { parse } = require('csv-parse/sync');
 
-const LOCAL_CSV_PATH = path.join(__dirname, '..', 'imoveis.csv');
+const { CSV_PATH } = require('./paths');
+const { BASE } = require('./brain/locations');
+
+const LOCAL_CSV_PATH = CSV_PATH;
 const CSV_HEADERS = [
   'id',
   'tipo',
+  'negociacao',
+  'edificio',
   'setor',
+  'cidade',
   'regiao',
   'mobiliado',
   'quartos',
+  'suites',
+  'vagas',
   'tamanho_m2',
+  'area_terreno',
   'valor',
+  'valor_agio',
+  'condominio',
+  'idade_anos',
+  'aceita_permuta',
+  'aceita_financiamento',
+  'lazer',
+  'caracteristicas',
   'descricao',
   'fotos',
-  'ativo'
+  'ativo',
+  'atualizado_em'
 ];
 
 let cachedProperties = [];
 let lastFetchTime = 0;
 const CACHE_TTL_MS = 30 * 1000;
-
-/**
- * Mapa inteligente de Setores -> Regiões (ex: Goiânia e Região) para que
- * se a pessoa pedir "na região sul" mesmo quando você só preencheu o Setor,
- * o sistema já saiba a região automaticamente!
- */
-const SETOR_TO_REGIAO_MAP = {
-  'regiao sul': [
-    'setor bueno', 'bueno', 'setor marista', 'marista', 'setor bela vista', 'bela vista',
-    'jardim america', 'parque amazonia', 'setor pedro ludovico', 'pedro ludovico',
-    'jardim goias', 'alto da gloria', 'nova suica', 'setor nova suica', 'serrinha',
-    'setor serrinha', 'vila rosa', 'jardim atlantico', 'alphaville', 'portal do sol',
-    'jardins valencia', 'jardins verona', 'jardins milao', 'jardins parma', 'jardins paris',
-    'jardins atenas', 'jardins lisboa', 'jardins madri', 'jardins monaco', 'vila redencao',
-    'parque atheneu', 'jardim da luz', 'jardim maria inez', 'vila maria', 'areiao'
-  ],
-  'regiao sudoeste': [
-    'setor sudoeste', 'sudoeste', 'cidade jardim', 'eldorado', 'parque oeste',
-    'parque oeste industrial', 'jardim europa', 'vila alps', 'jardim vila boa',
-    'residencial eldorado', 'celina park', 'novo horizonte', 'faicalville',
-    'setor faicalville', 'jardim presidente', 'jardim planalto', 'vila maua',
-    'residencial granville', 'jardins viena', 'jardim ana lucia', 'recreio dos bandeirantes',
-    'garavelo', 'jardim marques de abreu'
-  ],
-  'regiao oeste': [
-    'setor oeste', 'oeste', 'setor aeroviario', 'aeroviario', 'campinas', 'setor campinas',
-    'setor coimbra', 'coimbra', 'setor castelo branco', 'castelo branco',
-    'setor dos funcionarios', 'vila canaa', 'capuava', 'ipiranga', 'jardim petropolis'
-  ],
-  'regiao central': [
-    'setor central', 'centro', 'setor sul', 'setor aeroporto', 'aeroporto',
-    'setor universitario', 'universitario', 'leste universitario', 'setor leste universitario',
-    'vila nova', 'setor vila nova', 'setor marechal rondon', 'norte ferroviario',
-    'setor norte ferroviario', 'centro oeste', 'setor centro oeste', 'crimeia oeste', 'crimeia leste'
-  ],
-  'regiao norte': [
-    'setor jao', 'jao', 'setor santa genoveva', 'santa genoveva', 'setor urias magalhaes',
-    'urias magalhaes', 'passeio das aguas', 'jardim guanabara', 'vila itatiaia',
-    'goiania 2', 'goiania ii', 'setor negrao de lima', 'negrao de lima', 'aldeia do vale',
-    'jardim balneario meia ponte', 'residencial humaita', 'vila nova canaa'
-  ],
-  'regiao leste': [
-    'jardim novo mundo', 'novo mundo', 'agua branca', 'setor leste vila nova', 'riviera',
-    'parque flamboyant', 'flamboyant', 'aruana', 'jardim brasil', 'jardim california'
-  ]
-};
+let writeQueue = Promise.resolve();
 
 function normalizeStr(str) {
   if (!str) return '';
@@ -87,7 +59,7 @@ function hasExactTerm(textNorm, termNorm) {
 }
 
 /**
- * Deduz a região automaticamente pelo setor se não tiver sido informada
+ * Deduz a região automaticamente pelo bairro (usando o Mapa de Goiânia do cérebro)
  */
 function inferRegiaoFromSetor(setor, regiaoInformada) {
   if (regiaoInformada && String(regiaoInformada).trim() !== '') {
@@ -95,16 +67,11 @@ function inferRegiaoFromSetor(setor, regiaoInformada) {
   }
   const sNorm = normalizeStr(setor);
   if (!sNorm) return '';
-
-  // Verifica primeiro termos compostos (ex: "parque oeste", "setor sudoeste") antes de termos curtos
-  for (const [regKey, setores] of Object.entries(SETOR_TO_REGIAO_MAP)) {
-    const sorted = [...setores].sort((a, b) => b.length - a.length);
-    if (sorted.some(st => hasExactTerm(sNorm, st))) {
-      const label = regKey.replace('regiao ', '');
-      return 'Região ' + label.charAt(0).toUpperCase() + label.slice(1);
-    }
-  }
-  return '';
+  const sorted = BASE.bairros
+    .flatMap(b => b.aliases.map(a => ({ a: normalizeStr(a), b })))
+    .sort((x, y) => y.a.length - x.a.length);
+  const hit = sorted.find(({ a }) => a.length >= 4 && hasExactTerm(sNorm, a));
+  return hit ? `Região ${hit.b.region}` : '';
 }
 
 /**
@@ -178,14 +145,49 @@ function sanitizeSetor(setor) {
     .join(' ');
 }
 
+function cleanYesNo(v) {
+  const n = normalizeStr(v);
+  if (['sim', 's', 'true', '1', 'aceita'].includes(n)) return 'SIM';
+  if (['nao', 'n', 'false', '0'].includes(n)) return 'NAO';
+  return '';
+}
+
+function cleanNegociacao(v) {
+  const n = normalizeStr(v);
+  if (/agio/.test(n)) return 'AGIO';
+  if (/alug|loca/.test(n)) return /venda/.test(n) ? 'VENDA_ALUGUEL' : 'ALUGUEL';
+  return 'VENDA';
+}
+
+function cleanText(v, max = 4000) {
+  return String(v ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').trim().slice(0, max);
+}
+
+function optionalNumber(v) {
+  if (v === undefined || v === null || String(v).trim() === '') return '';
+  const n = parseNumber(v);
+  return n || n === 0 ? n : '';
+}
+
 /**
- * Padroniza um objeto de imóvel garantindo que todos os campos (incluindo regiao e mobiliado) estejam no formato ideal
+ * Referência de foto segura: URL http(s) ou apenas o NOME do arquivo dentro de /fotos
+ * (impede caminhos como ../../.env)
+ */
+function sanitizePhotoRef(ref) {
+  const r = normalizeImageUrl(ref);
+  if (!r) return '';
+  if (/^https?:\/\//i.test(r)) return r.slice(0, 600);
+  return path.basename(r).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
+}
+
+/**
+ * Padroniza um objeto de imóvel garantindo que todos os campos estejam no formato ideal
  */
 function normalizePropertyRecord(row, idx = 0) {
-  const id = String(row.id || idx + 1).trim();
-  const tipo = String(row.tipo || 'Apartamento').trim();
-  const setor = sanitizeSetor(row.setor || row.bairro || '');
-  const descricao = String(row.descricao || row.detalhes || '').trim();
+  const id = String(row.id || idx + 1).trim().replace(/[^0-9A-Za-z_-]/g, '').slice(0, 20) || String(idx + 1);
+  const tipo = cleanText(row.tipo || 'Apartamento', 40);
+  const setor = sanitizeSetor(cleanText(row.setor || row.bairro || '', 80));
+  const descricao = cleanText(row.descricao || row.detalhes || '');
   const regiao = inferRegiaoFromSetor(setor, row.regiao);
   const mobiliado = inferMobiliado(row.mobiliado, descricao);
   const quartos = Math.round(parseNumber(row.quartos ?? row.qts ?? row.dormitorios));
@@ -194,12 +196,12 @@ function normalizePropertyRecord(row, idx = 0) {
 
   let fotos = [];
   if (Array.isArray(row.fotos)) {
-    fotos = row.fotos.map(normalizeImageUrl).filter(Boolean);
+    fotos = row.fotos.map(sanitizePhotoRef).filter(Boolean);
   } else {
     const rawFotos = String(row.fotos || row.foto || row.imagens || '');
     fotos = rawFotos
-      .split(/[;|,]/)
-      .map(normalizeImageUrl)
+      .split(/[;|]|,(?=\s*(?:https?:|[\w-]+\.(?:jpe?g|png|webp)))/i)
+      .map(sanitizePhotoRef)
       .filter(Boolean);
   }
 
@@ -214,15 +216,29 @@ function normalizePropertyRecord(row, idx = 0) {
   return {
     id,
     tipo,
+    negociacao: cleanNegociacao(row.negociacao),
+    edificio: cleanText(row.edificio || row.condominio_nome || row.empreendimento || '', 80),
     setor,
+    cidade: cleanText(row.cidade || 'Goiânia', 60) || 'Goiânia',
     regiao,
     mobiliado,
     quartos,
+    suites: optionalNumber(row.suites),
+    vagas: optionalNumber(row.vagas),
     tamanho_m2,
+    area_terreno: optionalNumber(row.area_terreno),
     valor,
+    valor_agio: row.valor_agio !== undefined && String(row.valor_agio).trim() !== '' ? parsePrice(row.valor_agio) : '',
+    condominio: row.condominio !== undefined && String(row.condominio).trim() !== '' ? parsePrice(row.condominio) : '',
+    idade_anos: optionalNumber(row.idade_anos),
+    aceita_permuta: cleanYesNo(row.aceita_permuta),
+    aceita_financiamento: cleanYesNo(row.aceita_financiamento),
+    lazer: cleanYesNo(row.lazer),
+    caracteristicas: cleanText(row.caracteristicas || '', 500),
     descricao,
-    fotos,
-    ativo
+    fotos: fotos.slice(0, 20),
+    ativo,
+    atualizado_em: cleanText(row.atualizado_em || '', 30)
   };
 }
 
@@ -240,48 +256,50 @@ function parseCsvContent(csvText) {
     .filter(item => item.setor || item.descricao);
 }
 
-async function saveAllPropertiesToSpreadsheet(properties) {
-  const escapeCsv = (val) => {
-    const str = String(val ?? '').replace(/\r?\n/g, ' ').replace(/"/g, '""');
-    return str.includes(',') || str.includes('"') || str.includes(';') ? `"${str}"` : str;
-  };
+function escapeCsv(val) {
+  let str = String(val ?? '').replace(/\r?\n/g, ' ').replace(/"/g, '""');
+  // evita injeção de fórmula ao abrir o CSV no Excel/Sheets
+  if (/^[=+\-@]/.test(str) && !/^-?\d/.test(str)) str = `'${str}`;
+  return /[,";]/.test(str) ? `"${str}"` : str;
+}
 
+function serializeCsv(properties) {
   const lines = [CSV_HEADERS.join(',')];
-
   for (const prop of properties) {
-    const fotosStr = Array.isArray(prop.fotos) ? prop.fotos.join(';') : String(prop.fotos || '');
-    const row = [
-      escapeCsv(prop.id),
-      escapeCsv(prop.tipo || 'Apartamento'),
-      escapeCsv(prop.setor || ''),
-      escapeCsv(prop.regiao || ''),
-      escapeCsv(prop.mobiliado || 'NAO'),
-      Number(prop.quartos || 0),
-      Number(prop.tamanho_m2 || 0),
-      Number(prop.valor || 0),
-      escapeCsv(prop.descricao || ''),
-      escapeCsv(fotosStr),
-      prop.ativo ? 'SIM' : 'NAO'
-    ];
+    const row = CSV_HEADERS.map(h => {
+      if (h === 'fotos') return escapeCsv(Array.isArray(prop.fotos) ? prop.fotos.join(';') : String(prop.fotos || ''));
+      if (h === 'ativo') return prop.ativo ? 'SIM' : 'NAO';
+      return escapeCsv(prop[h]);
+    });
     lines.push(row.join(','));
   }
+  return lines.join('\n') + '\n';
+}
 
-  fs.writeFileSync(LOCAL_CSV_PATH, lines.join('\n') + '\n', 'utf-8');
-  cachedProperties = properties;
-  lastFetchTime = Date.now();
+async function saveAllPropertiesToSpreadsheet(properties) {
+  const job = writeQueue.then(async () => {
+    const tmp = `${LOCAL_CSV_PATH}.tmp`;
+    fs.writeFileSync(tmp, serializeCsv(properties), 'utf-8');
+    fs.renameSync(tmp, LOCAL_CSV_PATH);
+    cachedProperties = properties;
+    lastFetchTime = Date.now();
 
-  const webhookUrl = (process.env.GOOGLE_SHEETS_WEBHOOK_URL || '').trim();
-  if (webhookUrl && webhookUrl.startsWith('https://script.google.com')) {
-    try {
-      await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'SYNC_ALL', properties })
-      });
-    } catch (err) {
-      console.error('⚠️ Aviso ao sincronizar com Google Sheets Webhook:', err.message);
+    const webhookUrl = (process.env.GOOGLE_SHEETS_WEBHOOK_URL || '').trim();
+    if (webhookUrl && webhookUrl.startsWith('https://script.google.com/')) {
+      try {
+        await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'SYNC_ALL', headers: CSV_HEADERS, properties, token: process.env.GOOGLE_SHEETS_TOKEN || '' }),
+          signal: AbortSignal.timeout(15000)
+        });
+      } catch (err) {
+        console.error('⚠️ Aviso ao sincronizar com Google Sheets Webhook:', err.message);
+      }
     }
-  }
+  });
+  writeQueue = job.catch(() => {});
+  return job;
 }
 
 function normalizeGoogleSheetsUrl(url) {
@@ -308,7 +326,7 @@ async function loadAllProperties(forceRefresh = false) {
   const sheetsUrl = normalizeGoogleSheetsUrl(process.env.GOOGLE_SHEETS_CSV_URL);
   if (sheetsUrl && forceRefresh === 'from_google') {
     try {
-      const response = await fetch(sheetsUrl);
+      const response = await fetch(sheetsUrl, { signal: AbortSignal.timeout(15000) });
       if (response.ok) {
         const csvText = await response.text();
         const imported = parseCsvContent(csvText);
@@ -347,8 +365,9 @@ async function createProperty(rawProp) {
   const newProp = normalizePropertyRecord(
     {
       ...rawProp,
-      id: rawProp.id || String(maxId + 1),
-      ativo: rawProp.ativo !== undefined ? rawProp.ativo : true
+      id: String(maxId + 1),
+      ativo: rawProp.ativo !== undefined ? rawProp.ativo : true,
+      atualizado_em: new Date().toISOString()
     },
     maxId
   );
@@ -361,12 +380,17 @@ async function createProperty(rawProp) {
 async function updateProperty(id, updates) {
   const all = await loadAllProperties(true);
   const idx = all.findIndex(item => String(item.id) === String(id));
-  if (idx === -1) throw new Error(`Imóvel #${id} não encontrado na planilha.`);
+  if (idx === -1) {
+    const e = new Error(`Imóvel #${id} não encontrado na planilha.`);
+    e.status = 404;
+    throw e;
+  }
 
   const merged = {
     ...all[idx],
     ...updates,
-    id: String(id)
+    id: String(id),
+    atualizado_em: new Date().toISOString()
   };
   all[idx] = normalizePropertyRecord(merged, idx);
   await saveAllPropertiesToSpreadsheet(all);
@@ -380,9 +404,19 @@ async function deleteProperty(id) {
   return filtered;
 }
 
+async function getPropertyById(id) {
+  const all = await loadAllProperties();
+  return all.find(p => String(p.id) === String(id)) || null;
+}
+
 module.exports = {
   LOCAL_CSV_PATH,
-  SETOR_TO_REGIAO_MAP,
+  CSV_HEADERS,
+  getPropertyById,
+  normalizePropertyRecord,
+  parseCsvContent,
+  serializeCsv,
+  sanitizePhotoRef,
   loadInventory,
   loadAllProperties,
   createProperty,
