@@ -52,3 +52,4 @@ Fomos por ciclos `/resolver-tudo`: bug real → caso no fixture → correção �
 - Graphify: workspace `joao-s-workspace-790dff`, repo `pggcthymg7-rgb/secretaria-imoveis-whatsapp`. Use `graphify_find` / `query_graph` antes de abrir arquivos inteiros.
 - Render MCP: serviço `srv-dbh7t6k9v7es73b9h0v0` (só para suspender).
 - Sempre responder em português.
+- O João é iniciante: sempre explicar em palavras simples qualquer termo técnico (PR, branch, merge, rede, etc.) quando pedir algo a ele.
