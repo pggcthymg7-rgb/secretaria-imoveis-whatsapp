@@ -1,17 +1,20 @@
+/**
+ * Configurações da secretária (settings.json dentro de DATA_DIR).
+ * Todas as chaves têm padrão; o arquivo salvo só sobrescreve o que mudou.
+ */
 const fs = require('fs');
-const path = require('path');
-
-const SETTINGS_PATH = path.join(__dirname, '..', 'settings.json');
+const { SETTINGS_PATH } = require('./paths');
 
 // ============================================================================
-// PARTE 1: CONFIGURAÇÕES DA SECRETÁRIA DOS GRUPOS DE IMÓVEIS
+// PARTE 1: SECRETÁRIA DOS GRUPOS
 // ============================================================================
-const DEFAULT_HUMAN_TRAINING = `- Se a pessoa pedir com urgência (ex: "urgente", "pra hoje", "visita hoje", "rápido", "cliente na cidade"), responda de forma ágil dizendo: "Tenho essa daqui disponível e podemos ir a qualquer horário, é só me avisar!"
-- Se for um corretor falando que tem cliente (ex: "tenho cliente", "cliente procura", "parceria"), seja parceira e diga que fazemos parceria e podemos agendar a visita no melhor horário para o cliente dele.
-- Se falarem de pagamento à vista ou investidor, destaque que é uma excelente oportunidade de negócio e se coloque à disposição para visita imediata.
-- Use sempre um tom humano, simpático e natural de WhatsApp (usando Bom dia / Boa tarde / Boa noite conforme o horário), sem parecer mensagem automática de robô.`;
+const DEFAULT_HUMAN_TRAINING = `- Se a pessoa falar "urgente" ou "pra hoje", diga: "Consigo te mostrar ainda hoje, é só me falar o horário!"
+- Se o corretor falar "parceria" ou "meu cliente", diga: "Trabalhamos em parceria, fico à disposição para a visita com o seu cliente."
+- Se falarem "à vista" ou "investidor", diga: "É uma ótima oportunidade de negócio, posso te passar os detalhes da negociação."`;
 
-const DEFAULT_MESSAGE_TEMPLATE = `{abertura_humana}
+const LEGACY_HUMAN_TRAINING_START = '- Se a pessoa pedir com urgência (ex: "urgente"';
+
+const LEGACY_MESSAGE_TEMPLATE = `{abertura_humana}
 
 🏡 *{tipo} - {setor}* ({regiao})
 🛋️ *Mobília:* {mobiliado}
@@ -24,72 +27,103 @@ const DEFAULT_MESSAGE_TEMPLATE = `{abertura_humana}
 
 {fechamento_humano}`;
 
+const DEFAULT_MESSAGE_TEMPLATE = `{abertura_humana}
+
+{resumo}
+🛋️ {mobiliado}
+💰 *{valor}*
+
+📝 {descricao}
+
+{fechamento_humano}`;
+
 // ============================================================================
-// PARTE 2: CONFIGURAÇÕES DO DIA A DIA (SAUDAÇÕES, LIGAÇÕES E RESPOSTAS SIMPLES)
+// PARTE 2: DIA A DIA (1ª mensagem, ligações, respostas rápidas)
 // ============================================================================
 const DEFAULT_FIRST_CONTACT_MESSAGE = `{saudacao}, tudo bem? Como posso te ajudar?`;
 const DEFAULT_MISSED_CALL_MESSAGE = `{saudacao}, já te retorno! Se puder enviar por mensagem, agradeço.`;
 const DEFAULT_DAILY_SIMPLE_REPLIES = [];
-const DEFAULT_OWNER_WHATSAPP_ALERT = '5562983443060';
-const DEFAULT_GRUPOS_MONITORADOS = 'teste';
+
+const DEFAULTS = {
+  // Grupos
+  gruposMonitorados: process.env.GRUPOS_MONITORADOS || '',
+  modoApenasAvisar: (process.env.MODO_APENAS_AVISAR || 'false').toLowerCase() === 'true',
+  meuWhatsappAlerta: process.env.MEU_WHATSAPP_ALERTA || '',
+  googleSheetsUrl: process.env.GOOGLE_SHEETS_CSV_URL || '',
+  googleSheetsWebhookUrl: process.env.GOOGLE_SHEETS_WEBHOOK_URL || '',
+  messageTemplate: DEFAULT_MESSAGE_TEMPLATE,
+  maxPhotosPerMatch: 5,
+  humanTraining: DEFAULT_HUMAN_TRAINING,
+  humanModeEnabled: true,
+  minCriteriosParaEnvio: 2,
+  maxOfertasPorPedido: 3,
+  alertarQuase: true,
+  usarIaGemini: true,
+  enviarPdfQuandoPedir: true,
+  extraPlaces: [],
+
+  // Dia a dia
+  firstContactEnabled: true,
+  firstContactMessage: DEFAULT_FIRST_CONTACT_MESSAGE,
+  firstContactIgnorarAgenda: true, // contato salvo na sua agenda nunca recebe a 1ª mensagem automática
+  firstContactAquecimentoMin: 20, // após conectar, espera o WhatsApp sincronizar as conversas antes de responder
+  missedCallEnabled: true,
+  missedCallMessage: DEFAULT_MISSED_CALL_MESSAGE,
+  dailySimpleReplies: DEFAULT_DAILY_SIMPLE_REPLIES,
+
+  // Assistente pessoal (chat "Mensagem para mim")
+  assistenteAtivo: true,
+  assistenteNumerosExtras: '',
+
+  // Resumo diário no seu WhatsApp
+  resumoDiarioAtivo: true,
+  resumoDiarioHorario: '19:00',
+
+  // Pausa geral (para tudo que é automático)
+  pausado: false
+};
 
 function loadSettings() {
+  let data = {};
   if (fs.existsSync(SETTINGS_PATH)) {
     try {
-      const data = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'));
-      return {
-        // Configurações Gerais e da Secretária dos Grupos
-        gruposMonitorados: data.gruposMonitorados !== undefined ? String(data.gruposMonitorados) : (process.env.GRUPOS_MONITORADOS || DEFAULT_GRUPOS_MONITORADOS),
-        modoApenasAvisar: data.modoApenasAvisar !== undefined ? Boolean(data.modoApenasAvisar) : ((process.env.MODO_APENAS_AVISAR || 'false').toLowerCase() === 'true'),
-        meuWhatsappAlerta: data.meuWhatsappAlerta || process.env.MEU_WHATSAPP_ALERTA || DEFAULT_OWNER_WHATSAPP_ALERT,
-        googleSheetsUrl: data.googleSheetsUrl !== undefined ? String(data.googleSheetsUrl) : (process.env.GOOGLE_SHEETS_CSV_URL || ''),
-        googleSheetsWebhookUrl: data.googleSheetsWebhookUrl !== undefined ? String(data.googleSheetsWebhookUrl) : (process.env.GOOGLE_SHEETS_WEBHOOK_URL || ''),
-        messageTemplate: data.messageTemplate || DEFAULT_MESSAGE_TEMPLATE,
-        maxPhotosPerMatch: Number(data.maxPhotosPerMatch || 5),
-        humanTraining: data.humanTraining !== undefined ? data.humanTraining : DEFAULT_HUMAN_TRAINING,
-        humanModeEnabled: data.humanModeEnabled !== undefined ? Boolean(data.humanModeEnabled) : true,
-
-        // Configurações da Página de Saudações & Dia a Dia
-        firstContactEnabled: data.firstContactEnabled !== undefined ? Boolean(data.firstContactEnabled) : true,
-        firstContactMessage: data.firstContactMessage || DEFAULT_FIRST_CONTACT_MESSAGE,
-        missedCallEnabled: data.missedCallEnabled !== undefined ? Boolean(data.missedCallEnabled) : true,
-        missedCallMessage: data.missedCallMessage || DEFAULT_MISSED_CALL_MESSAGE,
-        dailySimpleReplies: Array.isArray(data.dailySimpleReplies) ? data.dailySimpleReplies : DEFAULT_DAILY_SIMPLE_REPLIES
-      };
+      data = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8')) || {};
     } catch (err) {
       console.error('Erro ao ler settings.json:', err.message);
     }
   }
-  return {
-    gruposMonitorados: process.env.GRUPOS_MONITORADOS || DEFAULT_GRUPOS_MONITORADOS,
-    modoApenasAvisar: (process.env.MODO_APENAS_AVISAR || 'false').toLowerCase() === 'true',
-    meuWhatsappAlerta: process.env.MEU_WHATSAPP_ALERTA || DEFAULT_OWNER_WHATSAPP_ALERT,
-    googleSheetsUrl: process.env.GOOGLE_SHEETS_CSV_URL || '',
-    googleSheetsWebhookUrl: process.env.GOOGLE_SHEETS_WEBHOOK_URL || '',
-    messageTemplate: DEFAULT_MESSAGE_TEMPLATE,
-    maxPhotosPerMatch: 5,
-    humanTraining: DEFAULT_HUMAN_TRAINING,
-    humanModeEnabled: true,
-    firstContactEnabled: true,
-    firstContactMessage: DEFAULT_FIRST_CONTACT_MESSAGE,
-    missedCallEnabled: true,
-    missedCallMessage: DEFAULT_MISSED_CALL_MESSAGE,
-    dailySimpleReplies: DEFAULT_DAILY_SIMPLE_REPLIES
-  };
+  const merged = { ...DEFAULTS, ...data };
+  // Migração: o modelo antigo padrão vira o novo modelo (mais limpo)
+  if (!merged.messageTemplate || merged.messageTemplate.trim() === LEGACY_MESSAGE_TEMPLATE.trim()) {
+    merged.messageTemplate = DEFAULT_MESSAGE_TEMPLATE;
+  }
+  if (typeof merged.humanTraining === 'string' && merged.humanTraining.startsWith(LEGACY_HUMAN_TRAINING_START)) {
+    merged.humanTraining = DEFAULT_HUMAN_TRAINING;
+  }
+  if (!Array.isArray(merged.dailySimpleReplies)) merged.dailySimpleReplies = [];
+  if (!Array.isArray(merged.extraPlaces)) merged.extraPlaces = [];
+  merged.maxPhotosPerMatch = Math.min(10, Math.max(0, Number(merged.maxPhotosPerMatch) || 5));
+  merged.modoApenasAvisar = Boolean(merged.modoApenasAvisar);
+  return merged;
 }
 
 function saveSettings(updates) {
-  const current = loadSettings();
-  const next = {
-    ...current,
-    ...updates
-  };
-  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(next, null, 2), 'utf-8');
-  return next;
+  let current = {};
+  if (fs.existsSync(SETTINGS_PATH)) {
+    try {
+      current = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8')) || {};
+    } catch {}
+  }
+  const next = { ...current, ...updates };
+  const tmp = `${SETTINGS_PATH}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2), 'utf-8');
+  fs.renameSync(tmp, SETTINGS_PATH);
+  return loadSettings();
 }
 
 module.exports = {
   SETTINGS_PATH,
+  DEFAULTS,
   DEFAULT_MESSAGE_TEMPLATE,
   DEFAULT_HUMAN_TRAINING,
   DEFAULT_FIRST_CONTACT_MESSAGE,
