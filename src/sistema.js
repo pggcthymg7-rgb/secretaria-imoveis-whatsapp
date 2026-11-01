@@ -46,4 +46,14 @@ function lastResults(n = 5) {
   }
 }
 
-module.exports = { version, requestUpdate, lastResults };
+/** BIGAs dos corretores extras (a VM grava DATA_DIR/corretores.json na BIGA principal) */
+function corretores() {
+  try {
+    const lista = JSON.parse(fs.readFileSync(dataPath('corretores.json'), 'utf-8'));
+    return Array.isArray(lista) ? lista.filter(c => c && typeof c.nome === 'string' && typeof c.url === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+module.exports = { version, requestUpdate, lastResults, corretores };

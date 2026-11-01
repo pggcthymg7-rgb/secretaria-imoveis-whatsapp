@@ -141,7 +141,7 @@
             <div class="logo">${LOGO}</div>
             <span class="label">${setup ? 'Primeiro acesso' : 'Acesso protegido'}</span>
             <h1 class="heading-lg">${setup ? 'Vamos começar.' : 'Bem-vindo de volta.'}</h1>
-            <p class="body muted">${setup ? 'Digite o código de configuração que aparece no log do servidor e escolha uma senha com pelo menos 8 caracteres.' : 'A BIGA cuidou dos grupos, das ligações e das novas conversas. Entre para ver o que aconteceu.'}</p>
+            <p class="body muted">${setup ? 'Digite o código de configuração (quem instalou a BIGA te passa; ele também aparece no log do servidor) e escolha uma senha com pelo menos 8 caracteres.' : 'A BIGA cuidou dos grupos, das ligações e das novas conversas. Entre para ver o que aconteceu.'}</p>
             <form id="loginForm" class="stack" autocomplete="on">
               ${setup ? field('codigo', 'Código de configuração', '', { ph: 'Ex: 9F3A1C2B', attrs: 'autocomplete="off" required' }) : ''}
               ${field('senha', setup ? 'Nova senha' : 'Senha', '', { type: 'password', ph: '••••••••', attrs: `required autocomplete="${setup ? 'new-password' : 'current-password'}"` })}

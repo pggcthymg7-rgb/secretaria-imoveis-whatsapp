@@ -25,7 +25,8 @@
 ## 3. Próximos passos sugeridos (para você aprovar)
 - [ ] Revisar os imóveis da carteira preenchendo edifício, suítes, vagas, condomínio e permuta
 - [ ] Ensinar no Cérebro os edifícios/condomínios que você mais trabalha (ex.: Metropolitan, Brookfield)
-- [ ] Multiusuário (produto): separar DATA_DIR por corretor e login por usuário
+- [x] BIGA própria para a Laura (uma BIGA por corretor na mesma VM: WhatsApp, carteira, senha e análises separadas)
+- [ ] Multiusuário (produto): vários logins num site só
 
 ## 4. Mudança para a máquina virtual gratuita (24h, memória permanente)
 - [x] Backup e restauração de toda a memória (painel, comando `backup` no WhatsApp e backup semanal automático)
