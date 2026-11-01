@@ -1,4 +1,6 @@
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
+// Chaves salvas pelo painel ficam na pasta de dados persistente (na VM o código é somente leitura)
+if (process.env.DATA_DIR) require('dotenv').config({ path: require('path').join(process.env.DATA_DIR, '.env'), override: true, quiet: true });
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -79,7 +81,7 @@ const upload = multer({
 });
 
 // Atualiza variáveis no .env (somente chaves permitidas e sem quebra de linha)
-const ENV_PATH = path.join(ROOT_DIR, '.env');
+const ENV_PATH = process.env.DATA_DIR ? path.join(DATA_DIR, '.env') : path.join(ROOT_DIR, '.env');
 const ENV_ALLOWED = new Set(['GEMINI_API_KEY', 'GOOGLE_SHEETS_CSV_URL', 'GOOGLE_SHEETS_WEBHOOK_URL', 'MEU_WHATSAPP_ALERTA']);
 function updateEnvFile(updates) {
   let content = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf-8') : '';
@@ -424,15 +426,16 @@ function shutdown() {
 
 if (require.main === module) {
   const PORT = process.env.PORT || 3000;
-  app.listen(PORT, '0.0.0.0', async () => {
-    console.log(`\n🚀 SECRETÁRIA IMOBILIÁRIA ATIVA EM: http://0.0.0.0:${PORT}`);
+  const HOST = process.env.HOST || '0.0.0.0';
+  app.listen(PORT, HOST, async () => {
+    console.log(`\n🚀 SECRETÁRIA IMOBILIÁRIA ATIVA EM: http://${HOST}:${PORT}${process.env.PUBLIC_URL ? ` (público: ${process.env.PUBLIC_URL})` : ''}`);
     console.log(`📂 Dados em: ${DATA_DIR}${process.env.DATA_DIR ? '' : ' (defina DATA_DIR para um disco persistente na nuvem)'}`);
     console.log(`🏠 ${(await sheets.loadInventory()).length} imóveis ativos.`);
     if (!auth.isConfigured()) auth.getSetupCode();
     wa.startWhatsAppAgent().catch(err => console.error('Erro ao iniciar WhatsApp:', err));
     scheduler.start(wa.api, wa.addLog);
 
-    const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL;
+    const externalUrl = process.env.RENDER_EXTERNAL_URL;
     if (externalUrl) {
       setInterval(() => fetch(`${externalUrl.replace(/\/$/, '')}/ping`).catch(() => {}), 10 * 60 * 1000);
     }
