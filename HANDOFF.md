@@ -10,7 +10,7 @@ BIGA é a secretária do João (corretor em Goiânia). Ela fica conectada ao Wha
 ## Status (01/11/2026)
 - **No ar** na VM Oracle grátis: https://147-15-87-168.sslip.io — WhatsApp CONECTADO.
 - Código final em `main` (bde3762, v4.1). A VM se atualiza sozinha ~04:15 e, a partir de 02/11, também pelo botão "Atualizar agora" (Ajustes › Sistema) ou pelo comando `atualizar`.
-- Testes: 62/62 passando (`npm run verify`) — com o mapa OSM agora versionado (ver sessão 01/11 abaixo).
+- Testes: 66/66 passando (`npm run verify`) — com o mapa OSM agora versionado (ver sessão 01/11 abaixo).
 - **Falta o João:** suspender o Render; colocar a chave Brave/Google e o token Meta no Garimpo.
 
 ## Decisões importantes
@@ -40,11 +40,19 @@ Fomos por ciclos `/resolver-tudo`: bug real → caso no fixture → correção �
 - O Overpass recusa conexões vindas da nuvem do Claude (mesmo com rede total). Solução: workflow `.github/workflows/mapa-osm.yml` — o GitHub baixa o mapa, roda `npm test` e grava `src/brain/data/mapa-osm.json` no branch (546 bairros, 408 condomínios, 90 edifícios). Roda ao mudar o workflow/script, pelo botão "Run workflow" e toda segunda 03:17 (só no `main`).
 - PR #5 com merge em `main` (df28ac1). VM atualizada pelo comando `atualizar` e confirmada com `versão` = df28ac1 em 01/11.
 
+## BIGA da Laura (namorada do João, corretora) — 01/11/2026
+- Modelo: **uma BIGA por corretor na mesma VM**. Mesmo código (`/opt/secretaria`), tudo o mais separado: usuário Linux `secretaria-laura`, `DATA_DIR=/var/lib/secretaria-laura`, `/etc/secretaria-laura.env`, serviço `secretaria-laura`, porta 3001, endereço https://laura.147-15-87-168.sslip.io, backup próprio (03:40, `/var/backups/secretaria-laura`), WhatsApp, carteira, senha, preferências e análises dela.
+- Lista de corretores: `deploy/corretores.conf` (`nome endereço porta`). Para mais um corretor: nova linha (porta 3002…) → PR → merge → `atualizar` duas vezes.
+- `deploy/corretores.sh` (root, idempotente, valida cada linha) cria tudo; chamado pelo `deploy/atualizar.sh` (cria quando falta; reinicia todas quando há código novo). Se o Caddy não validar, ele tira o `import` e o painel do João não cai.
+- Senha dela: a VM gera `SETUP_CODE` (no env dela) e grava em `/var/lib/secretaria/corretores.json`; o João manda `corretores` no "Mensagem para mim" e vê endereço + código. O código some quando ela cria a senha.
+- **1ª vez**: o `atualizar` roda a cópia antiga do script, então precisa mandar `atualizar` **duas vezes** (a 2ª cria a BIGA dela). Depois: `corretores`.
+- Testado aqui: instância vazia sobe sem a carteira do João; código errado recusado/certo cria senha; script rodado como root com stubs de systemctl/caddy; idempotência; backup. **Não testado na VM real** ainda.
+
 ## Próximos passos (BACKLOG_TAREFAS.md)
 1. ~~Confirmar atualização pelo celular~~ — feito em 01/11 (df28ac1).
 2. Revisar os imóveis da carteira: edifício, suítes, vagas, condomínio, permuta.
 3. Ensinar no Cérebro os edifícios que ele mais trabalha (Metropolitan, Brookfield).
-4. Multiusuário — **em andamento (01/11)**: a namorada do João (corretora) vai ter a BIGA dela. Plano escolhido: **uma BIGA por corretor na mesma VM** (o código usa `DATA_DIR` global no carregamento dos módulos; multi-tenant num processo só seria refatoração grande). Cada uma: serviço systemd próprio, `DATA_DIR` próprio (`/var/lib/secretaria-<nome>`), porta própria, senha própria, WhatsApp próprio e endereço próprio (`<nome>.147-15-87-168.sslip.io` no Caddy). Mesmo código, atualização única. Esperando o João responder: número de WhatsApp dela, carteira separada ou compartilhada, nome/apelido para o endereço.
+4. Multiusuário — **feito para a Laura (01/11), ver seção abaixo**. Virar produto de verdade (vários logins num site só) fica para depois.
 5. Opcional: deixar o repositório privado (aí a VM vai precisar de token para o git).
 
 ## Ferramentas para a próxima sessão
