@@ -44,7 +44,7 @@ Fomos por ciclos `/resolver-tudo`: bug real → caso no fixture → correção �
 1. ~~Confirmar atualização pelo celular~~ — feito em 01/11 (df28ac1).
 2. Revisar os imóveis da carteira: edifício, suítes, vagas, condomínio, permuta.
 3. Ensinar no Cérebro os edifícios que ele mais trabalha (Metropolitan, Brookfield).
-4. Multiusuário (virar produto): um `DATA_DIR` e um login por corretor.
+4. Multiusuário — **em andamento (01/11)**: a namorada do João (corretora) vai ter a BIGA dela. Plano escolhido: **uma BIGA por corretor na mesma VM** (o código usa `DATA_DIR` global no carregamento dos módulos; multi-tenant num processo só seria refatoração grande). Cada uma: serviço systemd próprio, `DATA_DIR` próprio (`/var/lib/secretaria-<nome>`), porta própria, senha própria, WhatsApp próprio e endereço próprio (`<nome>.147-15-87-168.sslip.io` no Caddy). Mesmo código, atualização única. Esperando o João responder: número de WhatsApp dela, carteira separada ou compartilhada, nome/apelido para o endereço.
 5. Opcional: deixar o repositório privado (aí a VM vai precisar de token para o git).
 
 ## Ferramentas para a próxima sessão
