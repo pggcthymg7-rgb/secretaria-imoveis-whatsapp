@@ -1,3 +1,14 @@
+# ✅ Entrega v4.1 — Atualizar a BIGA pelo celular
+
+- **Ajustes › Sistema**: mostra a versão em uso e as últimas atualizações, e tem o botão **Atualizar agora**.
+- **WhatsApp**: comandos `atualizar` e `versão` no "Mensagem para mim".
+- **Como funciona**: o painel só cria um pedido na pasta de dados. Quem atualiza é o sistema da VM, com o mesmo procedimento seguro da madrugada: baixa só a `main`, verifica, reinicia e volta para a versão anterior se algo falhar.
+- **Ativação**: entra sozinho na **próxima atualização automática** (~04:15). Daí em diante não precisa mais do Cloud Shell.
+- **Testado** numa VM Ubuntu 24.04 com systemd, reproduzindo a sua: versão v4 → atualização da madrugada (instala o gatilho) → botão no painel → versão nova no ar e resultado registrado. `npm run verify`: 41 arquivos, 0 erros · 62/62 testes.
+- **Segurança**: rotas exigem login e o cabeçalho anti-CSRF; o app não ganhou nenhum privilégio novo.
+
+---
+
 # ✅ Entrega v4 — BIGA: mapa ampliado, painel novo e agente Garimpo
 
 ## O que foi feito
