@@ -200,7 +200,7 @@ async function sendBackup(chatJid = null) {
     radar.flush();
   } catch {}
   const buf = backup.createBackup();
-  const caption = `${assistant.BOT} Backup da sua secretária (${(buf.length / 1024 / 1024).toFixed(1)} MB). Guarde este arquivo: com ele você restaura tudo em Ajustes › Backup.`;
+  const caption = `${assistant.BOT} Backup da BIGA (${(buf.length / 1024 / 1024).toFixed(1)} MB). Guarde este arquivo: com ele você restaura tudo em Ajustes › Backup.`;
   const name = backup.backupFileName();
   if (chatJid) {
     await rawSend(chatJid, { document: buf, fileName: name, mimetype: 'application/gzip', caption });
@@ -352,7 +352,7 @@ async function handleGroupMessage(msg, remoteJid) {
 
   if (analysis.decision === 'ENVIAR') {
     if (settings.modoApenasAvisar || settings.pausado) {
-      radar.update(item.code, { decision: 'AVISAR', motivo: settings.pausado ? 'Secretária pausada' : 'Modo apenas avisar' });
+      radar.update(item.code, { decision: 'AVISAR', motivo: settings.pausado ? 'BIGA pausada' : 'Modo apenas avisar' });
       await sendOwnerWhatsAppAlert(
         `🚨 *PEDIDO COMPATÍVEL* (${item.code})\n👥 ${groupInfo.subject}\n👤 ${senderName} (${link})\n💬 "${text.slice(0, 600)}"\n\n🏠 ${analysis.matches.map(m => `#${m.id} ${m.tipo} · ${m.setor}`).join('\n🏠 ')}\n\nResponda *enviar ${item.code}* para eu mandar agora.`
       );
@@ -536,7 +536,7 @@ async function startWhatsAppAgent() {
 
         if (!isGroup && loadSettings().assistenteAtivo !== false && isOwnerChat(msg)) {
           const text = extractText(msg);
-          if (text.startsWith(assistant.BOT) || /^(🚨|✅ \*ENVIEI|🤔 \*CONFIRA|📊 \*RESUMO|🔔|💾)/.test(text)) continue;
+          if (text.startsWith(assistant.BOT) || /^(🚨|✅ \*ENVIEI|🤔 \*CONFIRA|📊 \*RESUMO|🔔|💾|⛏️)/.test(text)) continue;
           const hasImage = Boolean(msg.message.imageMessage || msg.message.ephemeralMessage?.message?.imageMessage);
           await assistant.handleOwnerMessage(
             { sendText, sendImage, sendPdf },

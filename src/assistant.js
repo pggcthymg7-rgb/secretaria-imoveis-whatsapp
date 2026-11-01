@@ -133,7 +133,7 @@ function applyFieldEdit(prop, text) {
 // ---------------------------------------------------------------------------
 // Comandos
 // ---------------------------------------------------------------------------
-const HELP = `${BOT} *Comandos da sua secretária*
+const HELP = `${BOT} *Oi, eu sou a BIGA!* Seus comandos:
 
 🏠 *Cadastro rápido*
 • *cadastrar* apto 3q 2 suítes 98m² setor Bueno ed. Solar 650 mil aceita permuta
