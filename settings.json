@@ -1,7 +1,6 @@
 {
   "gruposMonitorados": "teste",
   "modoApenasAvisar": false,
-  "meuWhatsappAlerta": "5562983443060",
   "googleSheetsUrl": "",
   "googleSheetsWebhookUrl": "",
   "messageTemplate": "{abertura_humana}\n\n🏡 *{tipo} - {setor}* ({regiao})\n🛋️ *Mobília:* {mobiliado}\n🛏️ *Quartos:* {quartos} quartos\n📐 *Tamanho:* {tamanho} m²\n💰 *Valor:* {valor}\n\n📝 *Descrição:*\n{descricao}\n\n{fechamento_humano}",

@@ -23,7 +23,12 @@
 - [x] Novo painel com login e visual padronizado
 
 ## 3. Próximos passos sugeridos (para você aprovar)
-- [ ] Mover a secretária para uma VM gratuita (Oracle Always Free) com `DATA_DIR` — fim do QR Code a cada reinício
 - [ ] Revisar os imóveis da carteira preenchendo edifício, suítes, vagas, condomínio e permuta
 - [ ] Ensinar no Cérebro os edifícios/condomínios que você mais trabalha (ex.: Metropolitan, Brookfield)
 - [ ] Multiusuário (produto): separar DATA_DIR por corretor e login por usuário
+
+## 4. Mudança para a máquina virtual gratuita (24h, memória permanente)
+- [x] Backup e restauração de toda a memória (painel, comando `backup` no WhatsApp e backup semanal automático)
+- [x] Instalador automático da VM (Node, serviço 24h, HTTPS, firewall, backup diário e atualização automática)
+- [x] Instalação sem SSH pelo celular (cloud-init) + guia passo a passo Oracle/Google
+- [ ] Migração do Render para a VM: criar a conta Oracle e a VM (passos 1–5 do GUIA_VM_GRATUITA.md) — **precisa de você** (cadastro com cartão)

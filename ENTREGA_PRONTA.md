@@ -1,4 +1,56 @@
-# ✅ Entrega — Secretária Imobiliária v3
+# ✅ Entrega v3.1 — Máquina virtual gratuita, 24h e com memória permanente
+
+## O problema
+No Render gratuito o disco é apagado a cada reinício ou publicação. Isso apagava a sessão do WhatsApp (QR Code de novo), a memória de contatos (motivo principal da "1ª mensagem para todo mundo"), o radar e os cadastros feitos pelo painel.
+
+## O que foi feito
+| Item | Arquivo |
+|---|---|
+| **Instalador da VM** (Ubuntu 22/24; Oracle, Google ou qualquer VPS): Node 22, usuário dedicado, memória em `/var/lib/secretaria`, segredos em `/etc/secretaria.env` (640), serviço systemd que sobe no boot e reinicia se cair, HTTPS grátis (Caddy + sslip.io), firewall 80/443 (inclui as regras da Oracle), swap automático, fuso de Brasília | `deploy/instalar-vm.sh` |
+| **Atualização automática diária** com verificação e **volta para a versão anterior** se falhar | `deploy/atualizar.sh` |
+| **Backup diário local** (14 dias) | criado pelo instalador |
+| **Instalação sem terminal**: script para colar ao criar a VM | `deploy/cloud-init.sh` |
+| **Backup e restauração de toda a memória**: carteira, fotos, configurações, contatos, radar, vitrine, prospecção. Painel (Ajustes › Backup da memória), comando `backup` no WhatsApp e envio automático todo domingo no "Mensagem para mim" | `src/backup.js` |
+| App: escuta só em `127.0.0.1` atrás do HTTPS; chaves salvas pelo painel ficam na pasta permanente | `index.js` |
+| **Guia passo a passo pelo celular** (Oracle São Paulo e alternativa Google) | `GUIA_VM_GRATUITA.md` |
+
+## Testes
+- `npm run verify` → **35 arquivos, 0 erros · 51 testes, 51 passando** (4 novos de backup: ida e volta, arquivo malicioso, arquivo inválido, API com e sem login).
+- **Instalação real testada** num Ubuntu 24.04 com systemd (em contêiner):
+
+| Verificação | Resultado |
+|---|---|
+| Instalação do zero | ✅ concluída, serviço ativo e habilitado no boot |
+| Processo roda sem privilégios (usuário `secretaria`) | ✅ |
+| HTTPS pelo Caddy, cookie `Secure` | ✅ |
+| Porta interna 3000 inacessível de fora | ✅ |
+| Acesso sem login | ✅ 401 |
+| **Reboot da máquina** | ✅ voltou sozinha, carteira e chave do Gemini preservadas |
+| Backup diário e timers agendados | ✅ |
+| Atualização para versão nova | ✅ atualizou e verificou a saúde |
+| **Atualização com versão quebrada** | ✅ detectou o erro e voltou para a anterior |
+| Reinstalar por cima | ✅ memória e senha preservadas |
+| Restaurar backup pelo painel | ✅ restaurou e o serviço reiniciou sozinho |
+
+## Auditoria de segurança
+| Ponto | Situação |
+|---|---|
+| Rotas novas de backup/restauração | ✅ exigem login (e cabeçalho anti-CSRF na restauração) |
+| Restauração com nomes maliciosos (`../`, `.env`, `.html`) | ✅ ignorados (testado) |
+| Backup não leva a sessão do WhatsApp nem o hash da senha | ✅ |
+| Instalador não imprime a senha; segredos só em `/etc/secretaria.env` (root/grupo) | ✅ |
+| Serviço com `ProtectSystem=strict`, `NoNewPrivileges` e escrita só na pasta de dados | ✅ |
+| **Repositório público** expunha seu número em `settings.json` | ✅ removido do arquivo (⚠️ continua no histórico do Git) |
+| Dependências | ✅ `npm audit`: 0 vulnerabilidades |
+| Atualização automática usa a `main` do GitHub | ⚠️ quem puder publicar na `main` atualiza a VM. Hoje só você tem esse acesso |
+
+## O que depende de você
+1. **Criar a conta na Oracle e a VM** seguindo os Passos 1 a 5 do `GUIA_VM_GRATUITA.md` (exige cadastro com cartão, que não posso fazer por você).
+2. Recomendado: tornar o repositório **privado** no GitHub (as fotos e a carteira estão públicas). Se fizer isso, me avise: a instalação passa a precisar de um token de leitura.
+
+---
+
+# ✅ Entrega anterior — Secretária Imobiliária v3
 
 Branch: `claude/lucid-maxwell-eyigut`
 

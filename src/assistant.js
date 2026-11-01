@@ -151,6 +151,7 @@ const HELP = `${BOT} *Comandos da sua secretária*
 🪟 *Vitrine*
 • *vitrine* (pendentes) · *vitrine 12* (prévia) · *aprovar 12* · *reprovar 12*
 
+💾 *backup* (arquivo com toda a memória)
 ⚙️ *status* · *pausar* · *retomar* · *ajuda*`;
 
 async function reply(wa, chatJid, text) {
@@ -224,6 +225,12 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
   }
 
   let m;
+  if (/^(backup|copia de seguranca|salvar memoria)$/.test(norm)) {
+    if (!ctx.sendBackup) return false;
+    await reply(wa, chatJid, 'Gerando o backup da memória…');
+    await ctx.sendBackup(chatJid);
+    return true;
+  }
   if (/^(ajuda|menu|comandos|help)$/.test(norm)) {
     await reply(wa, chatJid, HELP);
     return true;

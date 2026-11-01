@@ -1,4 +1,6 @@
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
+// Chaves salvas pelo painel ficam na pasta de dados persistente (na VM o código é somente leitura)
+if (process.env.DATA_DIR) require('dotenv').config({ path: require('path').join(process.env.DATA_DIR, '.env'), override: true, quiet: true });
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -79,7 +81,7 @@ const upload = multer({
 });
 
 // Atualiza variáveis no .env (somente chaves permitidas e sem quebra de linha)
-const ENV_PATH = path.join(ROOT_DIR, '.env');
+const ENV_PATH = process.env.DATA_DIR ? path.join(DATA_DIR, '.env') : path.join(ROOT_DIR, '.env');
 const ENV_ALLOWED = new Set(['GEMINI_API_KEY', 'GOOGLE_SHEETS_CSV_URL', 'GOOGLE_SHEETS_WEBHOOK_URL', 'MEU_WHATSAPP_ALERTA']);
 function updateEnvFile(updates) {
   let content = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf-8') : '';
@@ -129,6 +131,7 @@ function publicConfig() {
     assistenteNumerosExtras: s.assistenteNumerosExtras,
     resumoDiarioAtivo: s.resumoDiarioAtivo,
     resumoDiarioHorario: s.resumoDiarioHorario,
+    backupSemanalAtivo: s.backupSemanalAtivo,
     pausado: s.pausado,
     dataDirPersistente: Boolean(process.env.DATA_DIR)
   };
@@ -214,7 +217,7 @@ app.post('/api/simulate', ah(async (req, res) => {
 // ---------------------------------------------------------------------------
 // Configurações
 // ---------------------------------------------------------------------------
-const BOOL_KEYS = ['modoApenasAvisar', 'humanModeEnabled', 'alertarQuase', 'usarIaGemini', 'enviarPdfQuandoPedir', 'firstContactEnabled', 'firstContactIgnorarAgenda', 'missedCallEnabled', 'assistenteAtivo', 'resumoDiarioAtivo', 'pausado'];
+const BOOL_KEYS = ['backupSemanalAtivo', 'modoApenasAvisar', 'humanModeEnabled', 'alertarQuase', 'usarIaGemini', 'enviarPdfQuandoPedir', 'firstContactEnabled', 'firstContactIgnorarAgenda', 'missedCallEnabled', 'assistenteAtivo', 'resumoDiarioAtivo', 'pausado'];
 const TEXT_KEYS = { messageTemplate: 3000, humanTraining: 5000, firstContactMessage: 1000, missedCallMessage: 1000, gruposMonitorados: 500, assistenteNumerosExtras: 200 };
 const NUM_KEYS = { maxPhotosPerMatch: [0, 10], minCriteriosParaEnvio: [1, 6], maxOfertasPorPedido: [1, 5], firstContactAquecimentoMin: [0, 240] };
 
@@ -259,6 +262,39 @@ app.get('/api/groups', ah(async (req, res) => {
   if (req.query.refresh) await wa.refreshGroups();
   res.json({ groups: wa.getAgentState().connectedGroups });
 }));
+
+// ---------------------------------------------------------------------------
+// Backup / restauração de toda a memória
+// ---------------------------------------------------------------------------
+const backup = require('./src/backup');
+app.get('/api/backup', (req, res) => {
+  try {
+    contacts.flush();
+    radar.flush();
+  } catch {}
+  const buf = backup.createBackup();
+  res.setHeader('Content-Type', 'application/gzip');
+  res.setHeader('Content-Disposition', `attachment; filename="${backup.backupFileName()}"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(buf);
+});
+
+const restoreUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 150 * 1024 * 1024, files: 1 } });
+app.post('/api/restore', (req, res) => {
+  restoreUpload.single('backup')(req, res, err => {
+    if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Backup maior que 150 MB.' : err.message });
+    if (!req.file) return res.status(400).json({ error: 'Escolha o arquivo de backup (.json.gz).' });
+    try {
+      const r = backup.restoreBackup(req.file.buffer);
+      wa.addLog('BACKUP', `♻️ Backup de ${r.criadoEm} restaurado (${r.arquivos.length} arquivos, ${r.fotos} fotos). Reiniciando…`);
+      res.json({ ok: true, ...r, reiniciando: true });
+      // reinicia para recarregar tudo da memória restaurada (systemd/Render sobem de novo sozinhos)
+      if (process.env.NODE_ENV !== 'test') setTimeout(() => process.exit(0), 1500);
+    } catch (e) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+});
 
 app.post('/api/whatsapp/reset-session', ah(async (req, res) => {
   await wa.resetSession();
@@ -390,15 +426,16 @@ function shutdown() {
 
 if (require.main === module) {
   const PORT = process.env.PORT || 3000;
-  app.listen(PORT, '0.0.0.0', async () => {
-    console.log(`\n🚀 SECRETÁRIA IMOBILIÁRIA ATIVA EM: http://0.0.0.0:${PORT}`);
+  const HOST = process.env.HOST || '0.0.0.0';
+  app.listen(PORT, HOST, async () => {
+    console.log(`\n🚀 SECRETÁRIA IMOBILIÁRIA ATIVA EM: http://${HOST}:${PORT}${process.env.PUBLIC_URL ? ` (público: ${process.env.PUBLIC_URL})` : ''}`);
     console.log(`📂 Dados em: ${DATA_DIR}${process.env.DATA_DIR ? '' : ' (defina DATA_DIR para um disco persistente na nuvem)'}`);
     console.log(`🏠 ${(await sheets.loadInventory()).length} imóveis ativos.`);
     if (!auth.isConfigured()) auth.getSetupCode();
     wa.startWhatsAppAgent().catch(err => console.error('Erro ao iniciar WhatsApp:', err));
     scheduler.start(wa.api, wa.addLog);
 
-    const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL;
+    const externalUrl = process.env.RENDER_EXTERNAL_URL;
     if (externalUrl) {
       setInterval(() => fetch(`${externalUrl.replace(/\/$/, '')}/ping`).catch(() => {}), 10 * 60 * 1000);
     }

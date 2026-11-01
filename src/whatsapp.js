@@ -158,30 +158,55 @@ function ownerNumbers() {
 }
 
 /** Alerta no SEU WhatsApp (número de alerta; se vazio, o próprio chat "Mensagem para mim") */
-async function sendOwnerWhatsAppAlert(alertMsg) {
+async function ownerTargetJid() {
+  const nums = ownerNumbers();
+  if (!nums.length || nums.includes(selfPhone())) return `${selfPhone()}@s.whatsapp.net`;
+  return checkNumber(nums[0]);
+}
+
+async function sendOwnerContent(content, label) {
   if (!isConnected()) {
-    addLog('AVISO_ALERTA', 'Alerta não enviado: WhatsApp desconectado.');
+    addLog('AVISO_ALERTA', `${label} não enviado: WhatsApp desconectado.`);
     return { ok: false, error: 'WhatsApp desconectado' };
   }
-  const nums = ownerNumbers();
-  const targets = [];
-  if (!nums.length || nums.includes(selfPhone())) targets.push(`${selfPhone()}@s.whatsapp.net`);
-  else {
-    const jid = await checkNumber(nums[0]);
-    if (jid) targets.push(jid);
+  const target = await ownerTargetJid();
+  if (!target) return { ok: false, error: 'Número de alerta não encontrado no WhatsApp' };
+  try {
+    contacts.markKnown(target);
+    await rawSend(target, content);
+    addLog('ALERTA_ENVIADO', `📲 ${label} enviado para ${target.split('@')[0]}.`);
+    return { ok: true, targetJids: [target] };
+  } catch (err) {
+    addLog('ERRO_ALERTA', `Falha ao enviar ${label.toLowerCase()}: ${err.message}`);
+    return { ok: false, targetJids: [target], error: 'falha no envio' };
   }
-  if (!targets.length) return { ok: false, error: 'Número de alerta não encontrado no WhatsApp' };
-  for (const t of targets) {
-    try {
-      contacts.markKnown(t);
-      await rawSend(t, { text: alertMsg });
-      addLog('ALERTA_ENVIADO', `📲 Alerta enviado para ${t.split('@')[0]}.`);
-      return { ok: true, targetJids: targets };
-    } catch (err) {
-      addLog('ERRO_ALERTA', `Falha ao enviar alerta: ${err.message}`);
-    }
+}
+
+/** Alerta no SEU WhatsApp (número de alerta; se vazio, o próprio chat "Mensagem para mim") */
+function sendOwnerWhatsAppAlert(alertMsg) {
+  return sendOwnerContent({ text: alertMsg }, 'Alerta');
+}
+
+/** Envia um arquivo (ex: backup) para o SEU WhatsApp */
+function sendOwnerDocument(buffer, fileName, caption = '', mimetype = 'application/gzip') {
+  return sendOwnerContent({ document: buffer, fileName, mimetype, caption }, 'Arquivo');
+}
+
+/** Gera o backup e manda para o chat informado (ou para o dono) */
+async function sendBackup(chatJid = null) {
+  const backup = require('./backup');
+  try {
+    contacts.flush();
+    radar.flush();
+  } catch {}
+  const buf = backup.createBackup();
+  const caption = `${assistant.BOT} Backup da sua secretária (${(buf.length / 1024 / 1024).toFixed(1)} MB). Guarde este arquivo: com ele você restaura tudo em Ajustes › Backup.`;
+  const name = backup.backupFileName();
+  if (chatJid) {
+    await rawSend(chatJid, { document: buf, fileName: name, mimetype: 'application/gzip', caption });
+    return { ok: true };
   }
-  return { ok: false, targetJids: targets, error: 'falha no envio' };
+  return sendOwnerDocument(buf, name, caption);
 }
 
 // ---------------------------------------------------------------------------
@@ -511,12 +536,12 @@ async function startWhatsAppAgent() {
 
         if (!isGroup && loadSettings().assistenteAtivo !== false && isOwnerChat(msg)) {
           const text = extractText(msg);
-          if (text.startsWith(assistant.BOT) || /^(🚨|✅ \*ENVIEI|🤔 \*CONFIRA|📊 \*RESUMO|🔔)/.test(text)) continue;
+          if (text.startsWith(assistant.BOT) || /^(🚨|✅ \*ENVIEI|🤔 \*CONFIRA|📊 \*RESUMO|🔔|💾)/.test(text)) continue;
           const hasImage = Boolean(msg.message.imageMessage || msg.message.ephemeralMessage?.message?.imageMessage);
           await assistant.handleOwnerMessage(
             { sendText, sendImage, sendPdf },
             { chatJid: remoteJid, text, hasImage, downloadImage: () => downloadImageToFotos(msg) },
-            { approveAlert, log: addLog }
+            { approveAlert, log: addLog, sendBackup }
           );
           continue;
         }
@@ -572,7 +597,7 @@ function getAgentState() {
   };
 }
 
-const api = { isConnected, sendText, sendImage, sendPdf, checkNumber, sendOwnerWhatsAppAlert };
+const api = { isConnected, sendText, sendImage, sendPdf, checkNumber, sendOwnerWhatsAppAlert, sendOwnerDocument, sendBackup };
 
 module.exports = {
   startWhatsAppAgent,

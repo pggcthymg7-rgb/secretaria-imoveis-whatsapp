@@ -537,6 +537,9 @@
       </div></section>
       <section class="section"><div class="container split top">
         <div class="stack" id="pwForm"><span class="label">Senha do painel</span>${field('atual', 'Senha atual', '', { type: 'password', attrs: 'autocomplete="current-password"' })}${field('nova', 'Nova senha (mín. 8)', '', { type: 'password', attrs: 'autocomplete="new-password"' })}<div><button class="btn-ghost accent" data-action="trocarSenha">Trocar senha</button></div></div>
+        <div class="stack" id="bkForm"><span class="label">Backup da memória</span><p class="body muted">Um arquivo com carteira, fotos, configurações, contatos conhecidos, radar, vitrine e prospecção. Use para mudar de servidor ou se algo der errado. Todo domingo a secretária também manda um backup no seu WhatsApp.</p>
+          ${toggle('backupSemanalAtivo', c.backupSemanalAtivo !== false, 'Backup semanal no meu WhatsApp')}
+          <div class="row tight"><a class="btn-ghost accent" href="/api/backup" download>Baixar backup agora</a><label class="btn-ghost" style="cursor:pointer">Restaurar backup…<input type="file" id="restoreInput" accept=".gz,application/gzip"></label></div></div>
         <div class="stack"><span class="label">Sessão</span><p class="body muted">Desconectar o WhatsApp apaga a sessão e gera um novo QR Code.</p><div class="row tight"><button class="btn-ghost danger" data-action="resetWa">Desconectar WhatsApp</button><button class="btn-ghost" data-action="logout">Sair do painel</button></div></div>
       </div></section>`);
   }
@@ -835,7 +838,7 @@
       render();
     },
     salvarAjustes: async () => {
-      const d = formData($('#cfgForm'));
+      const d = { ...formData($('#cfgForm')), ...formData($('#bkForm')) };
       const ids = Object.keys(d).filter(k => k.startsWith('mg:') && d[k]).map(k => k.slice(3));
       for (const k of Object.keys(d)) if (k.startsWith('mg:')) delete d[k];
       d.gruposMonitoradosIds = ids;
@@ -945,6 +948,18 @@
         toast('Enviando fotos…');
         p.fotos = [...(p.fotos || []), ...(await uploadFiles(e.target.files))];
         render();
+      }
+      if (e.target.id === 'restoreInput' && e.target.files.length) {
+        if (!confirm('Restaurar este backup? A carteira, as configurações e a memória atuais serão substituídas e a secretária reinicia.')) {
+          e.target.value = '';
+          return;
+        }
+        const fd = new FormData();
+        fd.append('backup', e.target.files[0]);
+        const r = await api('POST', '/api/restore', fd, true);
+        toast(`Restaurado: ${r.arquivos.length} arquivos e ${r.fotos} fotos. Reiniciando…`);
+        setTimeout(() => location.reload(), 9000);
+        return;
       }
       if (e.target.id === 'campImg' && e.target.files.length) {
         S.campDraft = formData($('#campForm'));
