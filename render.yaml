@@ -3,14 +3,21 @@ services:
     name: secretaria-imoveis-whatsapp
     runtime: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm ci --omit=dev
     startCommand: npm start
+    healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
-        value: 20
-      - key: GRUPOS_MONITORADOS
-        value: teste
-      - key: MODO_APENAS_AVISAR
-        value: "false"
+        value: 22
+      - key: PAINEL_SENHA
+        sync: false
+      - key: API_TOKEN
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
       - key: MEU_WHATSAPP_ALERTA
-        value: "5562900000000"
+        sync: false
+    # ATENÇÃO: no plano gratuito o disco é apagado a cada reinício/deploy
+    # (perde a sessão do WhatsApp e a memória de contatos). Para guardar tudo:
+    # plano pago + disco persistente montado em /var/data e DATA_DIR=/var/data,
+    # ou use uma VM gratuita com o instalar-nuvem.sh (veja o README).

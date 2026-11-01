@@ -1,131 +1,79 @@
 /**
  * ============================================================================
- * ARQUIVO: src/atendimento-diario.js
+ * ATENDIMENTO DO DIA A DIA (privado e ligações)
  * ============================================================================
- * OBJETIVO DESTE ARQUIVO (SEPARADO DA SECRETÁRIA DOS GRUPOS):
- * Este arquivo cuida EXCLUSIVAMENTE do atendimento individual no seu WhatsApp
- * pessoal (mensagens no privado e ligações), sem misturar com a busca de imóveis
- * nos grupos.
- *
- * O QUE ELE FAZ:
- * 1) SAUDAÇÃO DE 1ª MENSAGEM ("SEMPRE ONLINE" / NOVA CONVERSA):
- *    Responde apenas a 1ª mensagem de pessoas que nunca falaram com você,
- *    usando a saudação do período do dia (Bom dia / Boa tarde / Boa noite)
- *    e mantém a conversa marcada como "Não Lida" (Nova Conversa) no seu celular.
- *
- * 2) RESPOSTA PARA LIGAÇÃO NÃO ATENDIDA:
- *    Quando alguém te liga no WhatsApp e você não atende, envia uma mensagem
- *    automática com a saudação do período do dia dizendo "já te retorno".
- *
- * 3) RESPOSTAS SIMPLES DO DIA A DIA (OPCIONAL):
- *    Permite configurar respostas curtas para perguntas comuns no privado.
+ * 1) LIGAÇÃO NÃO ATENDIDA -> mensagem automática "já te retorno" (mantido como estava,
+ *    funcionando perfeitamente segundo o corretor).
+ * 2) 1ª MENSAGEM -> responde SOMENTE quem nunca falou com você. Regras (todas precisam passar):
+ *    - não é mensagem sua, nem antiga (histórico/offline), nem de status/canal
+ *    - o contato não está na memória (telefone OU LID) e não está salvo na sua agenda
+ *    - não é uma resposta a uma mensagem anterior (citação)
+ *    - fora do período de aquecimento quando a memória ainda está vazia
+ * 3) RESPOSTAS RÁPIDAS -> gatilho exato configurado no painel.
  * ============================================================================
  */
-
-const fs = require('fs');
-const path = require('path');
 const { loadSettings } = require('./settings');
+const contacts = require('./contacts');
+const { getGreetingByTime } = require('./matcher');
 
-const KNOWN_CONTACTS_PATH = path.join(__dirname, '..', 'known_contacts.json');
-
-// Memória de contatos que já falaram com você (para responder APENAS a 1ª mensagem)
-const knownContacts = new Set();
-
-// Carrega os contatos já conhecidos salvos no disco ao iniciar
-try {
-  if (fs.existsSync(KNOWN_CONTACTS_PATH)) {
-    const saved = JSON.parse(fs.readFileSync(KNOWN_CONTACTS_PATH, 'utf-8'));
-    if (Array.isArray(saved)) {
-      saved.forEach(jid => knownContacts.add(jid));
-    }
-  }
-} catch (err) {
-  console.error('[DIA-A-DIA] Erro ao carregar known_contacts.json:', err.message);
-}
-
-// Histórico exclusivo da página "Saudações & Dia a Dia"
 const dailyActivityLogs = [];
 
 function addDailyLog(type, message) {
-  const entry = {
-    time: new Date().toLocaleTimeString('pt-BR'),
-    type,
-    message
-  };
+  const entry = { time: new Date().toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' }), ts: Date.now(), type, message };
   dailyActivityLogs.unshift(entry);
-  if (dailyActivityLogs.length > 100) dailyActivityLogs.pop();
+  if (dailyActivityLogs.length > 200) dailyActivityLogs.pop();
   console.log(`[DIA-A-DIA] [${entry.time}] [${type}] ${message}`);
 }
 
-/**
- * Limpa o identificador do número de WhatsApp para guardar apenas os dígitos
- */
-function normalizeContactKey(jid) {
-  if (!jid) return '';
-  return String(jid).split(':')[0].split('@')[0].replace(/\D/g, '') || String(jid).trim().toLowerCase();
+const getPeriodGreeting = () => getGreetingByTime();
+
+function extractText(msg) {
+  const m = msg.message || {};
+  const inner = m.ephemeralMessage?.message || m.viewOnceMessage?.message || m.viewOnceMessageV2?.message || m;
+  return (
+    inner.conversation ||
+    inner.extendedTextMessage?.text ||
+    inner.imageMessage?.caption ||
+    inner.videoMessage?.caption ||
+    inner.documentMessage?.caption ||
+    ''
+  );
 }
 
-function isContactKnown(jid) {
-  const key = normalizeContactKey(jid);
-  return key ? knownContacts.has(key) : true;
+function quotedSomething(msg) {
+  const m = msg.message || {};
+  const ctx = m.extendedTextMessage?.contextInfo || m.imageMessage?.contextInfo || m.videoMessage?.contextInfo;
+  return Boolean(ctx && (ctx.quotedMessage || ctx.stanzaId));
 }
 
-function markContactAsKnown(jid) {
-  const key = normalizeContactKey(jid);
-  if (!key || knownContacts.has(key)) return;
-  knownContacts.add(key);
+function messageAgeSeconds(msg) {
+  const ts = Number(msg.messageTimestamp?.low ?? msg.messageTimestamp ?? 0);
+  if (!ts) return 0;
+  return Math.max(0, Date.now() / 1000 - ts);
+}
+
+async function humanSend(sock, jid, text, delayMs = 1500) {
+  await new Promise(r => setTimeout(r, delayMs));
   try {
-    fs.writeFileSync(KNOWN_CONTACTS_PATH, JSON.stringify([...knownContacts], null, 2), 'utf-8');
-  } catch (err) {
-    console.error('[DIA-A-DIA] Erro ao salvar known_contacts.json:', err.message);
-  }
-}
-
-/**
- * Remove um número específico da lista de conhecidos (útil para você testar no seu painel)
- */
-function removeKnownContact(phoneOrJid) {
-  const key = normalizeContactKey(phoneOrJid);
-  if (!key) return false;
-  const existed = knownContacts.delete(key);
-  try {
-    fs.writeFileSync(KNOWN_CONTACTS_PATH, JSON.stringify([...knownContacts], null, 2), 'utf-8');
+    await sock.sendPresenceUpdate('composing', jid);
+    await new Promise(r => setTimeout(r, 1800 + Math.random() * 1200));
   } catch {}
-  return existed;
-}
-
-/**
- * Descobre o período do dia no fuso horário de Brasília (Bom dia / Boa tarde / Boa noite)
- */
-function getPeriodGreeting() {
+  const sent = await sock.sendMessage(jid, { text });
   try {
-    const hourStr = new Intl.DateTimeFormat('pt-BR', {
-      timeZone: 'America/Sao_Paulo',
-      hour: 'numeric',
-      hour12: false
-    }).format(new Date());
-    const hour = parseInt(hourStr, 10);
-    if (hour >= 5 && hour < 12) return 'Bom dia';
-    if (hour >= 12 && hour < 18) return 'Boa tarde';
-    return 'Boa noite';
-  } catch {
-    return 'Olá';
-  }
+    await sock.sendPresenceUpdate('paused', jid);
+    await sock.chatModify({ markRead: false }, jid); // mantém a conversa como "não lida" para você ver
+  } catch {}
+  return sent;
 }
 
-// Controle das ligações para saber se você atendeu ou se caiu como ligação perdida
+// ============================================================================
+// BLOCO 1: LIGAÇÕES NÃO ATENDIDAS
+// ============================================================================
 const activeCalls = new Map();
 const repliedMissedCalls = new Set();
 
-/**
- * ============================================================================
- * BLOCO 1: TRATAMENTO DE LIGAÇÕES NÃO ATENDIDAS NO WHATSAPP
- * Se precisar alterar o tempo ou comportamento das ligações, edite abaixo:
- * ============================================================================
- */
-async function handleIncomingCalls(sock, calls, addMainLog) {
+async function handleIncomingCalls(sock, calls, addMainLog, ctx = {}) {
   if (!Array.isArray(calls)) return;
-
   for (const call of calls) {
     try {
       const callId = call.id;
@@ -133,61 +81,31 @@ async function handleIncomingCalls(sock, calls, addMainLog) {
       if (!callId || !callerJid || callerJid.endsWith('@g.us') || call.isGroup) continue;
 
       if (call.status === 'offer') {
-        // O telefone começou a tocar
-        activeCalls.set(callId, {
-          from: callerJid,
-          answered: false,
-          replied: false
-        });
+        activeCalls.set(callId, { from: callerJid, answered: false });
       } else if (call.status === 'accept') {
-        // Você atendeu a ligação -> Marca como atendida para não enviar mensagem
         const info = activeCalls.get(callId) || { from: callerJid };
         info.answered = true;
         activeCalls.set(callId, info);
-      } else if (
-        call.status === 'timeout' ||
-        call.status === 'reject' ||
-        call.status === 'terminate'
-      ) {
+      } else if (['timeout', 'reject', 'terminate'].includes(call.status)) {
         const info = activeCalls.get(callId);
         const wasAnswered = info ? info.answered : false;
+        activeCalls.delete(callId);
+        if (wasAnswered || repliedMissedCalls.has(callId)) continue;
+        repliedMissedCalls.add(callId);
+        if (repliedMissedCalls.size > 2000) repliedMissedCalls.clear();
 
-        // Se a ligação parou de tocar e NÃO foi atendida:
-        if (!wasAnswered && !repliedMissedCalls.has(callId)) {
-          repliedMissedCalls.add(callId);
-          if (info) info.replied = true;
+        const settings = loadSettings();
+        if (settings.pausado || settings.missedCallEnabled === false) continue;
 
-          const settings = loadSettings();
-          if (settings.missedCallEnabled !== false) {
-            const saudacao = getPeriodGreeting();
-            const template =
-              settings.missedCallMessage ||
-              '{saudacao}, já te retorno! Se puder enviar por mensagem, agradeço.';
-            const replyText = template.replace(/\{saudacao\}/gi, saudacao);
+        const replyText = String(settings.missedCallMessage || '{saudacao}, já te retorno!').replace(/\{saudacao\}/gi, getPeriodGreeting());
+        contacts.markKnown(callerJid, call.callerPn);
+        await humanSend(sock, callerJid, replyText, 2000);
 
-            // Marca como conhecido para não mandar a saudação de 1ª mensagem duplicada
-            markContactAsKnown(callerJid);
-
-            await new Promise(r => setTimeout(r, 2000));
-            try {
-              await sock.sendPresenceUpdate('composing', callerJid);
-              await new Promise(r => setTimeout(r, 2000));
-            } catch {}
-
-            await sock.sendMessage(callerJid, { text: replyText });
-
-            try {
-              await sock.sendPresenceUpdate('paused', callerJid);
-              // Mantém a conversa marcada como Não Lida (Nova Conversa) no seu WhatsApp
-              await sock.chatModify({ markRead: false }, callerJid);
-            } catch {}
-
-            const phoneClean = normalizeContactKey(callerJid);
-            const logText = `📞 Ligação não atendida de ${phoneClean} -> Enviado: "${replyText}"`;
-            addDailyLog('LIGACAO_PERDIDA', logText);
-            if (addMainLog) addMainLog('LIGACAO_PERDIDA', logText);
-          }
-        }
+        const phone = (ctx.resolvePhone ? await ctx.resolvePhone(callerJid) : '') || contacts.keyOf(callerJid);
+        const logText = `📞 Ligação não atendida de ${phone} -> Enviado: "${replyText}"`;
+        addDailyLog('LIGACAO_PERDIDA', logText);
+        if (addMainLog) addMainLog('LIGACAO_PERDIDA', logText);
+        if (ctx.onEvent) ctx.onEvent('ligacao_perdida', { phone });
       }
     } catch (callErr) {
       addDailyLog('ERRO', `Erro ao responder ligação: ${callErr.message}`);
@@ -195,112 +113,121 @@ async function handleIncomingCalls(sock, calls, addMainLog) {
   }
 }
 
+// ============================================================================
+// BLOCO 2: 1ª MENSAGEM + RESPOSTAS RÁPIDAS
+// ============================================================================
 /**
- * ============================================================================
- * BLOCO 2: SAUDAÇÃO DE 1ª MENSAGEM NO PRIVADO ("SEMPRE ONLINE" / NOVA CONVERSA)
- * E RESPOSTAS SIMPLES DO DIA A DIA
- * Se precisar alterar como ela responde mensagens privadas, edite abaixo:
- * ============================================================================
+ * Decide se esta mensagem privada é a PRIMEIRA de alguém que nunca falou com você.
+ * Retorna { reply: boolean, reason: string }
  */
-async function handlePrivateDailyMessage(sock, msg, addMainLog) {
+function shouldSendFirstContact(msg, settings, ctx = {}) {
+  const jid = msg.key.remoteJid;
+  const alt = msg.key.remoteJidAlt || msg.key.senderPn || null;
+  if (settings.pausado) return { reply: false, reason: 'secretária pausada' };
+  if (settings.firstContactEnabled === false) return { reply: false, reason: '1ª mensagem desativada' };
+  if (messageAgeSeconds(msg) > 180) return { reply: false, reason: 'mensagem antiga (histórico/offline)' };
+  if (contacts.isKnown(jid, alt)) return { reply: false, reason: 'contato já conhecido' };
+  if (settings.firstContactIgnorarAgenda !== false && contacts.isInAddressBook(jid, alt)) return { reply: false, reason: 'contato salvo na agenda' };
+  if (quotedSomething(msg)) return { reply: false, reason: 'responde uma mensagem anterior (conversa existente)' };
+
+  const warmupMin = Number(settings.firstContactAquecimentoMin ?? 20);
+  const connectedAt = ctx.connectedAt || 0;
+  const memoryWasEmpty = contacts.stats().conhecidos < 30;
+  if (memoryWasEmpty && connectedAt && Date.now() - connectedAt < warmupMin * 60 * 1000) {
+    return { reply: false, reason: `aquecimento (${warmupMin} min) — aprendendo seus contatos` };
+  }
+  return { reply: true, reason: 'contato novo' };
+}
+
+async function handlePrivateDailyMessage(sock, msg, addMainLog, ctx = {}) {
   const remoteJid = msg.key.remoteJid || '';
-  if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast' || remoteJid.endsWith('@newsletter')) {
-    return;
+  if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast' || remoteJid.endsWith('@newsletter')) return;
+  let alt = msg.key.remoteJidAlt || msg.key.senderPn || null;
+  // Só veio o ID novo (LID)? Descobre o telefone para não confundir contato antigo com novo
+  if (!alt && contacts.isLid(remoteJid) && ctx.resolvePhone) {
+    const pn = await ctx.resolvePhone(remoteJid).catch(() => '');
+    if (pn) alt = `${pn}@s.whatsapp.net`;
   }
+  if (alt && !msg.key.remoteJidAlt) msg.key.remoteJidAlt = alt;
 
-  // Se VOCÊ mesmo enviou uma mensagem para alguém no privado, registra que você já conhece esse contato
+  // Mensagem sua no privado -> esse contato é conhecido
   if (msg.key.fromMe) {
-    markContactAsKnown(remoteJid);
+    contacts.markKnown(remoteJid, alt);
     return;
   }
 
-  const text =
-    msg.message?.conversation ||
-    msg.message?.extendedTextMessage?.text ||
-    msg.message?.imageMessage?.caption ||
-    msg.message?.videoMessage?.caption ||
-    '';
-
+  const text = extractText(msg);
+  const settings = loadSettings();
   const senderName = msg.pushName || 'Contato';
   const firstName = senderName.split(' ')[0];
   const saudacao = getPeriodGreeting();
-  const settings = loadSettings();
+  contacts.touch(alt || remoteJid, { apelido: senderName });
 
-  // 1) VERIFICA SE É A PRIMEIRA VEZ QUE ESSA PESSOA MANDA MENSAGEM
-  if (!isContactKnown(remoteJid)) {
-    // Grava imediatamente na memória para NUNCA enviar segunda mensagem automática
-    markContactAsKnown(remoteJid);
-
-    if (settings.firstContactEnabled !== false) {
-      const template = settings.firstContactMessage || '{saudacao}, tudo bem? Como posso te ajudar?';
-      const replyText = template
-        .replace(/\{saudacao\}/gi, saudacao)
-        .replace(/\{nome\}/gi, firstName);
-
-      // Efeito "digitando..." para parecer que você está online na hora
-      await new Promise(r => setTimeout(r, 1500));
-      try {
-        await sock.sendPresenceUpdate('composing', remoteJid);
-        await new Promise(r => setTimeout(r, 2000));
-      } catch {}
-
-      await sock.sendMessage(remoteJid, { text: replyText });
-
-      try {
-        await sock.sendPresenceUpdate('paused', remoteJid);
-        // Marca como NÃO LIDA ("Nova Conversa") no seu WhatsApp para você ver a bolinha verde!
-        await sock.chatModify({ markRead: false }, remoteJid);
-      } catch {}
-
-      const phoneClean = normalizeContactKey(remoteJid);
-      const logText = `🟢 [Nova Conversa] 1ª mensagem de ${senderName} (${phoneClean}) -> Respondido: "${replyText}"`;
-      addDailyLog('NOVA_CONVERSA', logText);
-      if (addMainLog) addMainLog('NOVA_CONVERSA', logText);
+  // Descadastro de prospecção ("SAIR", "PARAR")
+  if (ctx.onPrivateText) {
+    const handled = await ctx.onPrivateText(remoteJid, alt, text, senderName);
+    if (handled) {
+      contacts.markKnown(remoteJid, alt);
       return;
     }
   }
 
-  // 2) RESPOSTAS SIMPLES DO DIA A DIA (OPCIONAL - configuradas na Página do Dia a Dia)
-  const simpleRules = Array.isArray(settings.dailySimpleReplies) ? settings.dailySimpleReplies : [];
-  if (text && simpleRules.length > 0) {
-    const normText = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-    for (const rule of simpleRules) {
-      if (!rule || rule.active === false || !rule.trigger || !rule.response) continue;
-      const triggerNorm = String(rule.trigger).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-      if (triggerNorm && normText === triggerNorm) {
-        const replyText = String(rule.response)
-          .replace(/\{saudacao\}/gi, saudacao)
-          .replace(/\{nome\}/gi, firstName);
+  const decision = shouldSendFirstContact(msg, settings, ctx);
+  // A partir de agora esse contato é conhecido (nunca recebe a 1ª mensagem duas vezes)
+  contacts.markKnown(remoteJid, alt);
 
-        await new Promise(r => setTimeout(r, 1200));
-        await sock.sendMessage(remoteJid, { text: replyText });
-        try {
-          await sock.chatModify({ markRead: false }, remoteJid);
-        } catch {}
+  if (decision.reply) {
+    const replyText = String(settings.firstContactMessage || '{saudacao}, tudo bem? Como posso te ajudar?')
+      .replace(/\{saudacao\}/gi, saudacao)
+      .replace(/\{nome\}/gi, firstName);
+    await humanSend(sock, remoteJid, replyText, 1500);
+    const phone = (ctx.resolvePhone ? await ctx.resolvePhone(alt || remoteJid) : '') || contacts.keyOf(alt || remoteJid);
+    const logText = `🟢 Nova conversa: ${senderName} (${phone}) -> "${replyText}"`;
+    addDailyLog('NOVA_CONVERSA', logText);
+    if (addMainLog) addMainLog('NOVA_CONVERSA', logText);
+    if (ctx.onEvent) ctx.onEvent('nova_conversa', { phone, nome: senderName });
+    return;
+  }
+  if (decision.reason.startsWith('aquecimento')) {
+    addDailyLog('APRENDENDO', `${senderName}: não respondi (${decision.reason}).`);
+  }
 
-        const phoneClean = normalizeContactKey(remoteJid);
-        addDailyLog('RESPOSTA_RAPIDA', `💬 Gatilho "${rule.trigger}" para ${senderName} (${phoneClean}) -> "${replyText}"`);
-        break;
-      }
+  // Respostas rápidas (gatilho exato)
+  const rules = Array.isArray(settings.dailySimpleReplies) ? settings.dailySimpleReplies : [];
+  if (!text || !rules.length || settings.pausado) return;
+  const norm = s => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[!?.]+$/, '').trim();
+  const nt = norm(text);
+  for (const rule of rules) {
+    if (!rule || rule.active === false || !rule.trigger || !rule.response) continue;
+    if (nt === norm(rule.trigger)) {
+      const replyText = String(rule.response).replace(/\{saudacao\}/gi, saudacao).replace(/\{nome\}/gi, firstName);
+      await humanSend(sock, remoteJid, replyText, 1200);
+      addDailyLog('RESPOSTA_RAPIDA', `💬 "${rule.trigger}" para ${senderName} -> "${replyText}"`);
+      break;
     }
   }
 }
 
 function getDailyState() {
+  const s = contacts.stats();
   return {
-    knownContactsCount: knownContacts.size,
+    knownContactsCount: s.conhecidos,
+    agendaCount: s.agenda,
     currentPeriodGreeting: getPeriodGreeting(),
     dailyActivityLogs
   };
 }
 
 module.exports = {
-  markContactAsKnown,
-  isContactKnown,
-  removeKnownContact,
+  markContactAsKnown: (...j) => contacts.markKnown(...j),
+  isContactKnown: (...j) => contacts.isKnown(...j),
+  removeKnownContact: j => contacts.forget(j),
   getPeriodGreeting,
   handleIncomingCalls,
   handlePrivateDailyMessage,
+  shouldSendFirstContact,
+  extractText,
+  humanSend,
   getDailyState,
   addDailyLog
 };
