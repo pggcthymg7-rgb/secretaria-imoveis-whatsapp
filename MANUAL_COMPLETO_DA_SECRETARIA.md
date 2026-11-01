@@ -76,16 +76,17 @@ Anotações comuns que você faz no "Mensagem para mim" são ignoradas.
 
 ## 4. Onde rodar de graça (e sem perder memória)
 
+👉 **Passo a passo completo, pelo celular: [`GUIA_VM_GRATUITA.md`](GUIA_VM_GRATUITA.md)**
+
 | Opção | Custo | Memória (sessão, contatos, carteira) |
 |---|---|---|
-| **VM gratuita (Oracle Cloud Always Free)** com `instalar-nuvem.sh` | grátis | ✅ permanente |
-| Seu Mac/PC ligado (`npm start`) | grátis | ✅ permanente |
-| Render gratuito | grátis | ❌ apagada a cada reinício/deploy (precisa ler QR de novo) |
-| Render pago + disco em `/var/data` + `DATA_DIR=/var/data` | ~US$ 7/mês | ✅ |
+| **VM Oracle Cloud Always Free** (São Paulo) com `deploy/instalar-vm.sh` ⭐ | grátis | ✅ permanente, 24h, HTTPS, backup e atualização automáticos |
+| VM Google Cloud e2-micro (EUA) | grátis | ✅ permanente |
+| Seu Mac/PC ligado (`npm start`) | grátis | ✅ permanente (só enquanto o computador estiver ligado) |
+| Render gratuito | grátis | ❌ apagada a cada reinício/deploy |
 
-Variáveis importantes (`.env` — nunca vai para o GitHub): `PAINEL_SENHA`, `DATA_DIR`, `GEMINI_API_KEY` (opcional, grátis), `MEU_WHATSAPP_ALERTA`, `API_TOKEN`.
-
----
+Mudar de servidor sem perder nada: **Ajustes › Backup da memória** (baixar no antigo, restaurar no novo).
+Comando no WhatsApp: **backup**. Todo domingo um backup chega sozinho no seu "Mensagem para mim".
 
 ## 5. Peças do sistema
 
@@ -101,4 +102,6 @@ Variáveis importantes (`.env` — nunca vai para o GitHub): `PAINEL_SENHA`, `DA
 | `src/radar.js`, `src/metrics.js` | histórico de pedidos, demanda e números do dia |
 | `src/auth.js` | login do painel |
 | `src/public/` | painel web |
+| `src/backup.js` | backup e restauração de toda a memória |
+| `deploy/` | instalador da VM, atualização automática e script cloud-init |
 | `tests/` | testes automáticos (`npm run verify`) com as mensagens reais dos grupos |

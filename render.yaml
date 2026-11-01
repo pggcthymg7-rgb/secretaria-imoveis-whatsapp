@@ -18,6 +18,5 @@ services:
       - key: MEU_WHATSAPP_ALERTA
         sync: false
     # ATENÇÃO: no plano gratuito o disco é apagado a cada reinício/deploy
-    # (perde a sessão do WhatsApp e a memória de contatos). Para guardar tudo:
-    # plano pago + disco persistente montado em /var/data e DATA_DIR=/var/data,
-    # ou use uma VM gratuita com o instalar-nuvem.sh (veja o README).
+    # (perde a sessão do WhatsApp e a memória de contatos).
+    # Recomendado: VM gratuita 24h com memória permanente — veja GUIA_VM_GRATUITA.md
