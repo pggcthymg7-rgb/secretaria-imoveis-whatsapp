@@ -10,7 +10,7 @@ BIGA é a secretária do João (corretor em Goiânia). Ela fica conectada ao Wha
 ## Status (01/11/2026)
 - **No ar** na VM Oracle grátis: https://147-15-87-168.sslip.io — WhatsApp CONECTADO.
 - Código final em `main` (bde3762, v4.1). A VM se atualiza sozinha ~04:15 e, a partir de 02/11, também pelo botão "Atualizar agora" (Ajustes › Sistema) ou pelo comando `atualizar`.
-- Testes: 62/62 passando (`npm run verify`).
+- Testes: 61/62 num clone limpo — falha `Mapa aberto (OSM)` porque `src/brain/data/mapa-osm.json` **nunca foi pro git** (o `.gitignore` tinha `data/`, que pegava essa pasta). Ver sessão 01/11 abaixo.
 - **Falta o João:** suspender o Render; colocar a chave Brave/Google e o token Meta no Garimpo.
 
 ## Decisões importantes
@@ -34,7 +34,14 @@ BIGA é a secretária do João (corretor em Goiânia). Ela fica conectada ao Wha
 ## Como construímos
 Fomos por ciclos `/resolver-tudo`: bug real → caso no fixture → correção → teste → auditoria de segurança → PR. Primeiro rodava no Render, depois migramos para a Oracle (E2.1.Micro, Ubuntu 24.04, systemd + Caddy).
 
+## Sessão 01/11/2026 (tarde) — mapa OSM faltando
+- Causa: `.gitignore` `data/` ignorava `src/brain/data/`. Corrigido para `/data/` (só a pasta da raiz).
+- VM: `deploy/atualizar.sh` ganhou `garantir_mapa` (gera `DATA_DIR/mapa-osm.json` se faltar, como usuário `secretaria`, sem travar a atualização); `deploy/instalar-vm.sh` gera o mapa já na instalação.
+- **Não deu gerar o mapa nesta sessão**: a rede da nuvem bloqueia todos os servidores Overpass. Próxima sessão com rede liberada (ou o João no PC): `node scripts/atualizar-mapa.js` → commitar `src/brain/data/mapa-osm.json` → `npm run verify` fica 62/62.
+- Mudanças no branch `claude/lucid-maxwell-eyigut` (ainda sem PR). GitHub MCP falhou ao conectar nesta sessão.
+
 ## Próximos passos (BACKLOG_TAREFAS.md)
+0. Gerar e commitar `src/brain/data/mapa-osm.json` (acima); abrir PR deste branch → `main`.
 1. Confirmar que a atualização de 02/11 aplicou (comando `versão`).
 2. Revisar os imóveis da carteira: edifício, suítes, vagas, condomínio, permuta.
 3. Ensinar no Cérebro os edifícios que ele mais trabalha (Metropolitan, Brookfield).

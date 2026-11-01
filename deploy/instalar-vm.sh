@@ -103,6 +103,11 @@ if [ ! -f "$DATA_DIR/imoveis.csv" ] && [ ! -f "$DATA_DIR/settings.json" ]; then
 fi
 chown -R "$APP_USER:$APP_USER" "$DATA_DIR"
 chmod -R u=rwX,g=rX,o= "$DATA_DIR"
+# Mapa aberto (OSM) de Goiânia: gera já na instalação (sem ele o cérebro perde ~500 bairros e ~400 condomínios)
+if [ ! -f "$DATA_DIR/mapa-osm.json" ]; then
+  echo "Gerando o mapa aberto (OSM) — pode levar alguns minutos..."
+  (cd "$APP_DIR" && runuser -u "$APP_USER" -- env DATA_DIR="$DATA_DIR" timeout 900 node scripts/atualizar-mapa.js >/dev/null 2>&1) || warn "mapa aberto não gerado agora (a atualização diária tenta de novo)"
+fi
 
 # ---------------------------------------------------------------------------
 log "5/8 Configuração secreta ($ENV_FILE)"
