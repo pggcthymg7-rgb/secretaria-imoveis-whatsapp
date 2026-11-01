@@ -8,8 +8,10 @@ const path = require('path');
 const { saveAllPropertiesToSpreadsheet } = require('./src/sheets');
 const { saveSettings } = require('./src/settings');
 
-const CLOUD_URL = 'https://secretaria-imoveis-whatsapp.onrender.com';
-const FOTOS_DIR = path.join(__dirname, 'fotos');
+require('dotenv').config();
+const CLOUD_URL = (process.env.CLOUD_URL || 'https://secretaria-imoveis-whatsapp.onrender.com').replace(/\/$/, '');
+const AUTH = { Authorization: `Bearer ${process.env.API_TOKEN || ''}` };
+const { FOTOS_DIR } = require('./src/paths');
 
 function isLegacyFakeTestProperty(prop) {
   const fotosStr = Array.isArray(prop.fotos) ? prop.fotos.join(';') : String(prop.fotos || '');
@@ -22,15 +24,20 @@ async function syncFromCloud() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 7000);
 
-    const res = await fetch(`${CLOUD_URL}/api/status`, { signal: controller.signal });
+    if (!process.env.API_TOKEN) {
+      console.log('ℹ️ Defina API_TOKEN no .env (o mesmo da nuvem) para sincronizar.');
+      return;
+    }
+    const res = await fetch(`${CLOUD_URL}/api/status`, { signal: controller.signal, headers: AUTH });
+    const inv = await fetch(`${CLOUD_URL}/api/inventory`, { signal: controller.signal, headers: AUTH });
     clearTimeout(timeout);
 
-    if (!res.ok) {
-      console.log('ℹ️ Servidor nuvem indisponível no momento; mantendo arquivos locais atuais.');
+    if (!res.ok || !inv.ok) {
+      console.log('ℹ️ Servidor nuvem indisponível (ou API_TOKEN incorreto); mantendo arquivos locais atuais.');
       return;
     }
 
-    const data = await res.json();
+    const data = { ...(await res.json()), inventory: (await inv.json()).inventory };
 
     // 1. Preserva todos os imóveis reais cadastrados no servidor (ignorando imóveis de teste antigos da Unsplash)
     if (Array.isArray(data.inventory)) {
@@ -43,10 +50,10 @@ async function syncFromCloud() {
       for (const prop of realProperties) {
         for (const foto of (prop.fotos || [])) {
           if (foto && !/^https?:\/\//i.test(foto)) {
-            const localPhotoPath = path.join(FOTOS_DIR, foto);
+            const localPhotoPath = path.join(FOTOS_DIR, path.basename(foto));
             if (!fs.existsSync(localPhotoPath)) {
               try {
-                const imgRes = await fetch(`${CLOUD_URL}/fotos/${encodeURIComponent(foto)}`);
+                const imgRes = await fetch(`${CLOUD_URL}/fotos/${encodeURIComponent(path.basename(foto))}`, { headers: AUTH });
                 if (imgRes.ok) {
                   const buf = Buffer.from(await imgRes.arrayBuffer());
                   fs.writeFileSync(localPhotoPath, buf);
@@ -64,6 +71,7 @@ async function syncFromCloud() {
       const c = data.config;
       saveSettings({
         ...(c.gruposMonitorados ? { gruposMonitorados: c.gruposMonitorados } : {}),
+        ...(Array.isArray(c.gruposMonitoradosIds) ? { gruposMonitoradosIds: c.gruposMonitoradosIds } : {}),
         ...(c.modoApenasAvisar !== undefined ? { modoApenasAvisar: Boolean(c.modoApenasAvisar) } : {}),
         ...(c.meuWhatsappAlerta ? { meuWhatsappAlerta: c.meuWhatsappAlerta } : {}),
         ...(c.googleSheetsUrl ? { googleSheetsUrl: c.googleSheetsUrl } : {}),
