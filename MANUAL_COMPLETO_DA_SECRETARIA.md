@@ -1,72 +1,104 @@
-# 📘 Manual Completo da Sua Secretária Imobiliária (Guia de Estudo do Zero)
+# 📘 Manual da Secretária Imobiliária (v3)
 
-Este documento foi escrito especialmente para você entender **como a sua Secretária Imobiliária funciona por dentro**, peça por peça, sem precisar ter conhecimento prévio de programação. Aqui você vai descobrir o papel de cada arquivo, como as ferramentas conversam entre si e qual é o caminho exato que uma mensagem percorre desde o grupo de WhatsApp até o fechamento da visita.
+Sua secretária no WhatsApp faz quatro trabalhos repetitivos por você:
 
----
+1. **Lê os grupos de corretores**, entende cada pedido e, quando você tem um imóvel que atende **tudo** o que foi pedido, manda no privado do parceiro com fotos (e ficha em PDF se pedirem).
+2. **Atende o seu privado**: responde a 1ª mensagem só de quem **nunca** falou com você e avisa quem ligou e você não atendeu.
+3. **Divulga sua carteira** (Vitrine) em até 4 horários por dia nos grupos de divulgação que você escolher, com posts aprovados por você.
+4. **Prospecta** os contatos que você escolher, no ritmo de uma pessoa, com descadastro automático.
 
-## 1. Visão Geral: O que é a Secretária na prática?
-
-Imagine uma secretária humana sentada em uma mesa com **4 ferramentas** na frente dela:
-1. **Um celular com WhatsApp aberto** olhando os grupos de corretores/clientes o dia inteiro.
-2. **Um fichário (Planilha/Catálogo)** com todos os seus imóveis disponíveis, preços, setores e fotos.
-3. **Um caderno de treinamento (Cérebro)** que diz como interpretar gírias do mercado (*"3q"*, *"500k"*, *"porteira fechada"*) e como responder cada tipo de pessoa (*urgente*, *parceria*, *à vista*).
-4. **Uma tela de computador (Painel Web / Mini-CRM)** onde você cadastra imóveis e muda as ordens dela.
-
-Na programação, nós transformamos essas 4 coisas em **código JavaScript (Node.js)** rodando dentro da pasta `agente-imoveis-whatsapp`.
+E conversa com você pelo WhatsApp, na conversa **"Mensagem para mim"**.
 
 ---
 
-## 2. As Tecnologias Usadas (Traduzidas do "Computês" para o Português)
+## 1. Como ela decide o que fazer com um pedido do grupo
 
-Para construir a secretária, usamos tecnologias padrão de mercado, todas gratuitas:
+```
+mensagem no grupo
+   │
+   ├─ é oferta ("Vendo…", "Captei…")? ───────────────► ignora
+   │
+   ├─ entende o pedido: tipo, local, preço, quartos, suítes, vagas, m², mobília,
+   │  lazer, condomínio, idade, ágio, permuta, financiamento, características…
+   │
+   ├─ compara com cada imóvel da carteira
+   │     ├─ atende 100% ──────────────────────────────► ENVIA ao parceiro + te avisa
+   │     ├─ atende tudo, mas falta um dado no cadastro ► te PERGUNTA (código A12)
+   │     └─ falha em algum critério ──────────────────► silêncio (fica no Radar)
+```
 
-- **Node.js:** É o "motor" que permite rodar código JavaScript fora do navegador, funcionando como um programa de servidor ligado 24h.
-- **Express (`index.js`):** É a ferramenta que cria o **site/painel** e os "canais de comunicação" (rotas) entre a tela que você vê e o motor por trás.
-- **Baileys (`src/whatsapp.js`):** É a biblioteca que simula o **WhatsApp Web**. Quando você escaneia o QR Code, é ela que recebe as mensagens dos grupos em tempo real e envia fotos no privado sem precisar pagar por mensagem.
-- **Google Gemini (`src/matcher.js`):** É a Inteligência Artificial do Google. Funciona como um "segundo cérebro" que lê frases complexas e adapta a fala da secretária.
-- **Multer (`index.js`):** É o "recebedor de arquivos" que pega as fotos que você escolhe no computador/celular e salva dentro da pasta `fotos/`.
-- **Git & GitHub:** **Git** é a máquina do tempo que salva pontos de restauração no seu computador. **GitHub** é o cofre na internet (`github.com/pggcthymg7-rgb/secretaria-imoveis-whatsapp`) onde guardamos o código para a nuvem ler.
-- **Render.com (`render.yaml`):** É o computador na nuvem (`https://secretaria-imoveis-whatsapp.onrender.com`) que fica ligado 24h por dia rodando o código que está no GitHub, mesmo com o seu Mac desligado.
+**Na dúvida, ela não envia.** Você recebe um alerta com um código (ex.: `A12`) e responde **enviar A12** para ela mandar.
+
+### O mapa de Goiânia
+O cérebro conhece bairros (com região e coordenada), condomínios (Jardins Lyon, Alphaville, Aldeia do Vale…), marcos e avenidas (Praça Tamandaré, DETRAN, T-63, Shopping Flamboyant…) e as cidades da região (com distância, para pedidos como "raio de 40 km de Goiânia"). Ele tolera erros de digitação ("Marechal Rondom").
+
+- **"região da Praça Tamandaré" / "perto do DETRAN"** → aceita o bairro do marco e os vizinhos (~2,5 km).
+- **Nome de edifício/condomínio** ("Flat Metropolitan") → o imóvel só serve se esse nome estiver no cadastro (campo *Edifício* ou descrição). Foi isso que corrigiu o envio errado do Viva Sudoeste.
+- **"sem região de preferência" / "qualquer setor"** → não filtra local.
+- Ensine edifícios e lugares novos em **Painel › Cérebro**.
+
+### Para ela acertar mais
+Preencha no cadastro: **edifício/condomínio, suítes, vagas, condomínio (R$), aceita permuta, aceita financiamento, negociação (venda/ágio/aluguel) e valor do ágio**. Campo vazio vira "não sei" → ela te pergunta em vez de arriscar.
 
 ---
 
-## 3. Anatomia dos Arquivos: O que faz cada peça da pasta?
+## 2. Comandos no WhatsApp ("Mensagem para mim")
 
-### 🏛️ 1. O Maestro: `index.js`
-É o arquivo principal que dá a partida em tudo quando o servidor liga.
-- Abre a pasta `fotos/` e prepara o sistema de upload para quando você enviar fotos pelo painel.
-- `/api/status`: É o canal que alimenta a tela do seu painel a cada 5 segundos (dizendo se o WhatsApp está conectado, quantos imóveis existem e quais foram as últimas mensagens lidas nos grupos).
-- `/api/property`: São os comandos que **criam**, **editam** ou **excluem** um imóvel quando você clica em salvar no Mini-CRM.
-- `/api/simulate`: É o motor do **Simulador de Grupo**, permitindo testar qualquer frase antes de acontecer na vida real.
-- **Partida + Despertador 24h:** Liga o painel web, inicia a conexão com o WhatsApp e ativa um **relógio interno (`setInterval`)** que dá um "cutucão" no próprio endereço da nuvem (`/ping`) a cada 10 minutos para o servidor gratuito do Render nunca dormir.
+| Você manda | Ela faz |
+|---|---|
+| `cadastrar apto 3q 2 suítes 98m² setor Bueno ed. Solar 650 mil aceita permuta` | monta o rascunho |
+| (fotos) | anexa ao rascunho |
+| `valor 640 mil`, `quartos 3`, `edificio Solar`, `permuta sim` | corrige um campo |
+| `salvar` / `cancelar` | grava na carteira / descarta |
+| `lista` · `ver 12` · `pdf 12` · `ativar 12` · `desativar 12` | carteira |
+| `buscas` · `demanda` | últimos pedidos · o que mais pedem (para captar) |
+| `enviar A12` · `enviar A12 30` | envia o imóvel sugerido (ou o #30) para quem pediu |
+| `vitrine` · `vitrine 12` · `aprovar 12` · `reprovar 12` | posts da vitrine |
+| `status` · `pausar` · `retomar` · `ajuda` | controle geral |
 
-### 📱 2. Os Ouvidos e a Boca: `src/whatsapp.js`
-Cuida exclusivamente da sua conexão com o WhatsApp.
-- **Conexão e QR Code:** Cria a conexão com o WhatsApp Web e guarda a chave de acesso na pasta `auth_info_baileys`. Se a internet oscilar, reconecta sozinho em 4 segundos.
-- **Filtro de Grupos (`shouldMonitorGroup`):** Olha a sua configuração `GRUPOS_MONITORADOS` (por exemplo: `teste`). Se chegar mensagem de um grupo da família ou de outro assunto que não esteja na lista, ela ignora completamente.
-- **Escuta em Tempo Real (`messages.upsert`):**
-  1. Ignora mensagens enviadas por você mesmo e conversas privadas (só vigia grupos).
-  2. Chama o cérebro (`matcher.js`) para analisar a frase.
-  3. Verifica na memória `sentOffersCache` se já mandou aquele imóvel para aquela mesma pessoa hoje (para não mandar repetido).
-- **Envio Humanizado + 5 Fotos (`sendPropertyOffer`):**
-  1. Envia o sinal `composing` para o WhatsApp da pessoa — fazendo aparecer **`digitando...`** no celular dela por 2,5 segundos.
-  2. Pega até **5 fotos** do imóvel. Na **primeira foto**, coloca a mensagem completa e personalizada como legenda. Nas fotos seguintes (`2/5`, `3/5`...), envia as imagens complementares.
-  3. Manda um resumo no **seu WhatsApp pessoal** (`MEU_WHATSAPP_ALERTA`) com o link direto do cliente.
+Anotações comuns que você faz no "Mensagem para mim" são ignoradas.
+Às 19h (configurável) chega o **resumo do dia**.
 
-### 🧠 3. O Cérebro e Intérprete Humano: `src/matcher.js`
-É onde mora toda a inteligência da secretária. Ele funciona em **duas camadas** (Inteligência Artificial do Google + Motor de Regras Imobiliárias Local):
-1. **Diferencia Comprador de Vendedor:** Bloqueia anúncios de quem está vendendo (*"Vendo lindo ap..."*) e reconhece mais de 35 formas de procurar imóvel (*"quero"*, *"busco"*, *"preciso"*, *"procuro"*, *"tenho cliente"*, *"alguém tem"*, etc.).
-2. **Tradutor de "Língua de WhatsApp":**
-   - Traduz `3q`, `3 qts`, `3 quartos`, `3 suítes` -> `3`.
-   - Traduz `90m`, `90m2`, `90 metros` -> `90`.
-   - Traduz `500mil`, `500k`, `R$ 500.000,00`, `500.000` -> `500000`.
-   - Entende pedidos por **Mobiliado**, **Região** (*"Região Sul"*, *"Região Sudoeste"*) ou *"qualquer setor"*.
-3. **Adaptação Humana e Treinamento (`buildHumanContextualParts`):**
-   - Cumprimenta com *"Bom dia"*, *"Boa tarde"* ou *"Boa noite"* pelo horário de Brasília.
-   - Adapta a abertura e o fechamento se detectar **Urgência** (*"podemos ir visitar a qualquer horário, é só me avisar"*), **Parceria com Corretor** ou **Comprador à Vista**, além das regras que você escrever no painel.
+---
 
-### 📂 4. A Memória da Carteira: `src/sheets.js` e `imoveis.csv`
-Guarda todos os seus imóveis cadastrados localmente em `imoveis.csv` e sincroniza opcionalmente com o **Google Sheets** (`GOOGLE_SHEETS_SCRIPT.gs`).
+## 3. A 1ª mensagem (o bug "respondia todo mundo")
 
-### 🖥️ 5. O Painel Visual (Mini-CRM): `src/dashboard.html`
-É a interface web que você acessa pelo navegador com as 4 abas: Carteira de Imóveis, Personalizar Mensagem & Treinamento, Simulador de Grupo e WhatsApp & Config.
+**Causa:** o WhatsApp passou a identificar contatos por um ID novo (LID) em vez do telefone, e a memória só conhecia quem falou depois que ela foi ligada — e no Render gratuito essa memória é apagada a cada reinício.
+
+**Agora ela só responde se TODAS forem verdade:**
+- a pessoa nunca falou com você (nem pelo telefone, nem pelo ID novo);
+- não está salva na sua agenda;
+- a mensagem é nova (não é histórico nem chegou com o celular offline);
+- não é resposta a uma mensagem anterior;
+- e, se a memória estiver vazia (primeira conexão), espera 20 min aprendendo seus contatos.
+
+---
+
+## 4. Onde rodar de graça (e sem perder memória)
+
+| Opção | Custo | Memória (sessão, contatos, carteira) |
+|---|---|---|
+| **VM gratuita (Oracle Cloud Always Free)** com `instalar-nuvem.sh` | grátis | ✅ permanente |
+| Seu Mac/PC ligado (`npm start`) | grátis | ✅ permanente |
+| Render gratuito | grátis | ❌ apagada a cada reinício/deploy (precisa ler QR de novo) |
+| Render pago + disco em `/var/data` + `DATA_DIR=/var/data` | ~US$ 7/mês | ✅ |
+
+Variáveis importantes (`.env` — nunca vai para o GitHub): `PAINEL_SENHA`, `DATA_DIR`, `GEMINI_API_KEY` (opcional, grátis), `MEU_WHATSAPP_ALERTA`, `API_TOKEN`.
+
+---
+
+## 5. Peças do sistema
+
+| Arquivo | Papel |
+|---|---|
+| `index.js` | servidor do painel e API (tudo protegido por login) |
+| `src/whatsapp.js` | conexão com o WhatsApp e roteamento das mensagens |
+| `src/brain/*` | cérebro: mapa de Goiânia, intérprete de pedidos e motor de compatibilidade |
+| `src/matcher.js` | decisão (enviar/perguntar/silêncio) e texto humano |
+| `src/atendimento-diario.js` + `src/contacts.js` | 1ª mensagem, ligações e memória de contatos |
+| `src/assistant.js` | comandos no "Mensagem para mim" |
+| `src/vitrine.js`, `src/prospeccao.js`, `src/scheduler.js` | divulgação, prospecção e agendador |
+| `src/radar.js`, `src/metrics.js` | histórico de pedidos, demanda e números do dia |
+| `src/auth.js` | login do painel |
+| `src/public/` | painel web |
+| `tests/` | testes automáticos (`npm run verify`) com as mensagens reais dos grupos |

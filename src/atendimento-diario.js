@@ -142,7 +142,13 @@ function shouldSendFirstContact(msg, settings, ctx = {}) {
 async function handlePrivateDailyMessage(sock, msg, addMainLog, ctx = {}) {
   const remoteJid = msg.key.remoteJid || '';
   if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast' || remoteJid.endsWith('@newsletter')) return;
-  const alt = msg.key.remoteJidAlt || msg.key.senderPn || null;
+  let alt = msg.key.remoteJidAlt || msg.key.senderPn || null;
+  // Só veio o ID novo (LID)? Descobre o telefone para não confundir contato antigo com novo
+  if (!alt && contacts.isLid(remoteJid) && ctx.resolvePhone) {
+    const pn = await ctx.resolvePhone(remoteJid).catch(() => '');
+    if (pn) alt = `${pn}@s.whatsapp.net`;
+  }
+  if (alt && !msg.key.remoteJidAlt) msg.key.remoteJidAlt = alt;
 
   // Mensagem sua no privado -> esse contato é conhecido
   if (msg.key.fromMe) {
