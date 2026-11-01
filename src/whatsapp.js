@@ -359,20 +359,25 @@ async function handleGroupMessage(msg, remoteJid) {
 
 /** Dono aprovou um alerta pelo WhatsApp: "enviar A12" ou "enviar A12 30" */
 async function approveAlert(chatJid, code, propId) {
+  const done = async (ok, message) => {
+    if (chatJid) await sendText(chatJid, `${assistant.BOT} ${message}`).catch(() => {});
+    return { ok, message };
+  };
+  if (!isConnected()) return done(false, 'WhatsApp desconectado.');
   const it = radar.get(code);
-  const reply = t => sendText(chatJid, `${assistant.BOT} ${t}`);
-  if (!it) return reply(`Não encontrei o pedido ${code} (vale por 48h).`);
+  if (!it) return done(false, `Não encontrei o pedido ${code} (vale por 48h).`);
   const id = propId || (it.candidatos || [])[0];
-  if (!id) return reply(`O pedido ${code} não tem imóvel sugerido. Use *enviar ${code} <id>*.`);
+  if (!id) return done(false, `O pedido ${code} não tem imóvel sugerido. Use *enviar ${code} <id>*.`);
   const inventory = await loadInventory();
   const prop = inventory.find(p => String(p.id) === String(id));
-  if (!prop) return reply(`Imóvel #${id} não está ativo.`);
+  if (!prop) return done(false, `Imóvel #${id} não está ativo.`);
   const analysis = await analyzeMessageAndMatch(it.texto, it.sender, inventory, { useAi: false });
   const phoneKey = it.phone || contacts.keyOf(it.jid);
   delete sentOffers[`${phoneKey}:${prop.id}`]; // aprovação manual libera reenvio
   const sent = await sendOffers(it.jid, phoneKey, it.sender, it.texto, [prop], { ...analysis, wantsPdf: it.wantsPdf });
   radar.update(code, { decision: 'ENVIAR', aprovadoManual: true, enviados: [...(it.enviados || []), ...sent] });
-  return reply(sent.length ? `Pronto! Enviei o #${prop.id} para ${it.sender}.` : 'Não consegui enviar agora (limite por hora). Tente em alguns minutos.');
+  if (sent.length) addLog('OPORTUNIDADE_ENVIADA', `✅ #${prop.id} enviado para ${it.sender} (aprovado por você, ${code}).`);
+  return done(Boolean(sent.length), sent.length ? `Pronto! Enviei o #${prop.id} para ${it.sender}.` : 'Não consegui enviar agora (limite por hora). Tente em alguns minutos.');
 }
 
 // ---------------------------------------------------------------------------

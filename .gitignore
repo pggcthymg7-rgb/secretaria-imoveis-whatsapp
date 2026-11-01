@@ -2,3 +2,19 @@ node_modules/
 auth_info_baileys/
 .DS_Store
 *.log
+*.tmp
+
+# Segredos e dados pessoais (NUNCA versionar)
+.env
+.env.*
+!.env.example
+auth.json
+known_contacts.json
+contatos.json
+radar.json
+metricas.json
+ofertas_enviadas.json
+prospeccao.json
+vitrine.json
+agendador.json
+data/
