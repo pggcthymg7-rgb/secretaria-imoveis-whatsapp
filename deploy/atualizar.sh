@@ -21,6 +21,16 @@ registrar() { # resultado para o painel e o WhatsApp mostrarem
 }
 rm -f "$FLAG" 2>/dev/null || true
 
+# Mapa aberto (OSM): se ainda não existe em DATA_DIR, gera agora (não trava a atualização se a internet falhar)
+garantir_mapa() {
+  [ -f "$DATA_DIR/mapa-osm.json" ] && return 0
+  [ -f "$APP_DIR/scripts/atualizar-mapa.js" ] || return 0
+  echo "Gerando o mapa aberto (OSM)..."
+  local cmd=(env DATA_DIR="$DATA_DIR" timeout 900 node "$APP_DIR/scripts/atualizar-mapa.js")
+  if [ "$(id -u)" = "0" ] && id -u secretaria >/dev/null 2>&1; then cmd=(runuser -u secretaria -- "${cmd[@]}"); fi
+  if (cd "$APP_DIR" && "${cmd[@]}" >/dev/null 2>&1); then registrar "OK mapa aberto gerado"; else registrar "AVISO mapa aberto não gerado (tenta de novo amanhã)"; fi
+}
+
 # Gatilho "atualizar agora" (botão do painel / comando no WhatsApp): o app cria $FLAG e o systemd roda esta atualização
 if [ "$(id -u)" = "0" ] && command -v systemctl >/dev/null 2>&1 && [ -d /etc/systemd/system ] && [ ! -f /etc/systemd/system/secretaria-update-now.path ]; then
   printf '%s\n' "[Unit]" "Description=Atualizar a BIGA quando pedido pelo painel ou WhatsApp" "[Path]" "PathExists=$FLAG" "Unit=secretaria-update.service" "[Install]" "WantedBy=multi-user.target" > /etc/systemd/system/secretaria-update-now.path
@@ -36,6 +46,7 @@ NEW=$(git rev-parse "origin/$BRANCH")
 if [ "$OLD" = "$NEW" ]; then
   echo "Já está na versão mais nova ($OLD)."
   registrar "OK já estava na versão mais nova (${OLD:0:7})"
+  garantir_mapa || true
   exit 0
 fi
 
@@ -60,6 +71,7 @@ for _ in $(seq 1 20); do
   if curl -fsS --max-time 3 "http://127.0.0.1:${PORT:-3000}/health" >/dev/null 2>&1; then
     echo "✅ Atualizado para $NEW"
     registrar "OK atualizada de ${OLD:0:7} para ${NEW:0:7}"
+    garantir_mapa || true
     exit 0
   fi
   sleep 2
