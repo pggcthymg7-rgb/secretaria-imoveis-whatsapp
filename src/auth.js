@@ -49,7 +49,9 @@ function isConfigured() {
 function getSetupCode() {
   if (isConfigured()) return null;
   if (!setupCode) {
-    setupCode = crypto.randomBytes(4).toString('hex').toUpperCase();
+    // SETUP_CODE: código fixo criado pela VM para a BIGA de um corretor extra (o João passa para ela)
+    const fixo = String(process.env.SETUP_CODE || '').trim().toUpperCase();
+    setupCode = /^[0-9A-F]{8,}$/.test(fixo) ? fixo : crypto.randomBytes(4).toString('hex').toUpperCase();
     console.log('\n======================================================');
     console.log(`🔐 CÓDIGO PARA CRIAR A SENHA DO PAINEL: ${setupCode}`);
     console.log('   (ou defina a variável de ambiente PAINEL_SENHA)');
@@ -189,7 +191,7 @@ function routes(app) {
     const code = getSetupCode();
     if (!codigo || !safeEqual(String(codigo).trim().toUpperCase(), code)) {
       registerFailure(ip);
-      return res.status(401).json({ error: 'Código de configuração incorreto (veja o log do servidor).' });
+      return res.status(401).json({ error: 'Código de configuração incorreto (peça a quem instalou a BIGA ou veja o log do servidor).' });
     }
     try {
       setPassword(senha);

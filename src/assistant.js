@@ -152,6 +152,7 @@ const HELP = `${BOT} *Oi, eu sou a BIGA!* Seus comandos:
 • *vitrine* (pendentes) · *vitrine 12* (prévia) · *aprovar 12* · *reprovar 12*
 
 💾 *backup* (arquivo com toda a memória) · 🔄 *atualizar* · *versão*
+👥 *corretores* (BIGAs de outros corretores)
 ⚙️ *status* · *pausar* · *retomar* · *ajuda*`;
 
 async function reply(wa, chatJid, text) {
@@ -239,6 +240,21 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
     const sistema = require('./sistema');
     const ult = sistema.lastResults(1)[0];
     await reply(wa, chatJid, `Versão ${sistema.version() || '?'}${ult ? `\nÚltima atualização: ${ult}` : ''}`);
+    return true;
+  }
+  if (/^(corretores|corretor|usuarios)$/.test(norm)) {
+    const lista = require('./sistema').corretores();
+    if (!lista.length) {
+      await reply(wa, chatJid, 'Nenhuma BIGA de outro corretor ainda (ela aparece depois da atualização da VM).');
+      return true;
+    }
+    const linhas = lista.map(c => {
+      const nome = c.nome.charAt(0).toUpperCase() + c.nome.slice(1);
+      return c.codigo
+        ? `• *${nome}*: ${c.url}\n  Código para criar a senha: *${c.codigo}* (passe só para ela)`
+        : `• *${nome}*: ${c.url}\n  ✅ senha já criada`;
+    });
+    await reply(wa, chatJid, `👥 *BIGAs dos corretores*\n${linhas.join('\n')}\n\nCada uma tem WhatsApp, carteira, senha e análises próprias.`);
     return true;
   }
   if (/^(backup|copia de seguranca|salvar memoria)$/.test(norm)) {
