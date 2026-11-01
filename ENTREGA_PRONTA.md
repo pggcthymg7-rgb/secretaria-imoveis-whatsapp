@@ -1,3 +1,43 @@
+# ✅ Entrega v4 — BIGA: mapa ampliado, painel novo e agente Garimpo
+
+## O que foi feito
+| Tarefa | Resultado |
+|---|---|
+| **1. Mapa da prefeitura** | O portal geo360 só libera dados com um token de "visitante" gerado pelo próprio site, e usá-lo a partir do nosso servidor seria contornar o controle de acesso da prefeitura. Por isso **não foi usado**. No lugar, entrou o **OpenStreetMap** (dados abertos, licença ODbL): **548 bairros e 394 condomínios** de Goiânia e região metropolitana, com coordenadas. Isso se soma aos 109 bairros, 41 condomínios e 67 marcos que BIGA já conhecia. A VM baixa o mapa completo de novo **todo domingo**. Para usar o geo360 oficialmente, é preciso pedir à prefeitura uma exportação ou um acesso de API. |
+| **2. Busca nos grupos** | Campo de busca por nome e botão "Só os marcados" nas listas de grupos (Ajustes e Vitrine). A busca filtra na própria tela, sem perder o que já foi marcado. |
+| **3. Nome** | A secretária agora é a **BIGA**: no painel, na ajuda, nos alertas, no resumo diário e no backup. |
+| **4. Painel novo** | A página inicial mostra a **BIGA**, uma ilustração vetorial animada: respira, pisca, mexe o cabelo, os olhos seguem o cursor e a boca "fala" a descrição de cada item. O **menu fica ao lado dela**, sobre o céu da hora azul com o skyline de Goiânia em parallax. Há transição em cortina circular entre páginas, entrada animada dos blocos e contadores. O visual segue o `DESIGN-2.md` (Mercury). |
+| **5. Agente Garimpo** | Varredura 24h, só em fontes oficiais: (a) **posts públicos da última semana** pedindo imóvel em Goiânia (Brave Search ou Google), interpretados pelo cérebro e cruzados com a carteira; (b) **comentários de interesse nos SEUS posts** do Instagram/Facebook (API oficial da Meta); (c) **campanhas de imóveis no ar** pelas bibliotecas oficiais de anúncios (Meta, Google, TikTok) e Google Trends de Goiás. Cada lead recebe uma pontuação, gera alerta no WhatsApp e entra no resumo diário. |
+
+### O que o Garimpo não faz, e por quê
+- **Saber quem pesquisou no Google ou visitou ZAP/VivaReal/OLX:** esses dados são privados das empresas e não existem para terceiros.
+- **Ler comentários em posts de outras pessoas no Instagram/TikTok/Facebook:** viola as regras das plataformas (risco de bloqueio da conta) e a LGPD.
+- Os leads guardam só o link público, o trecho e o nome exibido, por 30 dias. O contato é sempre feito pelo corretor.
+
+## Testes
+- `npm run verify`: **39 arquivos, 0 erros · 58 testes, 58 passando**. São 7 testes novos:
+  - Garimpo: varredura web, oferta ignorada, link `javascript:` bloqueado, sem duplicar, comentários dos seus posts, falta de chaves, status;
+  - mapa aberto: reconhecimento de condomínio e bairro novos e casamento com a carteira;
+  - desempenho: menos de 60 ms por mensagem (medido: ~12 ms).
+- Painel testado no navegador (desktop 1440 e celular 390): login, início, Hoje, Garimpo, Radar, Carteira, Vitrine, Ajustes e Simulador. Sem erros de JavaScript e sem rolagem horizontal.
+
+## Auditoria de segurança
+| Ponto | Situação |
+|---|---|
+| Rotas `/api/garimpo/*` | ✅ exigem login e o cabeçalho anti-CSRF |
+| Chaves do Garimpo (Brave, Google, Meta) | ✅ gravadas em `DATA_DIR/.env` (600); o painel só recebe "configurada sim/não" |
+| Links vindos da internet | ✅ só `http(s)`; abertos com `rel="noopener"`; todo texto externo é escapado |
+| Dados de terceiros | ✅ retenção de 30 dias, sem coleta fora das APIs oficiais |
+| Backup | ✅ passou a incluir os leads do Garimpo |
+| Dependências | ✅ `npm audit`: 0 vulnerabilidades |
+| Portal geo360 | ✅ não acessado de forma automática (exigiria contornar o acesso do site) |
+
+## O que depende de você
+1. **Atualizar a VM agora** (ou esperar a atualização automática das ~04:15): no Cloud Shell, entre na máquina e rode `sudo bash /opt/secretaria/deploy/atualizar.sh`.
+2. **Ligar o Garimpo:** criar uma chave grátis em brave.com/search/api, colar em Garimpo › Chaves e ligar o interruptor. Opcional: o token da sua Página do Facebook, para os comentários dos seus posts.
+
+---
+
 # ✅ Entrega v3.1 — Máquina virtual gratuita, 24h e com memória permanente
 
 ## O problema
