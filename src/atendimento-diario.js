@@ -123,7 +123,7 @@ async function handleIncomingCalls(sock, calls, addMainLog, ctx = {}) {
 function shouldSendFirstContact(msg, settings, ctx = {}) {
   const jid = msg.key.remoteJid;
   const alt = msg.key.remoteJidAlt || msg.key.senderPn || null;
-  if (settings.pausado) return { reply: false, reason: 'secretária pausada' };
+  if (settings.pausado) return { reply: false, reason: 'BIGA pausada' };
   if (settings.firstContactEnabled === false) return { reply: false, reason: '1ª mensagem desativada' };
   if (messageAgeSeconds(msg) > 180) return { reply: false, reason: 'mensagem antiga (histórico/offline)' };
   if (contacts.isKnown(jid, alt)) return { reply: false, reason: 'contato já conhecido' };
