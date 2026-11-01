@@ -21,7 +21,7 @@ const vitrine = require('./src/vitrine');
 const prospeccao = require('./src/prospeccao');
 const scheduler = require('./src/scheduler');
 const auth = require('./src/auth');
-const { BASE } = require('./src/brain/locations');
+const { BASE, loadOsm } = require('./src/brain/locations');
 const garimpo = require('./src/garimpo');
 
 const app = express();
@@ -401,8 +401,11 @@ app.post('/api/garimpo/lead/:id', (req, res) => {
 // ---------------------------------------------------------------------------
 app.get('/api/cerebro', (req, res) => {
   res.json({
-    base: { bairros: BASE.bairros.length, condominios: BASE.condominios.length, marcos: BASE.marcos.length, cidades: BASE.cidades.length },
-    bairros: BASE.bairros.map(b => ({ nome: b.name, regiao: b.region })),
+    base: (() => {
+      const osm = loadOsm() || {};
+      return { bairros: BASE.bairros.length + (osm.bairros || []).length, condominios: BASE.condominios.length + (osm.condominios || []).length + (osm.edificios || []).length, marcos: BASE.marcos.length, cidades: BASE.cidades.length, fonteAberta: osm.fonte || null, mapaAtualizadoEm: osm.geradoEm || null };
+    })(),
+    bairros: [...BASE.bairros.map(b => ({ nome: b.name, regiao: b.region })), ...((loadOsm() || {}).bairros || []).map(b => ({ nome: b.name, regiao: b.region || b.city || '' }))],
     condominios: BASE.condominios.map(c => c.name),
     marcos: BASE.marcos.map(m => ({ nome: m.name, bairro: m.bairro })),
     cidades: BASE.cidades.map(c => c.name),
