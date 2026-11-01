@@ -42,3 +42,4 @@
 - [x] Agente Garimpo: leads da web pública, comentários nos seus posts, mapa de campanhas e tendências
 - [ ] Configurar as chaves do Garimpo (Brave Search ou Google; token da Página Meta) — **precisa de você**
 - [ ] Portal geo360 da prefeitura: sem exportação aberta; integração automática depende de autorização/convênio com a prefeitura
+- [x] Atualizar a BIGA pelo celular: botão "Atualizar agora" (Ajustes › Sistema) e comando `atualizar` no WhatsApp — ativa sozinho na próxima atualização automática

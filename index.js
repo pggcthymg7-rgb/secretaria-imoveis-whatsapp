@@ -23,6 +23,7 @@ const scheduler = require('./src/scheduler');
 const auth = require('./src/auth');
 const { BASE, loadOsm } = require('./src/brain/locations');
 const garimpo = require('./src/garimpo');
+const sistema = require('./src/sistema');
 
 const app = express();
 app.disable('x-powered-by');
@@ -295,6 +296,13 @@ app.post('/api/restore', (req, res) => {
       res.status(e.status || 500).json({ error: e.message });
     }
   });
+});
+
+app.get('/api/sistema', (req, res) => res.json({ versao: sistema.version(), naVM: Boolean(process.env.DATA_DIR), resultados: sistema.lastResults() }));
+app.post('/api/sistema/atualizar', (req, res) => {
+  const r = sistema.requestUpdate();
+  wa.addLog('SISTEMA', '🔄 Atualização pedida pelo painel.');
+  res.json({ ...r, message: 'Atualização pedida. Se houver versão nova, a BIGA reinicia em 1 a 2 minutos (o WhatsApp continua conectado).' });
 });
 
 app.post('/api/whatsapp/reset-session', ah(async (req, res) => {
