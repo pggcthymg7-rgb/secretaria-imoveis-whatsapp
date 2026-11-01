@@ -31,4 +31,14 @@
 - [x] Backup e restauração de toda a memória (painel, comando `backup` no WhatsApp e backup semanal automático)
 - [x] Instalador automático da VM (Node, serviço 24h, HTTPS, firewall, backup diário e atualização automática)
 - [x] Instalação sem SSH pelo celular (cloud-init) + guia passo a passo Oracle/Google
-- [ ] Migração do Render para a VM: criar a conta Oracle e a VM (passos 1–5 do GUIA_VM_GRATUITA.md) — **precisa de você** (cadastro com cartão)
+- [x] Migração para a VM Oracle (São Paulo, E2.1.Micro, Ubuntu 24.04) — no ar em https://147-15-87-168.sslip.io e WhatsApp conectado
+- [ ] Suspender o serviço no Render e desconectar o aparelho antigo no WhatsApp — **precisa de você**
+
+## 5. BIGA — mapa, painel novo e Garimpo
+- [x] Mapa de Goiânia ampliado com dados abertos do OpenStreetMap (548 bairros, 394 condomínios; atualização automática semanal na VM)
+- [x] Busca por nome nas listas de grupos (Ajustes e Vitrine)
+- [x] Secretária passa a se chamar BIGA
+- [x] Painel novo: BIGA animada na página inicial com menu ao lado, transições e animações (referência DESIGN-2.md)
+- [x] Agente Garimpo: leads da web pública, comentários nos seus posts, mapa de campanhas e tendências
+- [ ] Configurar as chaves do Garimpo (Brave Search ou Google; token da Página Meta) — **precisa de você**
+- [ ] Portal geo360 da prefeitura: sem exportação aberta; integração automática depende de autorização/convênio com a prefeitura

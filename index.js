@@ -21,7 +21,8 @@ const vitrine = require('./src/vitrine');
 const prospeccao = require('./src/prospeccao');
 const scheduler = require('./src/scheduler');
 const auth = require('./src/auth');
-const { BASE } = require('./src/brain/locations');
+const { BASE, loadOsm } = require('./src/brain/locations');
+const garimpo = require('./src/garimpo');
 
 const app = express();
 app.disable('x-powered-by');
@@ -82,7 +83,7 @@ const upload = multer({
 
 // Atualiza variáveis no .env (somente chaves permitidas e sem quebra de linha)
 const ENV_PATH = process.env.DATA_DIR ? path.join(DATA_DIR, '.env') : path.join(ROOT_DIR, '.env');
-const ENV_ALLOWED = new Set(['GEMINI_API_KEY', 'GOOGLE_SHEETS_CSV_URL', 'GOOGLE_SHEETS_WEBHOOK_URL', 'MEU_WHATSAPP_ALERTA']);
+const ENV_ALLOWED = new Set(['GEMINI_API_KEY', 'GOOGLE_SHEETS_CSV_URL', 'GOOGLE_SHEETS_WEBHOOK_URL', 'MEU_WHATSAPP_ALERTA', 'BRAVE_API_KEY', 'GOOGLE_CSE_KEY', 'GOOGLE_CSE_CX', 'META_PAGE_TOKEN', 'META_PAGE_ID', 'META_IG_USER_ID']);
 function updateEnvFile(updates) {
   let content = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf-8') : '';
   for (const [key, raw] of Object.entries(updates)) {
@@ -251,7 +252,7 @@ app.post('/api/config', ah(async (req, res) => {
 }));
 
 app.post('/api/test-alert', ah(async (req, res) => {
-  const result = await wa.sendOwnerWhatsAppAlert('🔔 *TESTE DE ALERTA*\n\n✅ Seu número de alerta está funcionando. Responda *ajuda* para ver os comandos da sua secretária.');
+  const result = await wa.sendOwnerWhatsAppAlert('🔔 *TESTE DE ALERTA*\n\n✅ Seu número de alerta está funcionando. Responda *ajuda* para ver os comandos da BIGA.');
   res.json(result);
 }));
 
@@ -373,12 +374,38 @@ app.get('/api/prospeccao/campanha/:id', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Garimpo (clientes procurando imóvel na internet)
+// ---------------------------------------------------------------------------
+app.get('/api/garimpo', (req, res) => res.json(garimpo.getState()));
+app.post('/api/garimpo/config', (req, res) => res.json({ ok: true, config: garimpo.updateConfig(req.body || {}) }));
+app.post('/api/garimpo/chaves', (req, res) => {
+  const b = req.body || {};
+  const map = { braveKey: 'BRAVE_API_KEY', googleKey: 'GOOGLE_CSE_KEY', googleCx: 'GOOGLE_CSE_CX', metaToken: 'META_PAGE_TOKEN', metaPageId: 'META_PAGE_ID', igUserId: 'META_IG_USER_ID' };
+  const upd = {};
+  for (const [k, env] of Object.entries(map)) if (typeof b[k] === 'string' && b[k].trim()) upd[env] = b[k].trim().slice(0, 400);
+  for (const k of ['META_PAGE_ID', 'META_IG_USER_ID', 'GOOGLE_CSE_CX']) if (upd[k] && !/^[\w:-]+$/.test(upd[k])) return res.status(400).json({ error: `Valor inválido para ${k}.` });
+  updateEnvFile(upd);
+  res.json({ ok: true, state: garimpo.getState() });
+});
+app.post('/api/garimpo/rodar', ah(async (req, res) => {
+  const r = await garimpo.run({ inventory: await sheets.loadInventory(), extraPlaces: loadSettings().extraPlaces, onLeads: scheduler.alertLeads(wa.api) });
+  res.json({ ...r, state: garimpo.getState() });
+}));
+app.post('/api/garimpo/lead/:id', (req, res) => {
+  garimpo.setLeadStatus(String(req.params.id), String(req.body?.status || ''));
+  res.json({ ok: true, state: garimpo.getState() });
+});
+
+// ---------------------------------------------------------------------------
 // Cérebro (lugares personalizados)
 // ---------------------------------------------------------------------------
 app.get('/api/cerebro', (req, res) => {
   res.json({
-    base: { bairros: BASE.bairros.length, condominios: BASE.condominios.length, marcos: BASE.marcos.length, cidades: BASE.cidades.length },
-    bairros: BASE.bairros.map(b => ({ nome: b.name, regiao: b.region })),
+    base: (() => {
+      const osm = loadOsm() || {};
+      return { bairros: BASE.bairros.length + (osm.bairros || []).length, condominios: BASE.condominios.length + (osm.condominios || []).length + (osm.edificios || []).length, marcos: BASE.marcos.length, cidades: BASE.cidades.length, fonteAberta: osm.fonte || null, mapaAtualizadoEm: osm.geradoEm || null };
+    })(),
+    bairros: [...BASE.bairros.map(b => ({ nome: b.name, regiao: b.region })), ...((loadOsm() || {}).bairros || []).map(b => ({ nome: b.name, regiao: b.region || b.city || '' }))],
     condominios: BASE.condominios.map(c => c.name),
     marcos: BASE.marcos.map(m => ({ nome: m.name, bairro: m.bairro })),
     cidades: BASE.cidades.map(c => c.name),
@@ -428,7 +455,7 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   const HOST = process.env.HOST || '0.0.0.0';
   app.listen(PORT, HOST, async () => {
-    console.log(`\n🚀 SECRETÁRIA IMOBILIÁRIA ATIVA EM: http://${HOST}:${PORT}${process.env.PUBLIC_URL ? ` (público: ${process.env.PUBLIC_URL})` : ''}`);
+    console.log(`\n🚀 BIGA — SECRETÁRIA IMOBILIÁRIA ATIVA EM: http://${HOST}:${PORT}${process.env.PUBLIC_URL ? ` (público: ${process.env.PUBLIC_URL})` : ''}`);
     console.log(`📂 Dados em: ${DATA_DIR}${process.env.DATA_DIR ? '' : ' (defina DATA_DIR para um disco persistente na nuvem)'}`);
     console.log(`🏠 ${(await sheets.loadInventory()).length} imóveis ativos.`);
     if (!auth.isConfigured()) auth.getSetupCode();

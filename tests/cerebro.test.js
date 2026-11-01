@@ -179,3 +179,25 @@ test('Nome do remetente é limpo ("Marline Pinheiro - Corretora De Imóveis" -> 
   assert.equal(firstNameOf('corretor Alves'), 'Alves');
   assert.equal(firstNameOf('~'), '');
 });
+
+test('Mapa aberto (OSM): reconhece condomínios e bairros que o mapa base não tinha', async () => {
+  const { parseRequest } = require('../src/brain/parser');
+  let c = parseRequest('Busco casa no Condomínio Gran Paris até 900 mil');
+  assert.ok(c.local.condominios.some(x => /Gran Paris/.test(x.name)));
+  c = parseRequest('Procuro apto no American Park 2 quartos');
+  assert.ok(c.local.bairros.includes('American Park'));
+  c = parseRequest('casa em Aldeia dos Sonhos');
+  assert.ok(c.local.condominios.some(x => /Aldeia dos Sonhos/.test(x.name)));
+  // imóvel no condomínio do mapa aberto é encontrado; fora dele não
+  const dentro = prop({ id: '120', tipo: 'Casa', setor: 'Condomínio Gran Paris', quartos: 3, valor: 850000 });
+  const fora = prop({ id: '121', tipo: 'Casa', setor: 'Setor Bueno', quartos: 3, valor: 850000 });
+  const r = await run('Busco casa 3 quartos no Condomínio Gran Paris até 900 mil', [dentro, fora]);
+  assert.deepEqual(r.matches.map(m => m.id), ['120']);
+});
+
+test('Cérebro continua rápido com o mapa completo (< 60 ms por mensagem)', () => {
+  const { parseRequest } = require('../src/brain/parser');
+  const t = Date.now();
+  for (let i = 0; i < 10; i++) parseRequest('Busco apto 3 quartos sendo 1 suíte na região da Praça Tamandaré ou Setor Bueno até 700 mil, aceita financiamento');
+  assert.ok((Date.now() - t) / 10 < 60, `levou ${(Date.now() - t) / 10} ms`);
+});

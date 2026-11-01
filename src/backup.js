@@ -29,7 +29,8 @@ const DATA_FILES = [
   'ofertas_enviadas.json',
   'prospeccao.json',
   'vitrine.json',
-  'agendador.json'
+  'agendador.json',
+  'garimpo.json'
 ];
 const PHOTO_RX = /^[A-Za-z0-9._-]+\.(jpe?g|png|webp)$/i;
 const MAX_BYTES = 200 * 1024 * 1024; // 200 MB descompactado
@@ -63,12 +64,12 @@ function parseBackup(buf) {
   try {
     json = JSON.parse(zlib.gunzipSync(buf, { maxOutputLength: MAX_BYTES }).toString('utf-8'));
   } catch {
-    throw Object.assign(new Error('Não é um backup da secretária (arquivo corrompido ou de outro tipo).'), { status: 400 });
+    throw Object.assign(new Error('Não é um backup da BIGA (arquivo corrompido ou de outro tipo).'), { status: 400 });
   }
   if (!json || json.formato !== FORMAT || typeof json.arquivos !== 'object' || typeof json.fotos !== 'object') {
-    throw Object.assign(new Error('Não é um backup da secretária.'), { status: 400 });
+    throw Object.assign(new Error('Não é um backup da BIGA.'), { status: 400 });
   }
-  if (json.versao > VERSION) throw Object.assign(new Error('Backup feito por uma versão mais nova da secretária. Atualize antes de restaurar.'), { status: 400 });
+  if (json.versao > VERSION) throw Object.assign(new Error('Backup feito por uma versão mais nova da BIGA. Atualize antes de restaurar.'), { status: 400 });
   return json;
 }
 
