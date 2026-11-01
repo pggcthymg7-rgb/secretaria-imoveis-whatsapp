@@ -29,7 +29,8 @@ const DATA_FILES = [
   'ofertas_enviadas.json',
   'prospeccao.json',
   'vitrine.json',
-  'agendador.json'
+  'agendador.json',
+  'garimpo.json'
 ];
 const PHOTO_RX = /^[A-Za-z0-9._-]+\.(jpe?g|png|webp)$/i;
 const MAX_BYTES = 200 * 1024 * 1024; // 200 MB descompactado
