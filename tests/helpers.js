@@ -5,6 +5,7 @@ const path = require('path');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'secretaria-test-'));
 process.env.DATA_DIR = tmp;
+process.env.NODE_ENV = 'test';
 process.env.GEMINI_API_KEY = '';
 process.env.GOOGLE_SHEETS_WEBHOOK_URL = '';
 process.env.GOOGLE_SHEETS_CSV_URL = '';
