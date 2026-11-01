@@ -30,5 +30,5 @@
 ## 4. Mudança para a máquina virtual gratuita (24h, memória permanente)
 - [x] Backup e restauração de toda a memória (painel, comando `backup` no WhatsApp e backup semanal automático)
 - [x] Instalador automático da VM (Node, serviço 24h, HTTPS, firewall, backup diário e atualização automática)
-- [ ] Instalação sem SSH pelo celular (cloud-init) + guia passo a passo Oracle/Google
-- [ ] Migração do Render para a VM (backup → restaurar → QR Code → suspender Render)
+- [x] Instalação sem SSH pelo celular (cloud-init) + guia passo a passo Oracle/Google
+- [ ] Migração do Render para a VM: criar a conta Oracle e a VM (passos 1–5 do GUIA_VM_GRATUITA.md) — **precisa de você** (cadastro com cartão)
