@@ -31,4 +31,5 @@
 - [x] Backup e restauração de toda a memória (painel, comando `backup` no WhatsApp e backup semanal automático)
 - [x] Instalador automático da VM (Node, serviço 24h, HTTPS, firewall, backup diário e atualização automática)
 - [x] Instalação sem SSH pelo celular (cloud-init) + guia passo a passo Oracle/Google
-- [ ] Migração do Render para a VM: criar a conta Oracle e a VM (passos 1–5 do GUIA_VM_GRATUITA.md) — **precisa de você** (cadastro com cartão)
+- [x] Migração para a VM Oracle (São Paulo, E2.1.Micro, Ubuntu 24.04) — no ar em https://147-15-87-168.sslip.io e WhatsApp conectado
+- [ ] Suspender o serviço no Render e desconectar o aparelho antigo no WhatsApp — **precisa de você**
