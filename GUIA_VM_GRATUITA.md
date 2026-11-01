@@ -64,11 +64,10 @@ A Oracle bloqueia tudo por padrão. Libere as portas do site:
 
 1. Na página da instância: **Primary VNIC** › clique na **Subnet**.
 2. **Security Lists** › **Default Security List**.
-3. **Add Ingress Rules**:
-   - **Source CIDR:** `0.0.0.0/0`
-   - **IP Protocol:** TCP
-   - **Destination Port Range:** `80,443`
-4. **Add Ingress Rules** para salvar.
+3. **Add Ingress Rules** e crie **duas regras separadas** (uma por porta):
+   - **Source CIDR:** `0.0.0.0/0` · **IP Protocol:** TCP · **Destination Port Range:** `80`
+   - **Source CIDR:** `0.0.0.0/0` · **IP Protocol:** TCP · **Destination Port Range:** `443`
+4. Confira na lista que aparecem **80** e **443**. Cuidado com erro de digitação: `433` não serve.
 
 O firewall de dentro da máquina o instalador já liberou sozinho.
 
@@ -113,8 +112,10 @@ Só uma secretária pode estar conectada ao seu WhatsApp.
 
 | Problema | Solução |
 |---|---|
-| Site não abre | Confira o Passo 3 (portas 80 e 443). Espere 5 min após criar a máquina |
-| "Out of capacity" ao criar | Use o shape AMD `VM.Standard.E2.1.Micro` ou tente de novo mais tarde |
+| Site não abre | Confira o Passo 3: precisa existir uma regra TCP com porta **443** (não 433). Espere 5 min após criar a máquina |
+| Não consigo liberar o IP público ao criar | Crie a rede antes: Networking › Virtual cloud networks › *Start VCN Wizard* › *Create VCN with Internet Connectivity*; depois escolha essa rede e a subnet pública ao criar a máquina |
+| "Out of capacity" no shape A1 (ARM) | Use *Specialty and previous generation* › **VM.Standard.E2.1.Micro** (também grátis) |
+| WhatsApp demora a conectar depois do QR | Normal: ele reinicia a conexão algumas vezes (até ~1 min). Se pedir QR de novo, escaneie o novo |
 | Quero ver o que está acontecendo | Página da instância › **Console connection** › *Launch Cloud Shell connection*, entre e digite `sudo journalctl -u secretaria -f` |
 | Ver o log da instalação | `sudo tail -100 /var/log/secretaria-instalacao.log` |
 | Trocar a senha | `sudo nano /etc/secretaria.env` (linha `PAINEL_SENHA=`), depois `sudo systemctl restart secretaria` |
