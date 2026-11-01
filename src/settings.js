@@ -79,6 +79,9 @@ const DEFAULTS = {
   resumoDiarioAtivo: true,
   resumoDiarioHorario: '19:00',
 
+  // Backup semanal (domingo) enviado para o seu WhatsApp
+  backupSemanalAtivo: true,
+
   // Pausa geral (para tudo que é automático)
   pausado: false
 };
