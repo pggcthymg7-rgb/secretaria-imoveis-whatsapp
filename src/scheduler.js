@@ -48,6 +48,18 @@ async function dailySummaryTick(wa) {
   await wa.sendOwnerWhatsAppAlert(buildDailySummary());
 }
 
+/** Domingo, a partir das 07:00: manda o backup da memória para o seu WhatsApp */
+async function weeklyBackupTick(wa, log) {
+  const s = loadSettings();
+  if (s.backupSemanalAtivo === false || !wa.isConnected() || !wa.sendBackup) return;
+  const now = nowParts();
+  const st = readJson('agendador.json', {});
+  if (now.weekday !== 0 || now.minutes < 7 * 60 || st.backupEnviadoEm === now.date) return;
+  writeJson('agendador.json', { ...st, backupEnviadoEm: now.date });
+  const r = await wa.sendBackup();
+  log('BACKUP', r.ok ? '💾 Backup semanal enviado para o seu WhatsApp.' : `Backup semanal não enviado: ${r.error}`);
+}
+
 function start(wa, log) {
   if (timer) return;
   timer = setInterval(async () => {
@@ -59,6 +71,7 @@ function start(wa, log) {
         await prospeccao.tick(wa, log).catch(e => log('PROSPECCAO', `erro: ${e.message}`));
       }
       await dailySummaryTick(wa).catch(e => log('RESUMO', `erro: ${e.message}`));
+      await weeklyBackupTick(wa, log).catch(e => log('BACKUP', `erro: ${e.message}`));
     } finally {
       ticking = false;
     }
@@ -71,4 +84,4 @@ function stop() {
   timer = null;
 }
 
-module.exports = { start, stop, buildDailySummary };
+module.exports = { start, stop, buildDailySummary, weeklyBackupTick };
