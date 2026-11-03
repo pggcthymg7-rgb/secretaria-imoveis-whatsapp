@@ -88,6 +88,7 @@ const DEFAULTS = {
   buscaZap: true,
   buscaVivareal: true,
   buscaMemoriaAtiva: true, // guardar os anúncios dos grupos
+  buscaGruposIds: null, // grupos da busca (anúncios, histórico e buscas); null = todos. Separado dos grupos de pedidos.
 
   // Pausa geral (para tudo que é automático)
   pausado: false
