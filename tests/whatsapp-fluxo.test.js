@@ -157,3 +157,32 @@ test('Pareamento: depois de ler o QR (515) reconecta quase na hora; QR vencido (
   assert.equal(reconnectDelay(428, 1), 6000);
   assert.equal(reconnectDelay(428, 9), 60000, 'quedas normais continuam com espera crescente');
 });
+
+test('"Mensagem para mim" pelo código interno (LID) sem o LID conhecido também é atendido (caso Laura)', async () => {
+  const { isOwnerChatAsync } = wa._test;
+  fakeSock.signalRepository.lidMapping.getPNForLID = async jid => (jid === '999999999@lid' ? `${SELF}:0@s.whatsapp.net` : null);
+  assert.equal(await isOwnerChatAsync({ key: { remoteJid: '999999999@lid', fromMe: true } }), true);
+  assert.equal(await isOwnerChatAsync({ key: { remoteJid: '888888888@lid', fromMe: true } }), false, 'LID de outra pessoa não é o dono');
+  assert.equal(await isOwnerChatAsync({ key: { remoteJid: '999999999@lid', fromMe: false } }), false, 'mensagem recebida não é comando do dono');
+  sent.length = 0;
+  fakeSock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: '999999999@lid', id: 'L1', fromMe: true }, messageTimestamp: nowTs(), message: { conversation: 'ajuda' } }] });
+  await wait(300);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].content.text, /lista/i);
+  fakeSock.signalRepository.lidMapping.getPNForLID = async () => null;
+});
+
+test('Comando recente que chega como "append" é atendido; antigo não; e fica registrado', async () => {
+  sent.length = 0;
+  fakeSock.ev.emit('messages.upsert', { type: 'append', messages: [{ key: { remoteJid: `${SELF}@s.whatsapp.net`, id: 'A1', fromMe: true }, messageTimestamp: nowTs(), message: { conversation: 'ajuda' } }] });
+  await wait(300);
+  assert.equal(sent.length, 1, 'recente: responde');
+  fakeSock.ev.emit('messages.upsert', { type: 'append', messages: [{ key: { remoteJid: `${SELF}@s.whatsapp.net`, id: 'A2', fromMe: true }, messageTimestamp: nowTs() - 3600, message: { conversation: 'ajuda' } }] });
+  await wait(300);
+  assert.equal(sent.length, 1, 'de 1 hora atrás: não responde');
+  assert.ok(wa.getAgentState().activityLogs.some(l => /mensagem antiga/.test(l.message)), 'motivo aparece no registro');
+  // conversa comum com cliente marcada como append continua ignorada
+  fakeSock.ev.emit('messages.upsert', { type: 'append', messages: [{ key: { remoteJid: '5562977776666@s.whatsapp.net', id: 'A3', fromMe: true }, messageTimestamp: nowTs(), message: { conversation: 'ajuda' } }] });
+  await wait(300);
+  assert.equal(sent.length, 1);
+});

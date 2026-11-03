@@ -415,6 +415,22 @@ function isOwnerChat(msg) {
   return keys.some(k => owners.includes(k));
 }
 
+/**
+ * Igual ao isOwnerChat, mas também reconhece o "Mensagem para mim" quando o WhatsApp manda o chat
+ * só pelo código interno (LID) e a BIGA ainda não sabe que esse LID é o próprio número
+ * (comum logo depois de conectar um aparelho novo).
+ */
+async function isOwnerChatAsync(msg) {
+  if (isOwnerChat(msg)) return true;
+  if (!msg.key.fromMe) return false;
+  const jid = msg.key.remoteJid;
+  if (!contacts.isLid(jid) || !selfPhone()) return false;
+  const pn = await resolvePhone(jid, msg.key.remoteJidAlt);
+  return Boolean(pn) && brazilVariants(pn).some(v => brazilVariants(selfPhone()).includes(v));
+}
+
+const COMANDO_DIAG = /^(ajuda|menu|comandos|help|status|lista|versao|versão|atualizar|backup|corretores)$/i;
+
 async function downloadImageToFotos(msg) {
   try {
     const buf = await downloadMediaMessage(msg, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage });
@@ -535,6 +551,9 @@ async function startWhatsAppAgent() {
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     for (const msg of messages) {
       try {
+        if (msg.key && !msg.message && msg.key.fromMe && !String(msg.key.remoteJid || '').endsWith('@g.us') && msg.messageStubType === 2) {
+          addLog('ASSISTENTE', 'Recebi uma mensagem sua que ainda não consegui ler (aparelho recém-conectado). Se for comando, mande de novo em 1 minuto.');
+        }
         if (!msg.message || !msg.key) continue;
         const remoteJid = msg.key.remoteJid || '';
         if (!remoteJid || remoteJid === 'status@broadcast' || remoteJid.endsWith('@newsletter') || remoteJid.endsWith('@broadcast')) continue;
@@ -543,13 +562,25 @@ async function startWhatsAppAgent() {
 
         // Mensagens suas (de qualquer aparelho) ensinam quem você já conhece
         if (msg.key.fromMe && !isGroup) contacts.markKnown(remoteJid, msg.key.remoteJidAlt);
-        if (type !== 'notify') continue;
+        // Comando seu no "Mensagem para mim" que chega marcado como "append" (entregue com atraso) ainda vale se for recente
+        const recente = Number(msg.messageTimestamp || 0) * 1000 > Date.now() - 120000;
+        const comandoAtrasado = type === 'append' && msg.key.fromMe && !isGroup && recente;
+        if (type !== 'notify' && !comandoAtrasado) {
+          if (msg.key.fromMe && !isGroup && COMANDO_DIAG.test(extractText(msg).trim())) addLog('ASSISTENTE', `Comando "${extractText(msg).trim()}" chegou como mensagem antiga (${type}) e foi ignorado. Mande de novo.`);
+          continue;
+        }
         if (msg.key.id) {
           if (processedIds.has(msg.key.id)) continue;
           remember(processedIds, msg.key.id);
         }
 
-        if (!isGroup && loadSettings().assistenteAtivo !== false && isOwnerChat(msg)) {
+        const ownerChat = !isGroup && (await isOwnerChatAsync(msg));
+        if (ownerChat && loadSettings().assistenteAtivo === false && COMANDO_DIAG.test(extractText(msg).trim())) addLog('ASSISTENTE', 'Comando recebido, mas a assistente está DESLIGADA em Ajustes.');
+        if (!ownerChat && msg.key.fromMe && !isGroup && COMANDO_DIAG.test(extractText(msg).trim())) {
+          addLog('ASSISTENTE', `Comando "${extractText(msg).trim()}" num chat que não reconheci como "Mensagem para mim" (${contacts.isLid(remoteJid) ? 'código interno' : 'número ' + contacts.keyOf(remoteJid)}; eu sou ${selfPhone() || '?'}).`);
+        }
+        if (comandoAtrasado && !ownerChat) continue;
+        if (ownerChat && loadSettings().assistenteAtivo !== false) {
           const text = extractText(msg);
           if (text.startsWith(assistant.BOT) || /^(🚨|✅ \*ENVIEI|🤔 \*CONFIRA|📊 \*RESUMO|🔔|💾|⛏️)/.test(text)) continue;
           const hasImage = Boolean(msg.message.imageMessage || msg.message.ephemeralMessage?.message?.imageMessage);
@@ -624,5 +655,5 @@ module.exports = {
   resetSession,
   approveAlert,
   api,
-  _test: { brazilVariants, isOwnerChat, reconnectDelay }
+  _test: { brazilVariants, isOwnerChat, isOwnerChatAsync, reconnectDelay }
 };
