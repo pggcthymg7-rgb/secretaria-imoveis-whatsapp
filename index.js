@@ -213,6 +213,13 @@ const NUM_KEYS = { maxPhotosPerMatch: [0, 10], minCriteriosParaEnvio: [1, 6], ma
 
 app.post('/api/config', ah(async (req, res) => {
   const b = req.body || {};
+  // chave do Gemini em Ajustes: mesma conferência da página Busca (antes de salvar qualquer coisa)
+  let chaveGemini = null;
+  if (typeof b.geminiApiKey === 'string' && b.geminiApiKey.trim()) {
+    const v = await require('./src/gemini-chave').validarChave(b.geminiApiKey);
+    if (!v.ok) return res.status(400).json({ error: v.mensagem });
+    chaveGemini = v.chave;
+  }
   const upd = {};
   for (const k of BOOL_KEYS) if (b[k] !== undefined) upd[k] = Boolean(b[k]);
   for (const [k, max] of Object.entries(TEXT_KEYS)) if (typeof b[k] === 'string') upd[k] = b[k].slice(0, max);
@@ -224,7 +231,7 @@ app.post('/api/config', ah(async (req, res) => {
   }
   if (typeof b.meuWhatsappAlerta === 'string') upd.meuWhatsappAlerta = b.meuWhatsappAlerta.replace(/\D/g, '').slice(0, 13);
   const envUpd = {};
-  if (typeof b.geminiApiKey === 'string' && b.geminiApiKey.trim()) envUpd.GEMINI_API_KEY = require('./src/gemini-chave').limparChave(b.geminiApiKey);
+  if (chaveGemini) envUpd.GEMINI_API_KEY = chaveGemini;
   for (const [k, envK] of [['googleSheetsUrl', 'GOOGLE_SHEETS_CSV_URL'], ['googleSheetsWebhookUrl', 'GOOGLE_SHEETS_WEBHOOK_URL']]) {
     if (typeof b[k] === 'string') {
       const v = b[k].trim();
