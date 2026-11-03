@@ -15,7 +15,7 @@ const VIVA_CASA = 'https://www.vivareal.com.br/imovel/casa-4-quartos-setor-maris
 const ZAP_OK = 'https://www.zapimoveis.com.br/imovel/venda-apartamento-3-quartos-com-academia-setor-marista-goiania-go-139m2-id-2825248279/';
 
 test('Leitor: página real da OLX (Talk Marista) → preço, m², quartos, vagas, suítes e profissional de verdade', () => {
-  const d = L.lerPaginaOlx(Fx.talkMarista);
+  const d = L.lerPaginaOlx(Fx.talkMarista, '1509799842');
   assert.deepEqual([d.preco, d.area, d.quartos, d.vagas, d.suites, d.bairro, d.cidade, d.profissional], [1450000, 140, 3, 2, 3, 'Setor Marista', 'Goiânia', true]);
   assert.equal(d.anunciante, 'Adão Imóveis');
   assert.equal(d.tipo, 'apartamento');
@@ -30,9 +30,9 @@ test('Leitor: o endereço do ZAP/VivaReal já diz venda/aluguel, tipo, quartos, 
 
 test('Avaliar: reprova só com dado lido; dado ausente vira "conferir"', () => {
   const c = bi.entenderPedido(PEDIDO).criterios;
-  assert.equal(L.avaliar(L.lerPaginaOlx(Fx.talkMarista), c).ok, true);
-  assert.deepEqual(L.avaliar(L.lerPaginaOlx(Fx.spotMarista), c), { ok: false, motivo: 'abaixo do valor' }, '870 mil e 2 quartos');
-  assert.equal(L.avaliar(L.lerPaginaOlx(Fx.botanic), c).ok, false, '1,89 mi está acima de 1,6 mi');
+  assert.equal(L.avaliar(L.lerPaginaOlx(Fx.talkMarista, '1509799842'), c).ok, true);
+  assert.deepEqual(L.avaliar(L.lerPaginaOlx(Fx.spotMarista, '1538345527'), c), { ok: false, motivo: 'abaixo do valor' }, '870 mil e 2 quartos');
+  assert.equal(L.avaliar(L.lerPaginaOlx(Fx.botanic, '1486983761'), c).ok, false, '1,89 mi está acima de 1,6 mi');
   assert.equal(L.avaliar(L.lerEndereco(ZAP_ALUGUEL), c).ok, false, 'aluguel num pedido de venda');
   assert.equal(L.avaliar(L.lerEndereco(VIVA_CASA), c).ok, false, 'casa de 2,9 mi num pedido de apartamento');
   const av = L.avaliar(L.lerEndereco(ZAP_OK), c);
@@ -87,4 +87,40 @@ test('Busca por texto: "Goiânia" não vira Goianira (erro do cérebro que manda
   const c = bi.entenderPedido(PEDIDO).criterios;
   assert.ok(!c.local.cidades.includes('Goianira'));
   assert.deepEqual(c.local.bairros, ['Setor Marista']);
+});
+
+test('Revisão: página que não é do anúncio pedido não vira dado; preço vem do bloco do anúncio, não de "relacionados"', () => {
+  assert.equal(L.lerPaginaOlx(Fx.talkMarista, '9999999999'), null, 'captcha/lista/redirecionada não cita o número do anúncio');
+  assert.equal(L.lerPaginaOlx(Fx.talkMarista, '15097998'), null, 'início do número não é o número');
+  const comRelacionado = Fx.talkMarista.replace('<body>', '<body><script>var rel={"price":"199000","professionalAd":false,"sellerName":"Outro"}</script>');
+  const d = L.lerPaginaOlx(comRelacionado, '1509799842');
+  assert.deepEqual([d.preco, d.profissional, d.anunciante], [1450000, true, 'Adão Imóveis']);
+  assert.equal(L.idDoLink(OLX_TALK), '1509799842');
+});
+
+test('Revisão: suíte inferida do texto só pede conferência; vaga 0 reprova, vaga ausente pede conferência', () => {
+  const c = bi.entenderPedido(PEDIDO).criterios;
+  const base = { transacao: 'VENDA', tipo: 'apartamento', preco: 1300000, area: 120, quartos: 3, bairro: 'Setor Marista', cidade: 'Goiânia' };
+  assert.deepEqual(L.avaliar({ ...base, suites: 1, vagas: 2 }, c), { ok: true, conferir: ['suítes'] }, '"2 quartos sendo 1 suíte master" não derruba o anúncio');
+  assert.equal(L.avaliar({ ...base, suites: 2, vagas: 0 }, c).ok, false, 'a página diz 0 vagas');
+  assert.deepEqual(L.avaliar({ ...base, suites: 2, vagas: null }, c), { ok: true, conferir: ['vagas'] });
+});
+
+test('Revisão: endereço — tipo vem do início do slug e RS só vale como "RS" + número', () => {
+  assert.equal(L.lerEndereco('https://www.zapimoveis.com.br/imovel/venda-apartamento-3-quartos-edificio-casa-grande-setor-marista-goiania-go-120m2-id-2800000001/').tipo, 'apartamento');
+  assert.equal(L.lerEndereco('https://www.zapimoveis.com.br/imovel/venda-apartamento-3-quartos-setor-bars1234567-goiania-go-120m2-id-2800000001/').preco, undefined);
+});
+
+test('Revisão: resposta sem Content-Length acima do teto é abortada (não vira HTML cortado)', async () => {
+  const serp = require('../src/busca-serp');
+  const grande = new ReadableStream({ start(ctl) { for (let i = 0; i < 5; i++) ctl.enqueue(new Uint8Array(1024 * 1024)); ctl.close(); } });
+  const fetcher = async () => ({ ok: true, status: 200, headers: { get: () => null }, body: grande });
+  const r = await L.lerAnuncios({ catalogo: [{ id: 1, portal: 'OLX', dominio: 'olx.com.br', url: OLX_TALK, titulo: 't', conteudo: '' }], criterios: bi.entenderPedido(PEDIDO).criterios, fetcher, portalDaUrl: serp.portalDaUrl, ehPaginaDeAnuncio: serp.ehPaginaDeAnuncio });
+  assert.equal(r.lidas, 0);
+  assert.equal(r.falhas, 1);
+});
+
+test('Revisão: "Canedo" (apelido) continua cidade; "Goiânia" não vira Goianira', () => {
+  const c = bi.entenderPedido('Casa em Canedo de 400 mil a 600 mil, 3 quartos').criterios;
+  assert.ok(c.local.cidades.some(x => /Canedo/.test(x)), JSON.stringify(c.local.cidades));
 });
