@@ -320,3 +320,62 @@ test('Testar chave salva: corrige chave "suja" salva pela versão antiga de Ajus
     process.env.GEMINI_API_KEY = antes || '';
   }
 });
+
+// ---------------------------------------------------------------------------
+// Modelo do Gemini descoberto (caso real do João: "gemini-2.5-flash is no longer available to new users")
+test('Modelo do Gemini: escolhe o flash estável mais novo que a chave pode usar', () => {
+  const M = require('../src/gemini-modelo');
+  const gc = ['generateContent'];
+  const lista = [
+    { name: 'models/gemini-2.5-flash', supportedGenerationMethods: gc },
+    { name: 'models/gemini-3.8-flash', supportedGenerationMethods: gc },
+    { name: 'models/gemini-3.8-flash-lite', supportedGenerationMethods: gc },
+    { name: 'models/gemini-3.9-flash-preview', supportedGenerationMethods: gc },
+    { name: 'models/gemini-3.10-flash', supportedGenerationMethods: gc },
+    { name: 'models/gemini-3.8-pro', supportedGenerationMethods: gc },
+    { name: 'models/gemini-4.0-flash', supportedGenerationMethods: ['embedContent'] },
+    { name: 'models/text-embedding-004', supportedGenerationMethods: ['embedContent'] }
+  ];
+  assert.equal(M.melhorFlash(lista), 'gemini-3.10-flash', '3.10 > 3.8 (comparação numérica); sem lite/preview/pro/sem generateContent');
+  assert.equal(M.melhorFlash(lista, ['gemini-3.10-flash']), 'gemini-3.8-flash', 'ignora o que acabou de falhar');
+  assert.equal(M.melhorFlash([]), null);
+  assert.ok(M.modeloIndisponivel(404, ''));
+  assert.ok(M.modeloIndisponivel(400, 'This model models/gemini-2.5-flash is no longer available to new users.'));
+  assert.ok(!M.modeloIndisponivel(429, 'quota'), 'cota esgotada não é modelo indisponível');
+});
+
+test('Portais: modelo aposentado -> escolhe o novo sozinho e refaz (sem gastar outra busca do dia)', async () => {
+  const M = require('../src/gemini-modelo');
+  M.esquecer('k-modelo');
+  const fonte = { redirect: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/ZZZ', url: 'https://go.olx.com.br/grande-goiania-e-anapolis/imoveis/apto-marista-777', titulo: 'olx' };
+  const item = { titulo: 'Apto Marista', portal: 'OLX', link: fonte.url, preco: 900000, area_m2: 120, quartos: 3, bairro: 'Setor Marista', anunciante: 'Particular', tipo_anunciante: 'particular' };
+  const usados = [];
+  const fetcher = async (url, o = {}) => {
+    if (o.method === 'HEAD') return { headers: { get: () => fonte.url } };
+    if (/\/models\?pageSize/.test(url)) return { ok: true, status: 200, json: async () => ({ models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }] }) };
+    const modelo = decodeURIComponent(url.match(/models\/([^:]+):generateContent/)[1]);
+    usados.push(modelo);
+    if (modelo === 'gemini-2.5-flash') return { ok: false, status: 404, json: async () => ({ error: { message: 'This model models/gemini-2.5-flash is no longer available to new users.' } }) };
+    return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: '```json\n' + JSON.stringify([item]) + '\n```' }] }, groundingMetadata: { groundingChunks: [{ web: { uri: fonte.redirect, title: 'olx' } }] } }] }) };
+  };
+  const { criterios } = bi.entenderPedido(F.pedidoClienteMarista);
+  // 1) o Google acabou de aposentar o modelo que estava em uso
+  const antes = bi._uso.usoHoje();
+  const r = await bi.buscarNosPortais(criterios, F.pedidoClienteMarista, { env: { GEMINI_API_KEY: 'k-modelo', GEMINI_BUSCA_MODEL: 'gemini-2.5-flash', BUSCA_LIMITE_DIA: '99' }, fetcher });
+  assert.equal(r.ok, true, 'refez com o modelo novo');
+  assert.equal(r.modelo, 'gemini-3.8-flash');
+  assert.deepEqual(usados, ['gemini-2.5-flash', 'gemini-3.8-flash']);
+  assert.equal(r.itens.length, 1);
+  assert.equal(bi._uso.usoHoje(), antes + 1, 'a nova tentativa não gasta outra busca do dia');
+  // 2) sem modelo fixado: já usa o descoberto, na primeira tentativa
+  M.esquecer('k-modelo');
+  usados.length = 0;
+  const r2 = await bi.buscarNosPortais(criterios, F.pedidoClienteMarista, { env: { GEMINI_API_KEY: 'k-modelo', BUSCA_LIMITE_DIA: '99' }, fetcher });
+  assert.equal(r2.ok, true);
+  assert.deepEqual(usados, ['gemini-3.8-flash']);
+  // 3) sem lista de modelos: apelido "gemini-flash-latest"
+  M.esquecer('k-modelo');
+  usados.length = 0;
+  await bi.buscarNosPortais(criterios, F.pedidoClienteMarista, { env: { GEMINI_API_KEY: 'k-modelo', BUSCA_LIMITE_DIA: '99' }, fetcher: async (url, o) => (/\/models\?pageSize/.test(url) ? { ok: false, status: 500 } : (usados.push(decodeURIComponent(url.match(/models\/([^:]+):/)[1])), { ok: true, status: 200, json: async () => ({ candidates: [] }) })) });
+  assert.deepEqual(usados, ['gemini-flash-latest']);
+});

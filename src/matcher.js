@@ -138,7 +138,7 @@ Responda apenas JSON: {"lugares":[{"nome":"texto exatamente como aparece","tipo"
 TEXTO:
 """${String(messageText).slice(0, 2000)}"""`;
   const call = ai.models.generateContent({
-    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    model: process.env.GEMINI_MODEL || (await require('./gemini-modelo').escolherModelo(apiKey)),
     contents: prompt,
     config: { responseMimeType: 'application/json', temperature: 0 }
   });
