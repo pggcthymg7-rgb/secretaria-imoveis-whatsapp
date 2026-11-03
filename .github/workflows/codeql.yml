@@ -37,3 +37,17 @@ jobs:
       - uses: github/codeql-action/analyze@v3
         with:
           category: /language:javascript-typescript
+          output: sarif-results # guarda o resultado também em arquivo, para listar os alertas abaixo
+
+      # Lista os alertas no log e no "Summary" da execução (dá para ler sem abrir a aba Security)
+      - name: Listar alertas
+        if: always()
+        run: |
+          f=$(ls sarif-results/*.sarif 2>/dev/null | head -1)
+          [ -z "$f" ] && { echo "sem arquivo SARIF"; exit 0; }
+          {
+            echo "### Alertas do CodeQL"
+            echo "| severidade | regra | arquivo:linha | mensagem |"
+            echo "|---|---|---|---|"
+            jq -r '. as $r | ([$r.runs[] | .tool.driver.rules[]?, .tool.extensions[]?.rules[]?] | map({(.id): (.properties["security-severity"] // "-")}) | add // {}) as $sev | $r.runs[].results[]? | "| \($sev[.ruleId] // "-") \(.level // "") | \(.ruleId) | \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine) | \(.message.text | gsub("\n"; " ") | gsub("\\|"; "/") | .[0:140]) |"' "$f"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
