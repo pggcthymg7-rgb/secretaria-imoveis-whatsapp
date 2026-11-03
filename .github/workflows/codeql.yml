@@ -49,5 +49,5 @@ jobs:
             echo "### Alertas do CodeQL"
             echo "| severidade | regra | arquivo:linha | mensagem |"
             echo "|---|---|---|---|"
-            jq -r '. as $r | ([$r.runs[0].tool.driver.rules[]?, $r.runs[0].tool.extensions[]?.rules[]?] | map({(.id): (.properties["security-severity"] // "-")}) | add // {}) as $sev | $r.runs[0].results[]? | "| \($sev[.ruleId] // "-") \(.level // "") | \(.ruleId) | \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine) | \(.message.text | gsub("\n"; " ") | gsub("\\|"; "/") | .[0:140]) |"' "$f"
+            jq -r '. as $r | ([$r.runs[] | .tool.driver.rules[]?, .tool.extensions[]?.rules[]?] | map({(.id): (.properties["security-severity"] // "-")}) | add // {}) as $sev | $r.runs[].results[]? | "| \($sev[.ruleId] // "-") \(.level // "") | \(.ruleId) | \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine) | \(.message.text | gsub("\n"; " ") | gsub("\\|"; "/") | .[0:140]) |"' "$f"
           } | tee -a "$GITHUB_STEP_SUMMARY"
