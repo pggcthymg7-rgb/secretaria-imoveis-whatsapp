@@ -1,0 +1,71 @@
+name: Graphify review (local)
+
+# Substitui o painel em nuvem do Graphify (limite de 5 builds/dia no plano grátis).
+# Roda no próprio GitHub Actions: grátis e sem limite em repositório público.
+# `pull_request` (e NÃO `pull_request_target`): código de fork nunca roda com permissão de escrita.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write # só para comentar na PR
+
+concurrency:
+  group: graphify-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  graphify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # versão FIXA: uma atualização do pacote não muda o resultado nem entra sem revisão
+      - name: Instalar graphifyy
+        run: python -m pip install --disable-pip-version-check graphifyy==0.9.101
+
+      # extrai o grafo só do código (AST), sem IA e sem chave; ~1 s neste projeto
+      - name: Gerar o grafo
+        run: graphify update .
+
+      - name: Montar o comentário
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node scripts/graphify-impacto.js "$BASE_SHA" "$HEAD_SHA" graphify-out > graphify-out/comentario.md
+          cat graphify-out/comentario.md >> "$GITHUB_STEP_SUMMARY"
+
+      # PR de fork: o GITHUB_TOKEN é só leitura, então o relatório fica no "Summary" da execução
+      - name: Comentar na PR (atualiza o mesmo comentário)
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('graphify-out/comentario.md', 'utf8');
+            const marca = '<!-- graphify-review-local -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comentarios = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            const meu = comentarios.find(c => c.user.type === 'Bot' && c.body && c.body.includes(marca));
+            if (meu) await github.rest.issues.updateComment({ owner, repo, comment_id: meu.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number, body });
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: graphify-out
+          path: |
+            graphify-out/graph.json
+            graphify-out/GRAPH_REPORT.md
+            graphify-out/comentario.md
+          retention-days: 7
