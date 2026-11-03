@@ -93,6 +93,10 @@ function publicConfig() {
   const s = loadSettings();
   return {
     hasGeminiKey: Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'coloque_sua_chave_aqui'),
+    hasTavilyKey: Boolean(process.env.TAVILY_API_KEY),
+    hasSerperKey: Boolean(process.env.SERPER_API_KEY),
+    hasBraveKey: Boolean(process.env.BRAVE_SEARCH_API_KEY || process.env.BRAVE_API_KEY),
+    hasApifyToken: Boolean(process.env.APIFY_API_TOKEN),
     googleSheetsUrl: s.googleSheetsUrl || process.env.GOOGLE_SHEETS_CSV_URL || '',
     googleSheetsWebhookUrl: s.googleSheetsWebhookUrl || process.env.GOOGLE_SHEETS_WEBHOOK_URL || '',
     gruposMonitorados: s.gruposMonitorados,
@@ -220,6 +224,18 @@ app.post('/api/config', ah(async (req, res) => {
     if (!v.ok) return res.status(400).json({ error: v.mensagem });
     chaveGemini = v.chave;
   }
+  // chaves dos motores de busca nos portais (Tavily, Serper, Brave, Apify): conferidas no serviço antes de salvar
+  const chavesBusca = {};
+  const mensagensChaves = [];
+  const buscaChaves = require('./src/busca-chaves');
+  for (const [campo, prov] of [['tavilyApiKey', 'tavily'], ['serperApiKey', 'serper'], ['braveSearchKey', 'brave'], ['apifyToken', 'apify']]) {
+    if (typeof b[campo] === 'string' && b[campo].trim()) {
+      const v = await buscaChaves.validar(prov, b[campo]);
+      if (!v.ok) return res.status(400).json({ error: v.mensagem });
+      chavesBusca[buscaChaves.PROVEDORES[prov].env] = v.chave;
+      mensagensChaves.push(v.mensagem);
+    }
+  }
   const upd = {};
   for (const k of BOOL_KEYS) if (b[k] !== undefined) upd[k] = Boolean(b[k]);
   for (const [k, max] of Object.entries(TEXT_KEYS)) if (typeof b[k] === 'string') upd[k] = b[k].slice(0, max);
@@ -232,6 +248,7 @@ app.post('/api/config', ah(async (req, res) => {
   if (typeof b.meuWhatsappAlerta === 'string') upd.meuWhatsappAlerta = b.meuWhatsappAlerta.replace(/\D/g, '').slice(0, 13);
   const envUpd = {};
   if (chaveGemini) envUpd.GEMINI_API_KEY = chaveGemini;
+  Object.assign(envUpd, chavesBusca);
   for (const [k, envK] of [['googleSheetsUrl', 'GOOGLE_SHEETS_CSV_URL'], ['googleSheetsWebhookUrl', 'GOOGLE_SHEETS_WEBHOOK_URL']]) {
     if (typeof b[k] === 'string') {
       const v = b[k].trim();
@@ -244,7 +261,7 @@ app.post('/api/config', ah(async (req, res) => {
   updateEnvFile(envUpd);
   saveSettings(upd);
   wa.addLog('CONFIG', 'Configurações atualizadas pelo painel.');
-  res.json({ ok: true, config: publicConfig() });
+  res.json({ ok: true, config: publicConfig(), chavesMsg: mensagensChaves.join(' · ') || null });
 }));
 
 app.post('/api/test-alert', ah(async (req, res) => {

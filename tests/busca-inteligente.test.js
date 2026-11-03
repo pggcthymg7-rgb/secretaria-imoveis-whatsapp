@@ -68,7 +68,7 @@ test('Busca nos grupos: acha o perfil, descarta o resto e junta o mesmo imóvel 
   assert.match(txt, /NOS SEUS GRUPOS\* \(2\)/);
   assert.match(txt, /wa\.me\/5562999990000/);
   assert.match(txt, /Grupo Marista/);
-  assert.match(txt, /falta a chave do Gemini/);
+  assert.match(txt, /falta uma chave de busca/);
   assert.match(txt, /zapimoveis\.com\.br\/venda\/apartamentos\/go\+goiania\+\+setor-marista\/\?precoMinimo=800000&precoMaximo=1000000&areaMinima=100/);
   assert.match(txt, /vivareal\.com\.br\/venda\/goias\/goiania\/bairros\/setor-marista\/apartamento_residencial/);
   assert.match(txt, /olx\.com\.br\/imoveis\/venda\/.*ps=800000&pe=1000000/);
@@ -344,40 +344,61 @@ test('Modelo do Gemini: escolhe o flash estável mais novo que a chave pode usar
   assert.ok(!M.modeloIndisponivel(429, 'quota'), 'cota esgotada não é modelo indisponível');
 });
 
-test('Portais: modelo aposentado -> escolhe o novo sozinho e refaz (sem gastar outra busca do dia)', async () => {
+test('Portais (Gemini + Google): fila de modelos começa pelo 2.5 e passa ao próximo em 404/429, sem gastar outra busca do dia', async () => {
   const M = require('../src/gemini-modelo');
-  M.esquecer('k-modelo');
   const fonte = { redirect: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/ZZZ', url: 'https://go.olx.com.br/grande-goiania-e-anapolis/imoveis/apto-marista-777', titulo: 'olx' };
   const item = { titulo: 'Apto Marista', portal: 'OLX', link: fonte.url, preco: 900000, area_m2: 120, quartos: 3, bairro: 'Setor Marista', anunciante: 'Particular', tipo_anunciante: 'particular' };
   const usados = [];
-  const fetcher = async (url, o = {}) => {
+  const fabrica = ({ aposentados = [], semCota = [], semLista = false }) => async (url, o = {}) => {
     if (o.method === 'HEAD') return { headers: { get: () => fonte.url } };
-    if (/\/models\?pageSize/.test(url)) return { ok: true, status: 200, json: async () => ({ models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }] }) };
+    if (/\/models\?pageSize/.test(url)) return semLista ? { ok: false, status: 500 } : { ok: true, status: 200, json: async () => ({ models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }] }) };
     const modelo = decodeURIComponent(url.match(/models\/([^:]+):generateContent/)[1]);
     usados.push(modelo);
-    if (modelo === 'gemini-2.5-flash') return { ok: false, status: 404, json: async () => ({ error: { message: 'This model models/gemini-2.5-flash is no longer available to new users.' } }) };
+    if (aposentados.includes(modelo)) return { ok: false, status: 404, json: async () => ({ error: { message: `This model models/${modelo} is no longer available to new users.` } }) };
+    if (semCota.includes(modelo)) return { ok: false, status: 429, json: async () => ({ error: { message: 'You exceeded your current quota, limit: 0' } }) };
     return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: '```json\n' + JSON.stringify([item]) + '\n```' }] }, groundingMetadata: { groundingChunks: [{ web: { uri: fonte.redirect, title: 'olx' } }] } }] }) };
   };
   const { criterios } = bi.entenderPedido(F.pedidoClienteMarista);
-  // 1) o Google acabou de aposentar o modelo que estava em uso
-  const antes = bi._uso.usoHoje();
-  const r = await bi.buscarNosPortais(criterios, F.pedidoClienteMarista, { env: { GEMINI_API_KEY: 'k-modelo', GEMINI_BUSCA_MODEL: 'gemini-2.5-flash', BUSCA_LIMITE_DIA: '99' }, fetcher });
-  assert.equal(r.ok, true, 'refez com o modelo novo');
-  assert.equal(r.modelo, 'gemini-3.8-flash');
-  assert.deepEqual(usados, ['gemini-2.5-flash', 'gemini-3.8-flash']);
+  const env = chave => ({ GEMINI_API_KEY: chave, BUSCA_LIMITE_DIA: '99' });
+
+  // 1) modelo fixado que o Google aposentou: cai para o próximo da fila (2.5-flash-lite)
+  M.esquecer('k-modelo');
+  let antes = bi._uso.usoHoje();
+  let r = await bi.buscarNosPortais(criterios, F.pedidoClienteMarista, { env: { ...env('k-modelo'), GEMINI_BUSCA_MODEL: 'gemini-2.5-flash' }, fetcher: fabrica({ aposentados: ['gemini-2.5-flash'] }) });
+  assert.equal(r.ok, true);
+  assert.equal(r.modelo, 'gemini-2.5-flash-lite');
+  assert.deepEqual(usados, ['gemini-2.5-flash', 'gemini-2.5-flash-lite']);
   assert.equal(r.itens.length, 1);
-  assert.equal(bi._uso.usoHoje(), antes + 1, 'a nova tentativa não gasta outra busca do dia');
-  // 2) sem modelo fixado: já usa o descoberto, na primeira tentativa
+  assert.equal(bi._uso.usoHoje(), antes + 1, 'as novas tentativas não gastam outra busca do dia');
+
+  // 2) os dois 2.5 aposentados (caso real do João): chega ao modelo descoberto na lista da chave
   M.esquecer('k-modelo');
   usados.length = 0;
-  const r2 = await bi.buscarNosPortais(criterios, F.pedidoClienteMarista, { env: { GEMINI_API_KEY: 'k-modelo', BUSCA_LIMITE_DIA: '99' }, fetcher });
-  assert.equal(r2.ok, true);
-  assert.deepEqual(usados, ['gemini-3.8-flash']);
-  // 3) sem lista de modelos: apelido "gemini-flash-latest"
+  r = await bi.buscarNosPortais(criterios, F.pedidoClienteMarista, { env: env('k-modelo'), fetcher: fabrica({ aposentados: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'] }) });
+  assert.equal(r.ok, true);
+  assert.deepEqual(usados, ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.8-flash']);
+
+  // 3) todos sem cota (429 / limit: 0): "cota" com os modelos tentados e SEM gastar a busca do dia
   M.esquecer('k-modelo');
   usados.length = 0;
-  await bi.buscarNosPortais(criterios, F.pedidoClienteMarista, { env: { GEMINI_API_KEY: 'k-modelo', BUSCA_LIMITE_DIA: '99' }, fetcher: async (url, o) => (/\/models\?pageSize/.test(url) ? { ok: false, status: 500 } : (usados.push(decodeURIComponent(url.match(/models\/([^:]+):/)[1])), { ok: true, status: 200, json: async () => ({ candidates: [] }) })) });
-  assert.deepEqual(usados, ['gemini-flash-latest']);
+  antes = bi._uso.usoHoje();
+  r = await bi.buscarNosPortais(criterios, F.pedidoClienteMarista, { env: env('k-modelo'), fetcher: fabrica({ semCota: ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.8-flash'] }) });
+  assert.equal(r.ok, false);
+  assert.equal(r.motivo, 'cota');
+  assert.equal(r.tentativas.length, 3);
+  assert.match(r.explicacao, /Modelos tentados: gemini-2\.5-flash, gemini-2\.5-flash-lite, gemini-3\.8-flash/);
+  assert.match(r.explicacao, /limit: 0/);
+  assert.equal(bi._uso.usoHoje(), antes, 'busca sem resposta não conta');
+
+  // 4) sem lista de modelos: usa o 2.5-flash direto (e, se faltar tudo, o apelido gemini-flash-latest)
+  M.esquecer('k-modelo');
+  usados.length = 0;
+  await bi.buscarNosPortais(criterios, F.pedidoClienteMarista, { env: env('k-modelo'), fetcher: fabrica({ semLista: true }) });
+  assert.deepEqual(usados, ['gemini-2.5-flash']);
+  M.esquecer('k-modelo');
+  usados.length = 0;
+  await bi.buscarNosPortais(criterios, F.pedidoClienteMarista, { env: env('k-modelo'), fetcher: fabrica({ semLista: true, aposentados: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'] }) });
+  assert.deepEqual(usados, ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-flash-latest']);
 });
 
 // ---------------------------------------------------------------------------
@@ -511,11 +532,13 @@ test('Diagnóstico do Gemini: separa "chave gera texto" de "busca com Google sem
   assert.equal(d.busca.ok, false);
   const t = g.textoDiagnostico(d);
   assert.match(t, /✅ Resposta simples/);
-  assert.match(t, /❌ Busca com Google: erro 429 — You exceeded your current quota[\s\S]*limit: 0/);
-  assert.match(t, /busca com Google\* está sem cota[\s\S]*faturamento/);
+  assert.match(t, /❌ Busca com Google em gemini-2\.5-flash: erro 429 — You exceeded your current quota[\s\S]*limit: 0/);
+  assert.match(t, /Busca com Google em gemini-2\.5-flash-lite: erro 429[\s\S]*Busca com Google em gemini-3\.8-flash: erro 429/, 'cada modelo da fila é testado e aparece');
+  assert.deepEqual(d.buscas.map(b => b.modelo), ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.8-flash']);
+  assert.match(t, /busca com Google\* está sem cota em todos os modelos testados[\s\S]*faturamento[\s\S]*Tavily ou do Serper/);
   // tudo certo
   const tudo = await g.diagnosticar('k-diag', async (u, o = {}) => (/\/models\?pageSize/.test(u) ? fetcher(u, o) : { ok: true, status: 200, json: async () => ({ candidates: [{ groundingMetadata: { groundingChunks: [{}, {}] } }] }) }));
-  assert.match(g.textoDiagnostico(tudo), /Tudo certo[\s\S]*/);
+  assert.match(g.textoDiagnostico(tudo), /busca com Google funciona em: gemini-2\.5-flash, gemini-2\.5-flash-lite, gemini-3\.8-flash/);
   // cota geral
   const geral = await g.diagnosticar('k-diag', async (u, o = {}) => (/\/models\?pageSize/.test(u) ? fetcher(u, o) : { ok: false, status: 429, json: async () => ({ error: { message: 'quota' } }) }));
   assert.match(g.textoDiagnostico(geral), /cota geral desta chave/);
@@ -534,4 +557,281 @@ test('Portais com 429: o relatório mostra a mensagem do Google e a busca recusa
   const txt = bi.formatarRelatorio({ ...(await bi.buscar('apto 800 mil a 1 milhão setor marista', { env: {}, guardar: false })), portais: r }).join('\n');
   assert.match(txt, /sem cota" \(429\): Quota exceeded[\s\S]*limit: 0[\s\S]*testar gemini fundo/);
   assert.doesNotMatch(txt, /acabou por hoje/);
+});
+
+
+// ---------------------------------------------------------------------------
+// Busca nos portais por camadas: links com o local, busca desacoplada (Tavily/Serper/Brave) + Gemini sem google_search,
+// trava anti-invenção e Apify opcional
+const Serp = require('../src/busca-serp');
+
+const ZAP_AD = 'https://www.zapimoveis.com.br/imovel/venda-casa-4-quartos-jardins-italia-goiania-go-369m2-id-2700000001/';
+const VIVA_AD = 'https://www.vivareal.com.br/imovel/casa-de-condominio-4-quartos-jardins-italia-bairros-goiania-com-garagem-355m2-venda-RS4520000-id-2587529552/';
+const OLX_AD = 'https://go.olx.com.br/grande-goiania-e-anapolis/imoveis/casa-no-condominio-jardins-italia-1234567890';
+const OLX_LISTA = 'https://www.olx.com.br/imoveis/venda/estado-go/grande-goiania-e-anapolis/goiania?q=casa+jardins+italia';
+
+const pedidoJardins = filtros => bi.entenderFiltros(require('../src/busca-filtros').normalizarFiltros(filtros).filtros).criterios;
+
+test('Links prontos: o local (condomínio/bairro) e as suítes entram na OLX, no ZAP e no VivaReal (caso Jardins Itália)', () => {
+  const c = pedidoJardins({ tipo: 'casa', local: 'Jardins Itália', quartos: '3', suites: '3', valor: '3 a 7 milhões' });
+  const l = bi.linksProntos(c);
+  assert.equal(l['OLX'], 'https://www.olx.com.br/imoveis/venda/estado-go/grande-goiania-e-anapolis/goiania?q=casa+jardins+it%C3%A1lia&ps=3000000&pe=7000000&ros=3');
+  assert.equal(l['ZAP Imóveis'], 'https://www.zapimoveis.com.br/venda/casas-de-condominio/go+goiania++jds-italia/?precoMinimo=3000000&precoMaximo=7000000&quartos=3&suites=3', 'ZAP: "Jardins" vira "jds" no endereço');
+  assert.equal(l['VivaReal'], 'https://www.vivareal.com.br/venda/goias/goiania/bairros/jardins-italia/condominio_residencial/?precoMinimo=3000000&precoMaximo=7000000&quartos=3&suites=3');
+  // bairro normal continua igual
+  const m = bi.linksProntos(bi.entenderPedido(F.pedidoClienteMarista).criterios);
+  assert.match(m['ZAP Imóveis'], /venda\/apartamentos\/go\+goiania\+\+setor-marista\/\?precoMinimo=800000&precoMaximo=1000000&areaMinima=100$/);
+  // bairro digitado + condomínio: o portal usa o bairro; a OLX usa o nome do condomínio
+  const b = bi.linksProntos(pedidoJardins({ tipo: 'casa', bairro: 'Setor Bueno', local: 'Alphaville Flamboyant' }));
+  assert.match(b['ZAP Imóveis'], /go\+goiania\+\+setor-bueno\//);
+  assert.match(b['OLX'], /q=casa\+alphaville\+flamboyant/);
+});
+
+test('Busca desacoplada: só entram páginas de UM anúncio (nada de lista/categoria/busca)', () => {
+  assert.ok(Serp.ehPaginaDeAnuncio(ZAP_AD));
+  assert.ok(Serp.ehPaginaDeAnuncio(VIVA_AD));
+  assert.ok(Serp.ehPaginaDeAnuncio(OLX_AD));
+  assert.ok(!Serp.ehPaginaDeAnuncio(OLX_LISTA), 'lista da OLX com ?q=');
+  assert.ok(!Serp.ehPaginaDeAnuncio('https://www.zapimoveis.com.br/venda/casas-de-condominio/go+goiania++jds-italia/'), 'categoria do ZAP');
+  assert.ok(!Serp.ehPaginaDeAnuncio('https://www.vivareal.com.br/venda/goias/goiania/bairros/jardins-italia/casa_residencial/'));
+  assert.ok(!Serp.ehPaginaDeAnuncio('https://www.exemplo.com/imovel/algo-id-12345678/'), 'outro site');
+  const t = Serp.termosDoPedido(pedidoJardins({ tipo: 'casa', local: 'Jardins Itália' }));
+  assert.equal(Serp.consultaSite('zapimoveis.com.br', t), 'site:zapimoveis.com.br/imovel "Goiânia" "Jardins Itália" "Casa" venda');
+  assert.equal(Serp.consultaSite('olx.com.br', t), 'site:olx.com.br/imoveis "Goiânia" "Jardins Itália" "Casa" venda');
+  assert.equal(Serp.consultaSimples(t), 'Casa à venda Jardins Itália Goiânia GO');
+});
+
+/** Fetcher falso de Tavily/Serper/Brave + Gemini (sem rede). `corpos` guarda o que foi enviado a cada serviço. */
+function mundoFalso({ gemini = 'ok', provedor = 'tavily', erroProvedor = 0 } = {}) {
+  const corpos = { tavily: [], serper: [], brave: [], gemini: [], apify: [] };
+  const porPortal = d => (d === 'zapimoveis.com.br' ? [{ url: ZAP_AD, titulo: 'Casa 369 m² Jardins Itália', conteudo: 'Casa de condomínio 4 suítes 369 m² R$ 5.490.000' }] : d === 'vivareal.com.br' ? [{ url: VIVA_AD, titulo: 'Casa de Condomínio Jardins Itália', conteudo: 'R$ 4.520.000 4 quartos 4 suítes 355 m² Imobiliária Lopes CRECI' }] : [{ url: OLX_AD, titulo: 'Casa no condomínio Jardins Itália', conteudo: 'R$ 4.500.000 direto com o proprietário 4 suítes 400 m²' }, { url: OLX_LISTA, titulo: 'Lista', conteudo: '' }]);
+  const fetcher = async (url, o = {}) => {
+    const u = String(url);
+    const corpo = o.body ? JSON.parse(o.body) : null;
+    if (/api\.tavily\.com/.test(u)) {
+      corpos.tavily.push({ corpo, auth: o.headers.Authorization });
+      if (provedor === 'tavily' && erroProvedor) return { ok: false, status: erroProvedor, json: async () => ({ detail: { error: 'Unauthorized: missing or invalid API key.' } }) };
+      return { ok: true, status: 200, json: async () => ({ results: porPortal(corpo.include_domains[0]).map(x => ({ url: x.url, title: x.titulo, content: x.conteudo })) }) };
+    }
+    if (/google\.serper\.dev/.test(u)) {
+      corpos.serper.push({ corpo, chave: o.headers['X-API-KEY'] });
+      const d = /zapimoveis/.test(corpo.q) ? 'zapimoveis.com.br' : /vivareal/.test(corpo.q) ? 'vivareal.com.br' : 'olx.com.br';
+      return { ok: true, status: 200, json: async () => ({ organic: porPortal(d).map(x => ({ link: x.url, title: x.titulo, snippet: x.conteudo })) }) };
+    }
+    if (/api\.search\.brave\.com/.test(u)) {
+      corpos.brave.push({ url: u, token: o.headers['X-Subscription-Token'] });
+      const d = /zapimoveis/.test(u) ? 'zapimoveis.com.br' : /vivareal/.test(u) ? 'vivareal.com.br' : 'olx.com.br';
+      return { ok: true, status: 200, json: async () => ({ web: { results: porPortal(d).map(x => ({ url: x.url, title: x.titulo, description: x.conteudo })) } }) };
+    }
+    if (/\/models\?pageSize/.test(u)) return { ok: true, status: 200, json: async () => ({ models: [{ name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }] }) };
+    if (/generateContent/.test(u)) {
+      corpos.gemini.push(corpo);
+      if (gemini === '429') return { ok: false, status: 429, json: async () => ({ error: { message: 'quota' } }) };
+      const ids = corpo.contents[0].parts[0].text;
+      // catálogo na ordem dos portais ligados: 1 = OLX, 2 = ZAP, 3 = VivaReal
+      return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify([
+        { id: 1, preco: 4500000, area_m2: 400, quartos: 4, suites: 4, bairro: 'Jardins Itália', anunciante: 'Particular', tipo_anunciante: 'PARTICULAR', resumo: 'direto com o dono' },
+        { id: 2, preco: 5490000, area_m2: 369, quartos: 4, suites: 4, anunciante: '', tipo_anunciante: 'DESCONHECIDO', resumo: 'acima do teto' },
+        { id: 3, preco: 4520000, area_m2: 355, quartos: 4, suites: 4, anunciante: 'Lopes', tipo_anunciante: 'IMOBILIARIA', resumo: 'imobiliária' },
+        { id: 99, preco: 4000000, area_m2: 300, quartos: 4, suites: 4, tipo_anunciante: 'PARTICULAR', resumo: 'id que não existe no catálogo' },
+        { id: 1000, link: 'https://www.zapimoveis.com.br/imovel/inventado-pela-ia-id-999999999/', preco: 4100000, tipo_anunciante: 'PARTICULAR', resumo: 'link inventado' }
+      ]) + (ids ? '' : '') }] } }] }) };
+    }
+    if (/api\.apify\.com/.test(u)) {
+      corpos.apify.push({ url: u, corpo, auth: o.headers.Authorization });
+      const portal = corpo.portal;
+      return { ok: true, status: 200, json: async () => [portal === 'ZAP' ? { url: ZAP_AD, title: 'Casa 4 suítes', priceBRL: 4900000, usableArea: 369, bedrooms: 4, suites: 4, parkingSpaces: 6, neighborhood: 'Jardins Itália', agencyName: 'Lopes', publisherType: 'AGENCY' } : { url: VIVA_AD, title: 'Casa condomínio', priceBRL: 4520000, usableArea: 355, bedrooms: 4, suites: 4, neighborhood: 'Jardins Itália', publisherType: 'OWNER' }] };
+    }
+    throw new Error(`url inesperada no teste: ${u}`);
+  };
+  return { fetcher, corpos };
+}
+
+test('Cascata: Tavily + Gemini SEM google_search; o link só vale se veio da busca real (trava anti-invenção)', async () => {
+  const { fetcher, corpos } = mundoFalso();
+  const c = pedidoJardins({ tipo: 'casa', local: 'Jardins Itália', suites: '4', valor: '4 a 5 milhões' });
+  const antes = bi._uso.usoHoje();
+  const r = await bi.buscarNosPortais(c, c.resumo, { env: { TAVILY_API_KEY: 'tvly-teste-123456', GEMINI_API_KEY: 'k-cascata', BUSCA_LIMITE_DIA: '99' }, fetcher });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.via, ['Tavily + Gemini']);
+  // 3 consultas (uma por portal), com a chave no cabeçalho
+  assert.equal(corpos.tavily.length, 3);
+  assert.ok(corpos.tavily.every(x => x.auth === 'Bearer tvly-teste-123456'));
+  assert.deepEqual(corpos.tavily.map(x => x.corpo.include_domains[0]).sort(), ['olx.com.br', 'vivareal.com.br', 'zapimoveis.com.br']);
+  // o Gemini foi chamado UMA vez e sem a ferramenta google_search
+  assert.equal(corpos.gemini.length, 1);
+  assert.equal(corpos.gemini[0].tools, undefined, 'curadoria sem google_search');
+  assert.match(corpos.gemini[0].contents[0].parts[0].text, /\[1\] OLX \| Casa no condomínio Jardins Itália/);
+  assert.doesNotMatch(corpos.gemini[0].contents[0].parts[0].text, /Lista \|/, 'página de lista da OLX nem chega ao Gemini');
+  // resultado: só os 2 que servem e vieram do catálogo
+  assert.deepEqual(r.itens.map(i => [i.portal, i.tipoAnunciante, i.link]), [['OLX', 'particular', OLX_AD], ['VivaReal', 'profissional', VIVA_AD]], 'ZAP (5,49 mi) fora do teto; id 99 e link inventado descartados');
+  assert.ok(!r.itens.some(i => /inventado|999999999/.test(i.link)));
+  assert.equal(bi._uso.usoHoje(), antes + 1);
+});
+
+test('Cascata: Serper (consulta site:) e Brave; se o 1º provedor recusa a chave, usa o próximo', async () => {
+  let w = mundoFalso();
+  const c = pedidoJardins({ tipo: 'casa', local: 'Jardins Itália', suites: '4', valor: '4 a 5 milhões' });
+  let r = await bi.buscarNosPortais(c, c.resumo, { env: { SERPER_API_KEY: 'serper-chave-1234567', GEMINI_API_KEY: 'k-cascata', BUSCA_LIMITE_DIA: '99' }, fetcher: w.fetcher });
+  assert.deepEqual(r.via, ['Serper + Gemini']);
+  assert.ok(w.corpos.serper.every(x => x.chave === 'serper-chave-1234567' && x.corpo.gl === 'br' && x.corpo.hl === 'pt-br' && /^site:(olx\.com\.br\/imoveis|zapimoveis\.com\.br\/imovel|vivareal\.com\.br\/imovel) "Goiânia" "Jardins Itália" "Casa" venda$/.test(x.corpo.q)));
+  w = mundoFalso();
+  r = await bi.buscarNosPortais(c, c.resumo, { env: { BRAVE_API_KEY: 'brave-chave-1234567', GEMINI_API_KEY: 'k-cascata', BUSCA_LIMITE_DIA: '99' }, fetcher: w.fetcher });
+  assert.deepEqual(r.via, ['Brave + Gemini']);
+  assert.ok(w.corpos.brave.every(x => x.token === 'brave-chave-1234567' && /country=BR/.test(x.url)));
+  // Tavily com chave recusada (401) -> cai para o Serper
+  w = mundoFalso({ erroProvedor: 401 });
+  r = await bi.buscarNosPortais(c, c.resumo, { env: { TAVILY_API_KEY: 'tvly-ruim-1234567', SERPER_API_KEY: 'serper-chave-1234567', GEMINI_API_KEY: 'k-cascata', BUSCA_LIMITE_DIA: '99' }, fetcher: w.fetcher });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.via, ['Serper + Gemini']);
+  // só o provedor ruim: o motivo é claro
+  w = mundoFalso({ erroProvedor: 401 });
+  r = await bi.buscarNosPortais(c, c.resumo, { env: { TAVILY_API_KEY: 'tvly-ruim-1234567', BUSCA_LIMITE_DIA: '99' }, fetcher: w.fetcher });
+  assert.equal(r.ok, false);
+  assert.equal(r.motivo, 'chave_busca_recusada');
+  assert.match(r.explicacao, /Tavily recusou a chave/);
+});
+
+test('Cascata: Gemini sem cota na curadoria ou sem chave -> mostra os anúncios achados sem filtrar (nunca fica mudo)', async () => {
+  const c = pedidoJardins({ tipo: 'casa', local: 'Jardins Itália', suites: '4', valor: '4 a 5 milhões' });
+  let w = mundoFalso({ gemini: '429' });
+  let r = await bi.buscarNosPortais(c, c.resumo, { env: { TAVILY_API_KEY: 'tvly-teste-123456', GEMINI_API_KEY: 'k-cascata-429', BUSCA_LIMITE_DIA: '99' }, fetcher: w.fetcher });
+  assert.equal(r.ok, true);
+  assert.equal(r.semCuradoria, true);
+  assert.deepEqual(r.itens, []);
+  assert.deepEqual(r.fontesSoltas.map(f => f.url).sort(), [OLX_AD, VIVA_AD, ZAP_AD].sort());
+  w = mundoFalso();
+  r = await bi.buscarNosPortais(c, c.resumo, { env: { TAVILY_API_KEY: 'tvly-teste-123456', BUSCA_LIMITE_DIA: '99' }, fetcher: w.fetcher });
+  assert.equal(r.semCuradoria, true, 'sem chave do Gemini');
+  assert.equal(w.corpos.gemini.length, 0);
+  const txt = bi.formatarRelatorio({ ...(await bi.buscar('apto 800 mil a 1 milhão setor marista', { env: {}, guardar: false })), portais: r }).join('\n');
+  assert.match(txt, /Sem a chave\/resposta do Gemini não consegui filtrar/);
+  assert.match(txt, /vivareal\.com\.br\/imovel\//);
+});
+
+test('Cascata: o Google Search do Gemini só é usado se nenhuma camada anterior respondeu', async () => {
+  const c = pedidoJardins({ tipo: 'casa', local: 'Jardins Itália', suites: '4', valor: '4 a 5 milhões' });
+  // Tavily falha (503) + Gemini com chave -> cai para o grounding (que aqui responde)
+  const w = mundoFalso({ erroProvedor: 503 });
+  const original = w.fetcher;
+  const r = await bi.buscarNosPortais(c, c.resumo, {
+    env: { TAVILY_API_KEY: 'tvly-teste-123456', GEMINI_API_KEY: 'k-cascata-gr', BUSCA_LIMITE_DIA: '99' },
+    fetcher: async (u, o = {}) => (/generateContent/.test(String(u)) && o.body && JSON.parse(o.body).tools ? { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: '[]' }] } }] }) } : original(u, o))
+  });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.via, ['Gemini + Google']);
+});
+
+test('Apify (opcional): ZAP e VivaReal estruturados, filtros enviados, token no cabeçalho, sem gastar IA', async () => {
+  const w = mundoFalso();
+  const c = pedidoJardins({ tipo: 'casa', bairro: 'Jardins Itália', quartos: '3', suites: '4', valor: '4 a 5 milhões', areaMin: '300' });
+  const r = await bi.buscarNosPortais(c, c.resumo, { env: { APIFY_API_TOKEN: 'apify_api_teste123', BUSCA_LIMITE_DIA: '99' }, fetcher: w.fetcher });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.via, ['Apify']);
+  assert.equal(w.corpos.apify.length, 2);
+  assert.ok(w.corpos.apify.every(x => x.auth === 'Bearer apify_api_teste123' && !/token=/.test(x.url) && /haketa~zapimoveis-scraper/.test(x.url)));
+  const zap = w.corpos.apify.find(x => x.corpo.portal === 'ZAP').corpo;
+  assert.deepEqual(zap, { portal: 'ZAP', business: ['SALE'], states: ['GO'], cities: ['goiania'], neighborhoods: ['jardins-italia'], minPrice: 4000000, minBedrooms: 3, minArea: 300, maxListings: 15, maxPrice: 5000000 });
+  assert.ok(w.corpos.apify.some(x => x.corpo.portal === 'VIVA_REAL'));
+  assert.equal(w.corpos.gemini.length, 0, 'sem Gemini');
+  assert.deepEqual(r.itens.map(i => [i.portal, i.tipoAnunciante, i.certeza]), [['ZAP Imóveis', 'profissional', 'anúncio'], ['VivaReal', 'particular', 'anúncio']]);
+  // Apify cobre ZAP e VivaReal: a OLX vem do Tavily (e só ela é consultada)
+  const w2 = mundoFalso();
+  const r2 = await bi.buscarNosPortais(c, c.resumo, { env: { APIFY_API_TOKEN: 'apify_api_teste123', TAVILY_API_KEY: 'tvly-teste-123456', GEMINI_API_KEY: 'k-cascata', BUSCA_LIMITE_DIA: '99' }, fetcher: w2.fetcher });
+  assert.deepEqual(r2.via, ['Apify', 'Tavily + Gemini']);
+  assert.deepEqual(w2.corpos.tavily.map(x => x.corpo.include_domains[0]), ['olx.com.br']);
+  // Apify com token recusado: não derruba a busca
+  const r3 = await bi.buscarNosPortais(c, c.resumo, { env: { APIFY_API_TOKEN: 'apify_ruim_123456', BUSCA_LIMITE_DIA: '99' }, fetcher: async () => ({ ok: false, status: 401, json: async () => ({ error: { message: 'User was not found or authentication token is not valid' } }) }) });
+  assert.equal(r3.ok, false);
+  assert.equal(r3.motivo, 'chave_apify_recusada');
+});
+
+
+test('Diagnóstico: mostra os motores da busca nos portais, testa o principal e diz qual está ativo', async () => {
+  const g = require('../src/gemini-chave');
+  const antes = { gem: process.env.GEMINI_API_KEY, tav: process.env.TAVILY_API_KEY, sp: process.env.SERPER_API_KEY, ap: process.env.APIFY_API_TOKEN };
+  const fetcher = async (u, o = {}) => {
+    if (/api\.tavily\.com/.test(String(u))) return { ok: true, status: 200, json: async () => ({ results: [{ url: ZAP_AD, title: 'x', content: 'y' }] }) };
+    if (/\/models\?pageSize/.test(String(u))) return { ok: true, status: 200, json: async () => ({ models: [{ name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }] }) };
+    return o.body && JSON.parse(o.body).tools ? { ok: false, status: 429, json: async () => ({ error: { message: 'limit: 0' } }) } : { ok: true, status: 200, json: async () => ({ candidates: [] }) };
+  };
+  try {
+    process.env.GEMINI_API_KEY = 'AIzaChaveDeTesteChaveDeTeste123';
+    process.env.TAVILY_API_KEY = 'tvly-teste-123456789';
+    delete process.env.SERPER_API_KEY;
+    delete process.env.APIFY_API_TOKEN;
+    let r = await g.diagnosticarSalva(fetcher);
+    assert.match(r.texto, /Tavily: ✅ configurado — respondeu \(1 resultado\(s\)\)/);
+    assert.match(r.texto, /Serper: ❌ sem chave/);
+    assert.match(r.texto, /Apify \(ZAP\/VivaReal\): ❌ sem chave/);
+    assert.match(r.texto, /Gemini \+ Google: ✅ chave salva \(usado só se os acima falharem\)/);
+    assert.match(r.texto, /Motor principal agora: Tavily \+ Gemini \(curadoria sem Google\)/);
+    // sem chave do Gemini: só a curadoria precisa dela
+    delete process.env.GEMINI_API_KEY;
+    r = await g.diagnosticarSalva(fetcher);
+    assert.match(r.texto, /Sem chave do Gemini salva: ela só é necessária para a curadoria/);
+    assert.match(r.texto, /Motor principal agora: Tavily \+ Gemini/);
+    // nada configurado
+    delete process.env.TAVILY_API_KEY;
+    r = await g.diagnosticarSalva(fetcher);
+    assert.match(r.texto, /Nenhuma chave do Gemini salva ainda/);
+  } finally {
+    for (const [k, v] of [['GEMINI_API_KEY', antes.gem], ['TAVILY_API_KEY', antes.tav], ['SERPER_API_KEY', antes.sp], ['APIFY_API_TOKEN', antes.ap]]) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+});
+
+test('Chaves dos motores de busca: limpa o que foi colado, confere no serviço e explica o erro', async () => {
+  const B = require('../src/busca-chaves');
+  const k = 'tvly-dev-AbC123xyz456_7890';
+  assert.equal(B.limparChave(` "${k}"\n`), k);
+  assert.equal(B.limparChave(`TAVILY_API_KEY=${k}`), k);
+  assert.equal(B.limparChave('SERPER_API_KEY = abc123def456ghi789jkl'), 'abc123def456ghi789jkl', 'prefixo com espaços em volta do = também sai');
+  const ok = async () => ({ ok: true, status: 200, json: async () => ({ results: [], organic: [], web: { results: [] } }) });
+  let usada;
+  const v = await B.validar('tavily', ` ${k} `, async (u, o) => ((usada = o.headers.Authorization), ok()));
+  assert.deepEqual([v.ok, v.chave, v.mensagem], [true, k, 'Chave do Tavily funcionando ✅']);
+  assert.equal(usada, `Bearer ${k}`, 'chave no cabeçalho, nunca na URL');
+  const recusada = await B.validar('serper', 'abcdef1234567890abcdef', async () => ({ ok: false, status: 403, json: async () => ({ message: 'Unauthorized' }) }));
+  assert.equal(recusada.ok, false);
+  assert.match(recusada.mensagem, /Serper recusou a chave[\s\S]*serper\.dev/);
+  const semRede = await B.validar('tavily', k, async () => {
+    throw new Error('ENOTFOUND');
+  });
+  assert.equal(semRede.ok, true, 'sem internet: salva mesmo assim, avisando');
+  assert.match(semRede.mensagem, /não consegui falar com o Tavily/);
+  assert.equal((await B.validar('tavily', 'curta')).ok, false);
+  assert.match((await B.validar('serper', 'chave com ç e ; rm -rf')).mensagem, /não parece uma chave do Serper/);
+  // Apify: o token é conferido num endereço que não gasta nada
+  let url;
+  const ap = await B.validar('apify', 'apify_api_AbCdEf1234567890', async u => ((url = String(u)), { ok: true, status: 200, json: async () => ({}) }));
+  assert.equal(ap.ok, true);
+  assert.match(url, /api\.apify\.com\/v2\/users\/me$/);
+  assert.match((await B.validar('apify', 'apify_api_AbCdEf1234567890', async () => ({ ok: false, status: 401 }))).mensagem, /Apify recusou o token/);
+});
+
+test('Ajustes (API): chave de busca com formato estranho é recusada antes de salvar; sem Gemini a lista de motores aparece em config busca', async () => {
+  const { app } = require('../index');
+  const server = await new Promise(r => {
+    const s = app.listen(0, '127.0.0.1', () => r(s));
+  });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const H = { 'x-secretaria': '1' };
+  try {
+    let r = await fetch(`${base}/api/login`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify({ senha: process.env.PAINEL_SENHA }) });
+    const J = { ...H, cookie: r.headers.get('set-cookie').split(';')[0], 'Content-Type': 'application/json' };
+    r = await fetch(`${base}/api/config`, { method: 'POST', headers: J, body: JSON.stringify({ tavilyApiKey: 'chave com ç ; rm -rf', resumoDiarioHorario: '08:00' }) });
+    assert.equal(r.status, 400);
+    assert.match((await r.json()).error, /não parece uma chave do Tavily/);
+    assert.notEqual(require('../src/settings').loadSettings().resumoDiarioHorario, '08:00', 'nada é salvo se a chave for recusada');
+    r = await fetch(`${base}/api/config`, { headers: J });
+    const cfg = (await fetch(`${base}/api/status`, { headers: J }).then(x => x.json())).config;
+    assert.equal(typeof cfg.hasTavilyKey, 'boolean');
+    assert.equal(typeof cfg.hasSerperKey, 'boolean');
+    assert.equal(typeof cfg.hasApifyToken, 'boolean');
+  } finally {
+    server.close();
+  }
 });
