@@ -375,7 +375,7 @@ function estadoBusca() {
   return {
     config: buscaInt.getConfig(),
     memoria: anunciosMem.resumo(),
-    importacao: imp ? { rodando: imp.rodando, anuncios: imp.anuncios, grupos: imp.grupos, comHistorico: imp.comHistorico, semAncora: imp.semAncora.slice(0, 20), inicio: imp.inicio, fim: imp.fim || null } : null,
+    importacao: imp ? { rodando: imp.rodando, anuncios: imp.anuncios, grupos: imp.grupos, comHistorico: imp.comHistorico, total: imp.total || 0, vistos: imp.vistos || 0, atual: imp.atual || '', semAncora: imp.semAncora.slice(0, 20), inicio: imp.inicio, fim: imp.fim || null } : null,
     historico: buscaInt.resumoHistorico()
   };
 }

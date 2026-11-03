@@ -595,7 +595,8 @@
         <div class="card reveal stack-sm"><span class="label">Memória de anúncios dos grupos</span>
           <p class="body muted">Guardo sozinha todo anúncio que aparece nos seus grupos. Para trazer os <b>anúncios antigos</b>:</p>
           <p class="body"><b>1.</b> Peça ao seu celular (deixe-o ligado e com internet):</p>
-          <div class="row tight"><button class="btn-ghost accent" data-action="importarHistorico" ${imp && imp.rodando ? 'disabled' : ''}>${imp && imp.rodando ? `Importando… ${imp.anuncios} anúncios` : 'Importar histórico dos grupos'}</button></div>
+          <div class="row tight"><button class="btn-ghost accent" id="btnImportar" data-action="importarHistorico" ${imp && imp.rodando ? 'disabled' : ''}>${imp && imp.rodando ? 'Importando…' : 'Importar histórico dos grupos'}</button></div>
+          <p class="caption" id="impAndamento">${imp && imp.rodando ? textoAndamento(imp) : ''}</p>
           ${imp && !imp.rodando && imp.fim ? `<p class="caption">Última importação: ${imp.anuncios} anúncios de ${imp.comHistorico} de ${imp.grupos} grupos (${esc(when(imp.fim))}).${imp.semAncora.length ? ` Sem mensagem recente para começar: ${esc(imp.semAncora.slice(0, 5).join(', '))}${imp.semAncora.length > 5 ? '…' : ''} — exporte a conversa desses.` : ''}</p>` : ''}
           <p class="body"><b>2.</b> Ou mande a conversa exportada de um grupo (WhatsApp › grupo › Exportar conversa › Sem mídia):</p>
           <div class="row tight"><label class="btn-ghost accent" style="cursor:pointer">Escolher arquivo (.txt ou .zip)<input type="file" id="conversaInput" accept=".txt,.zip,text/plain,application/zip" hidden></label></div>
@@ -613,15 +614,40 @@
       <section class="section"><div class="container"><span class="label reveal">Últimas buscas</span>
         <div class="list">${(b.historico || []).length ? b.historico.map(h => `<div class="item reveal row between"><div><p class="body"><b>nº ${esc(h.id)}</b> · ${esc(h.descricao)}</p><p class="caption">${esc(when(h.ts))} · ${h.grupos} nos grupos · ${h.portaisOk ? `${h.portais} nos portais` : 'portais não consultados'}</p></div><div class="row tight"><button class="btn-ghost accent" data-action="verBusca" data-id="${esc(h.id)}">Ver</button><button class="btn-ghost" data-action="buscaWhats" data-id="${esc(h.id)}">WhatsApp</button></div></div>`).join('') : '<div class="card"><p class="body muted">Nenhuma busca ainda.</p></div>'}</div>
       </div></section>`);
+    acompanharImportacao();
+  }
+
+  // Andamento da importação: atualiza SÓ o texto (sem redesenhar a página — antes ela "piscava"
+  // a cada 5 s e apagava o que estava sendo digitado)
+  function textoAndamento(imp) {
+    return `${imp.vistos || 0} de ${imp.total || '?'} grupos lidos · ${imp.anuncios || 0} anúncios novos${imp.atual ? ` · agora: ${imp.atual}` : ''}`;
+  }
+  function acompanharImportacao() {
     clearTimeout(S._buscaPoll);
-    if (imp && imp.rodando && S.route === 'busca')
-      S._buscaPoll = setTimeout(async () => {
-        if (S.route !== 'busca') return;
-        try {
-          S.busca = await api('GET', '/api/busca');
-          render();
-        } catch {}
-      }, 5000);
+    const imp = S.busca && S.busca.importacao;
+    if (!imp || !imp.rodando || S.route !== 'busca') return;
+    S._buscaPoll = setTimeout(async () => {
+      if (S.route !== 'busca' || document.hidden) return acompanharImportacao();
+      try {
+        const st = await api('GET', '/api/busca');
+        S.busca = st;
+        const i = st.importacao;
+        const and = $('#impAndamento');
+        const btn = $('#btnImportar');
+        if (i && i.rodando) {
+          if (and) and.textContent = textoAndamento(i);
+        } else {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Importar histórico dos grupos';
+          }
+          if (and) and.textContent = i ? `Pronto: ${i.anuncios} anúncios de ${i.comHistorico} de ${i.grupos} grupos.` : '';
+          toast('Importação do histórico terminou.');
+          return;
+        }
+      } catch {}
+      acompanharImportacao();
+    }, 5000);
   }
 
   // ------------------------------------------------------------------ GARIMPO
@@ -901,7 +927,13 @@
       const r = await api('POST', '/api/busca/importar-historico');
       S.busca = r.estado;
       toast('Importando… deixe o celular ligado. Eu aviso no WhatsApp quando terminar.');
-      render();
+      const btn = $('#btnImportar');
+      if (btn) {
+        btn.textContent = 'Importando…';
+        setTimeout(() => (btn.disabled = true), 0); // depois do clique (o clique reabilita o botão ao terminar)
+      }
+      if (r.estado.importacao && $('#impAndamento')) $('#impAndamento').textContent = textoAndamento(r.estado.importacao);
+      acompanharImportacao();
     },
     salvarBuscaCfg: async () => {
       const f = formData($('#buscaCfg'));
@@ -1269,6 +1301,7 @@
   root.addEventListener('input', e => {
     const n = e.target.name;
     if (n === 'filtroGrupo') return applyGroupFilter(e.target.dataset.target);
+    if (n === 'texto' && e.target.closest('#buscaForm')) S.buscaTexto = e.target.value; // não perde o pedido se a tela atualizar
     if (n === 'busca' || n === 'filtroContato' || n === 'filtroBairro') {
       const key = { busca: 'filtro', filtroContato: 'filtroContato', filtroBairro: 'filtroBairro' }[n];
       S[key] = e.target.value;
