@@ -162,7 +162,7 @@ const HELP = `${BOT} *Oi, eu sou a BIGA!* Seus comandos:
 • *memória* (quantos anúncios estão guardados) · *memória ligar/desligar*
 • *minhas buscas* · *ver busca 3* · *config busca*
 • *grupos da busca* · *busca grupos 1,4,7* · *busca grupos todos*
-• *limite busca 30* · *portais olx zap vivareal* · *chave gemini SUA_CHAVE* · *testar gemini*
+• *limite busca 30* · *portais olx zap vivareal* · *chave gemini SUA_CHAVE* · *testar gemini* · *testar gemini fundo*
 ⚙️ *status* · *pausar* · *retomar* · *ajuda*`;
 
 async function reply(wa, chatJid, text) {
@@ -292,6 +292,12 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
     bi.atualizarConfig({ gruposIds: novos });
     const nomes = gs.filter(g => novos.includes(g.id)).map(g => g.subject);
     await reply(wa, chatJid, `📂 Busca em ${nomes.length} grupo(s): ${nomes.slice(0, 15).join(', ')}${nomes.length > 15 ? '…' : ''}`);
+    return true;
+  }
+  if (/^(testar gemini (?:fundo|completo)|diagnosticar gemini|diagnostico gemini|testar chave (?:fundo|completa))$/.test(norm)) {
+    await reply(wa, chatJid, '🔬 Testando a chave no Google (resposta simples + busca com Google)…');
+    const r = await require('./gemini-chave').diagnosticarSalva();
+    await reply(wa, chatJid, r.texto);
     return true;
   }
   if (/^(testar gemini|testar chave|testar chave gemini|teste gemini)$/.test(norm)) {
