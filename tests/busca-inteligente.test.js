@@ -924,3 +924,19 @@ test('Diagnóstico: a resposta simples passa por outros modelos quando o princip
   assert.match(t, /Gemini está sobrecarregado agora \(erro 503 "alta demanda"\): é passageiro/);
   M.esquecer('k-diag-503');
 });
+
+test('Busca desacoplada: se a consulta precisa vem vazia, tenta a solta e informa o que o buscador devolveu', async () => {
+  const consultas = [];
+  const fetcher = async (url, opts) => {
+    const corpo = JSON.parse(opts.body);
+    consultas.push(corpo.q);
+    const solta = !/"/.test(corpo.q);
+    const organic = solta ? [{ link: ZAP_AD, title: 'Casa Marista', snippet: 'Casa 3 quartos' }, { link: 'https://www.zapimoveis.com.br/venda/casas/go+goiania/', title: 'lista', snippet: '' }] : [];
+    return { ok: true, status: 200, json: async () => ({ organic }) };
+  };
+  const r = await Serp.buscarAnuncios({ criterios: pedidoJardins({ tipo: 'casa', local: 'Setor Marista' }), dominios: ['zapimoveis.com.br'], env: { SERPER_API_KEY: 'x'.repeat(20) }, fetcher });
+  assert.ok(r.ok);
+  assert.equal(r.catalogo.length, 1);
+  assert.equal(consultas.length, 2);
+  assert.deepEqual(r.diag['zapimoveis.com.br'], { brutos: 2, anuncios: 1 });
+});
