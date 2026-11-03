@@ -59,7 +59,10 @@ async function testarChaveSalva(fetcher) {
   // chave salva "suja" (espaço ou caractere invisível no meio, colada pela versão antiga de Ajustes): corrige
   if (chave !== bruta) require('./envfile').updateEnvFile({ GEMINI_API_KEY: chave });
   const t = await testarChave(chave, fetcher);
-  if (t.ok === true) return { ok: true, mensagem: t.aviso || 'Chave do Gemini funcionando ✅ (a busca nos portais está liberada).' };
+  if (t.ok === true) {
+    const modelo = process.env.GEMINI_BUSCA_MODEL || (await require('./gemini-modelo').escolherModelo(chave, fetcher ? { fetcher } : {}));
+    return { ok: true, mensagem: t.aviso || `Chave do Gemini funcionando ✅ (modelo da busca: ${modelo}).` };
+  }
   return { ok: false, mensagem: t.ok === null ? t.motivo : `${t.motivo} Crie outra chave em aistudio.google.com › Get API key.` };
 }
 

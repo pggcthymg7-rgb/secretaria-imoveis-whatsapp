@@ -307,24 +307,38 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
   if (!dominios.length) return { ok: false, motivo: 'desligado', itens: [], fontesSoltas: [] };
   if (usoHoje() >= limiteDia(env)) return { ok: false, motivo: 'limite', itens: [], fontesSoltas: [] };
   registrarUso();
-  const model = env.GEMINI_BUSCA_MODEL || 'gemini-2.5-flash';
+  const M = require('./gemini-modelo');
   const body = {
     contents: [{ role: 'user', parts: [{ text: promptPortais(descreverPedido(criterios), textoOriginal, dominios) }] }],
     tools: [{ google_search: {} }],
     generationConfig: { temperature: 0.2 }
   };
-  let data;
-  try {
+  const chamar = async model => {
     const r = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(90000)
     });
-    data = await r.json();
-    if (!r.ok) return { ok: false, motivo: r.status === 429 ? 'cota' : 'erro', detalhe: String(data?.error?.message || r.status).slice(0, 200), itens: [], fontesSoltas: [] };
+    return { r, data: await r.json() };
+  };
+  let data;
+  let usado = env.GEMINI_BUSCA_MODEL || (await M.escolherModelo(key, { fetcher }));
+  try {
+    let { r, data: d } = await chamar(usado);
+    // "este modelo não está mais disponível para a sua chave": o Google aposenta modelos; tenta o mais novo que ele oferece
+    if (!r.ok && M.modeloIndisponivel(r.status, d?.error?.message)) {
+      M.esquecer(key);
+      const outro = await M.escolherModelo(key, { fetcher, ignorar: [usado] });
+      if (outro && outro !== usado) {
+        usado = outro;
+        ({ r, data: d } = await chamar(usado));
+      }
+    }
+    data = d;
+    if (!r.ok) return { ok: false, motivo: r.status === 429 ? 'cota' : 'erro', detalhe: String(data?.error?.message || r.status).slice(0, 200), modelo: usado, itens: [], fontesSoltas: [] };
   } catch (err) {
-    return { ok: false, motivo: 'erro', detalhe: String(err.message).slice(0, 200), itens: [], fontesSoltas: [] };
+    return { ok: false, motivo: 'erro', detalhe: String(err.message).slice(0, 200), modelo: usado, itens: [], fontesSoltas: [] };
   }
   const cand = data?.candidates?.[0] || {};
   const texto = (cand.content?.parts || []).map(p => p.text || '').join('');
@@ -361,7 +375,7 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
     });
   }
   const fontesSoltas = fontes.filter(f => !vistos.has(urlChave(f.url))).slice(0, 8);
-  return { ok: true, itens, fontesSoltas, usadasHoje: usoHoje(), limite: limiteDia(env) };
+  return { ok: true, itens, fontesSoltas, modelo: usado, usadasHoje: usoHoje(), limite: limiteDia(env) };
 }
 
 // ---------------------------------------------------------------------------
