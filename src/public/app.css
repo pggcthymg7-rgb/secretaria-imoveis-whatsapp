@@ -317,3 +317,6 @@ details summary::-webkit-details-marker { display: none; }
    antes a página inteira "apagava e piscava" (todas as páginas). A animação fica só ao trocar de página. */
 .sem-anim .reveal, .sem-anim .reveal.in { transition: none !important; opacity: 1; transform: none; }
 .sem-anim main.page-enter { animation: none; }
+
+/* Campo que ocupa a linha toda (filtros da Busca) */
+.fields .field.wide { grid-column: 1 / -1; }

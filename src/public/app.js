@@ -555,7 +555,8 @@
     return `
       <section class="section"><div class="container">
         <div class="row between reveal"><div><span class="label">Busca nº ${esc(r.id)} · ${esc(when(r.ts))}</span><h2 class="heading-sm">${esc(r.descricao)}</h2></div>
-          <button class="btn-ghost accent" data-action="buscaWhats" data-id="${esc(r.id)}">Mandar pro meu WhatsApp</button></div>
+          <div class="row tight"><button class="btn-ghost accent" data-action="buscaWhats" data-id="${esc(r.id)}">Mandar pro meu WhatsApp</button>${r.filtros ? '<button class="btn-ghost" data-action="refazerFiltros">Refazer com estes filtros</button>' : ''}</div></div>
+        ${(r.avisos || []).map(a => `<p class="caption">⚠️ ${esc(a)}</p>`).join('')}
       </div></section>
       <section class="section"><div class="container">
         <span class="label reveal">📱 Nos seus grupos (${r.grupos.length})</span>
@@ -577,11 +578,31 @@
     const c = b.config || {};
     const m = b.memoria || {};
     const imp = b.importacao;
+    const fb = S.buscaForm || {};
     shell(`
       ${header('Busca', 'Busca inteligente', 'Escreva o que o seu cliente quer. Eu procuro nos <b>seus grupos</b> (anúncios dos últimos 90 dias: quem anunciou e onde) e na <b>OLX, ZAP e VivaReal</b>, separando particular e profissional. Também dá para fazer tudo pelo “Mensagem para mim”: <b>busca …</b>')}
       <section class="section"><div class="container"><div class="card reveal stack" id="buscaForm">
-        ${field('texto', 'Pedido do cliente', S.buscaTexto || '', { area: true, rows: 3, ph: 'Ex.: apartamento de 800 mil a 1 milhão no Setor Marista, mínimo 100 m², 3 quartos' })}
-        <div class="row">${toggle('whatsapp', false, 'Mandar também pro meu WhatsApp')}<button class="btn-primary" data-action="buscar">${S.buscando ? 'Buscando… (até 2 min)' : 'Buscar'}</button></div>
+        <span class="label">Filtros — como nos portais (o que ficar em branco fica aberto)</span>
+        <div class="fields">
+          ${field('tipo', 'Tipo', fb.tipo || '', { options: [['', 'Qualquer'], ['Apartamento', 'Apartamento'], ['Casa', 'Casa'], ['Sobrado', 'Sobrado'], ['Cobertura', 'Cobertura'], ['Flat', 'Flat'], ['Studio', 'Studio'], ['Terreno', 'Terreno / lote'], ['Chácara', 'Chácara'], ['Comercial', 'Comercial']] })}
+          ${field('negocio', 'Negócio', fb.negocio || 'VENDA', { options: [['VENDA', 'Venda'], ['ALUGUEL', 'Aluguel']] })}
+          ${field('cidade', 'Cidade', fb.cidade || '', { ph: 'Ex.: Goiânia' })}
+          ${field('bairro', 'Bairro', fb.bairro || '', { ph: 'Ex.: Setor Marista' })}
+          ${field('local', 'Condomínio ou edifício', fb.local || '', { ph: 'Ex.: Jardins Itália', cls: 'wide' })}
+          ${field('valorMin', 'Valor a partir de', fb.valorMin || '', { ph: 'Ex.: 4 milhões' })}
+          ${field('valorMax', 'Valor até', fb.valorMax || '', { ph: 'Ex.: 5 milhões' })}
+          ${field('quartos', 'Quartos (mín.)', fb.quartos || '', { type: 'number', attrs: 'min="0" max="20"' })}
+          ${field('suites', 'Suítes (mín.)', fb.suites || '', { type: 'number', attrs: 'min="0" max="20"' })}
+          ${field('vagas', 'Vagas (mín.)', fb.vagas || '', { type: 'number', attrs: 'min="0" max="20"' })}
+          ${field('areaMin', 'Tamanho a partir de (m²)', fb.areaMin || '', { ph: 'Ex.: 100' })}
+          ${field('areaMax', 'Tamanho até (m²)', fb.areaMax || '', { ph: 'Ex.: 300' })}
+          ${field('extras', 'Mais (opcional)', fb.extras || '', { ph: 'Ex.: piscina, mobiliado, aceita financiamento', cls: 'wide' })}
+        </div>
+        <p class="caption">Condomínio/edifício é o mais específico: se preencher, ele vale no lugar do bairro. Valor: “4 milhões”, “800 mil”, “4.500.000”.</p>
+        <details ${fb.texto ? 'open' : ''}><summary class="caption" style="cursor:pointer">Ou escreva o pedido do seu jeito</summary>
+          ${field('texto', 'Pedido do cliente (texto livre)', fb.texto || '', { area: true, rows: 3, ph: 'Ex.: apartamento de 800 mil a 1 milhão no Setor Marista, mínimo 100 m², 3 quartos' })}
+        </details>
+        <div class="row">${toggle('whatsapp', false, 'Mandar também pro meu WhatsApp')}<button class="btn-primary" data-action="buscar">${S.buscando ? 'Buscando… (até 2 min)' : 'Buscar'}</button><button class="btn-ghost" data-action="limparFiltros">Limpar</button></div>
         <p class="caption">Buscas nos portais hoje: ${c.usadasHoje || 0} de ${c.limiteDia ?? 20}${c.temChaveGemini ? '' : ' · sem chave do Gemini: só grupos e buscas prontas'}</p>
       </div></div></section>
       ${resultadoBusca(S.buscaAtual)}
@@ -940,13 +961,15 @@
   const actions = {
     buscar: async () => {
       const f = formData($('#buscaForm'));
-      S.buscaTexto = f.texto;
-      if (!String(f.texto || '').trim()) return toast('Escreva o pedido do cliente.', true);
+      const { texto, whatsapp, ...filtros } = f;
+      S.buscaForm = { ...filtros, texto };
+      const algum = Object.entries(filtros).some(([k, v]) => k !== 'negocio' && String(v ?? '').trim() !== '');
+      if (!algum && String(texto || '').trim().length < 8) return toast('Preencha pelo menos um filtro (cidade, bairro, valor…) ou escreva o pedido.', true);
       S.buscando = true;
       render();
       toast('Buscando nos grupos e nos portais…');
       try {
-        const r = await api('POST', '/api/busca', { texto: f.texto, whatsapp: f.whatsapp });
+        const r = await api('POST', '/api/busca', { texto, filtros, whatsapp });
         S.buscaAtual = r.busca;
         S.busca = r.estado;
         toast(`${r.busca.grupos.length} nos grupos · ${(r.busca.portais.itens || []).length} nos portais${f.whatsapp ? ' · mandei no seu WhatsApp' : ''}`);
@@ -954,6 +977,18 @@
         S.buscando = false;
         render();
       }
+    },
+    limparFiltros: () => {
+      S.buscaForm = {};
+      render({ manterCampos: false });
+    },
+    refazerFiltros: () => {
+      const f = (S.buscaAtual && S.buscaAtual.filtros) || {};
+      const dinheiro = n => (n >= 1e6 ? `${(n / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} milhões` : n >= 1000 ? `${Math.round(n / 1000)} mil` : String(n));
+      S.buscaForm = { ...f, valorMin: f.valorMin ? dinheiro(f.valorMin) : '', valorMax: f.valorMax ? dinheiro(f.valorMax) : '', areaMin: f.areaMin || '', areaMax: f.areaMax || '' };
+      render();
+      scrollTo({ top: 0, behavior: 'smooth' });
+      toast('Filtros carregados: ajuste e toque em Buscar.');
     },
     verBusca: async el => {
       S.buscaAtual = await api('GET', `/api/busca/item/${encodeURIComponent(el.dataset.id)}`);
@@ -1367,7 +1402,7 @@
   root.addEventListener('input', e => {
     const n = e.target.name;
     if (n === 'filtroGrupo') return applyGroupFilter(e.target.dataset.target);
-    if (n === 'texto' && e.target.closest('#buscaForm')) S.buscaTexto = e.target.value; // não perde o pedido se a tela atualizar
+    if (n && e.target.closest('#buscaForm') && !e.target.closest('[data-toggle]')) S.buscaForm = { ...S.buscaForm, [n]: e.target.value }; // não perde os filtros se a tela atualizar
     if (n === 'busca' || n === 'filtroContato' || n === 'filtroBairro') {
       const key = { busca: 'filtro', filtroContato: 'filtroContato', filtroBairro: 'filtroBairro' }[n];
       S[key] = e.target.value;

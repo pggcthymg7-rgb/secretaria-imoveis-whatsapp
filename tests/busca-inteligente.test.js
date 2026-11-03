@@ -381,6 +381,118 @@ test('Portais: modelo aposentado -> escolhe o novo sozinho e refaz (sem gastar o
 });
 
 // ---------------------------------------------------------------------------
+// Filtros iguais aos dos portais (pedido do João: cidade, bairro, condomínio/edifício, valor, quartos, tamanho…)
+test('Filtros: valores, faixas e campos em branco (o que não é preenchido fica aberto)', () => {
+  const Fl = require('../src/busca-filtros');
+  const n = b => Fl.normalizarFiltros(b);
+  assert.deepEqual(n({ valor: 'de 4 milhões até 5 milhões' }).filtros, { valorMin: 4000000, valorMax: 5000000 });
+  assert.deepEqual(n({ valor: '4 a 5 milhões' }).filtros, { valorMin: 4000000, valorMax: 5000000 }, '4 herda a unidade do 5');
+  assert.deepEqual(n({ valor: 'de 800 mil a 1.000.000,00' }).filtros, { valorMin: 800000, valorMax: 1000000 });
+  assert.deepEqual(n({ valorMin: '4 milhões', valorMax: '5 milhões' }).filtros, { valorMin: 4000000, valorMax: 5000000 });
+  assert.deepEqual(n({ valorMin: '5 milhões', valorMax: '4 milhões' }).filtros, { valorMin: 4000000, valorMax: 5000000 }, 'ao contrário: troca');
+  assert.deepEqual(n({ valorMax: '800' }).filtros, { valorMax: 800000 }, '800 = 800 mil');
+  assert.deepEqual(n({ area: 'a partir de 100 m²' }).filtros, { areaMin: 100 });
+  assert.deepEqual(n({ areaMin: '1.000', areaMax: '' }).filtros, { areaMin: 1000 });
+  assert.deepEqual(n({ tipo: 'Apto', suites: '4+', quartos: '-', vagas: '' }).filtros, { tipo: 'Apartamento', suites: 4 });
+  assert.deepEqual(n({ cidade: '  ', bairro: '—' }).filtros, {}, 'branco/traço = aberto');
+  assert.match(n({ valorMin: 'caro' }).erros[0], /Não entendi o valor "caro"/);
+  assert.match(n({ tipo: 'nave espacial' }).erros[0], /Não entendi o tipo/);
+  assert.equal(n({ bairro: '<script>alert(1)</script>' }).filtros.bairro.includes('<'), false, 'sem < nem >');
+  // "campo: valor; campo: valor" (WhatsApp)
+  assert.deepEqual(Fl.parseCampos('cidade: Goiânia; condomínio: Jardins Itália\nsuítes: 4; valor: de 4 milhões a 5 milhões'), { cidade: 'Goiânia', local: 'Jardins Itália', suites: '4', valor: 'de 4 milhões a 5 milhões' });
+  assert.equal(Fl.parseCampos('casa no marista até 1 milhão'), null, 'texto livre não é campo');
+  assert.equal(Fl.parseCampos('apto marista: 100m²'), null, 'campo desconhecido não é campo');
+});
+
+test('Filtros -> critérios: confere nome por nome (o mapa errava "Goiânia" -> Goianira e "Xyzabc Park" -> outro condomínio)', () => {
+  const Fl = require('../src/busca-filtros');
+  const crit = b => bi.entenderFiltros(Fl.normalizarFiltros(b).filtros);
+  let { criterios: c, avisos } = crit({ cidade: 'Goiânia', bairro: 'Setor Marista', tipo: 'apto', area: 'a partir de 100', valor: '800 mil a 1 milhão' });
+  assert.deepEqual(c.local.cidades, ['Goiânia'], 'Goiânia é Goiânia');
+  assert.deepEqual(c.local.bairros, ['Setor Marista']);
+  assert.deepEqual([c.valor_min, c.valor_max, c.area_min, c.tipos[0]], [800000, 1000000, 100, 'Apartamento']);
+  assert.deepEqual(avisos, []);
+  ({ criterios: c } = crit({ tipo: 'casa', local: 'Jardins Itália', suites: '4', valor: '4 a 5 milhões' }));
+  assert.deepEqual(c.local.condominios.map(x => x.name), ['Condomínio Jardim Itália'], 'plural/typo do nome digitado acha o condomínio');
+  assert.equal(c.suites_min, 4);
+  ({ criterios: c, avisos } = crit({ cidade: 'Aparecida de Goiânia', local: 'Residencial Xyzabc Park' }));
+  assert.deepEqual(c.local.condominios, [], 'nome que o mapa não conhece NÃO vira outro condomínio');
+  assert.deepEqual(c.local.nomesDesconhecidos, ['residencial xyzabc park'], 'vira busca pelo nome escrito nos anúncios');
+  assert.match(avisos[0], /não está no meu mapa/);
+  ({ avisos } = crit({ cidade: 'Cidade Que Nao Existe', bairro: 'Jardim Goiás' }));
+  assert.match(avisos[0], /Não conheço a cidade/);
+  ({ avisos } = crit({ bairro: 'Setor Marista', local: 'Jardins Itália' }));
+  assert.match(avisos[0], /usei só o condomínio/);
+  assert.ok(bi.credivel('Jardins Itália', 'Condomínio Jardim Itália', [], true));
+  assert.ok(bi.credivel('Condominio Jardim Italia', 'Condomínio Jardim Itália', [], true));
+  assert.ok(bi.credivel('Alphavile Flamboyant', 'Alphaville Flamboyant', [], true), '1 letra a menos no condomínio: aceita');
+  assert.ok(!bi.credivel('Goiânia', 'Goianira', ['Goianira']), 'cidade: exato (Goiânia e Goianira diferem por 1 letra)');
+  assert.ok(!bi.credivel('Goianira', 'Goiânia', ['Goiânia']));
+  assert.ok(!bi.credivel('Residencial Xyzabc Park', 'Residencail', []));
+});
+
+test('Busca por filtros nos grupos: condomínio + 4 suítes + de 4 a 5 milhões acha só o que serve', async () => {
+  anuncios._reset();
+  bi.atualizarConfig({ todosGrupos: true });
+  const add = (id, texto, grupo, autor) => anuncios.registrar({ id, ts: Date.now(), texto, grupo, grupoId: 'g1@g.us', autor, telefone: '5562999990000' });
+  add('a', 'Vendo casa no Condomínio Jardins Itália, 5 suítes, 450m², R$ 4,5 milhões. Chama no pv', 'Alto Padrão GYN', 'Ana');
+  add('b', 'Vendo casa no Condomínio Alphaville Flamboyant 4 suítes 500m² R$ 4,8 milhões', 'Alto Padrão GYN', 'Beto');
+  add('c', 'Vendo casa Condomínio Jardins Itália 3 suítes 300m² R$ 3,2 milhões', 'Alto Padrão GYN', 'Caio');
+  add('d', 'Vendo casa Condomínio Jardins Itália 4 suítes 400m² R$ 6 milhões', 'Alto Padrão GYN', 'Duda');
+  const r = await bi.buscarComFiltros({ tipo: 'casa', local: 'Jardins Itália', suites: '4', valor: 'de 4 milhões até 5 milhões' }, { env: {}, guardar: false });
+  assert.deepEqual(r.grupos.map(g => g.fontes[0].autor), ['Ana'], 'só o de 4,5 mi, 5 suítes, no Jardins Itália');
+  assert.equal(r.descricao, 'Casa, à venda, em Jardins Itália, Goiânia - GO, de R$ 4 mi a R$ 5 mi, 4+ suítes');
+  assert.equal(r.filtros.local, 'Jardins Itália');
+  // só o condomínio preenchido: o resto fica aberto (acha os 3 do Jardins Itália)
+  const aberto = await bi.buscarComFiltros({ local: 'Jardins Itália' }, { env: {}, guardar: false });
+  assert.deepEqual(aberto.grupos.map(g => g.fontes[0].autor).sort(), ['Ana', 'Caio', 'Duda']);
+  // o mesmo pedido escrito em texto livre (caso real do João) dá os mesmos critérios dos campos
+  const livre = bi.entenderPedido(F.pedidoJardinsItalia).criterios;
+  const porCampos = bi.entenderFiltros(require('../src/busca-filtros').normalizarFiltros({ tipo: 'casa', local: 'Jardins Itália', suites: '4', valor: 'de 4 milhões até 5 milhões' }).filtros).criterios;
+  assert.deepEqual([livre.tipos, livre.valor_min, livre.valor_max, livre.suites_min, livre.local.condominios.map(x => x.name)], [porCampos.tipos, porCampos.valor_min, porCampos.valor_max, porCampos.suites_min, porCampos.local.condominios.map(x => x.name)]);
+  // sem nenhum campo: recusa
+  await assert.rejects(() => bi.buscarComFiltros({ negocio: 'VENDA' }, { env: {}, guardar: false }), /Preencha pelo menos um campo/);
+  // links prontos usam o nome digitado
+  assert.match(r.links['OLX'], /q=casa\+jardins\+it%C3%A1lia/i);
+  // portais recebem a descrição completa no pedido ao Gemini
+  let prompt;
+  await bi.buscarNosPortais(r.criterios, r.criterios.resumo, { env: { GEMINI_API_KEY: 'k-filtros', GEMINI_BUSCA_MODEL: 'gemini-3.8-flash', BUSCA_LIMITE_DIA: '99' }, fetcher: async (u, o) => ((prompt = JSON.parse(o.body).contents[0].parts[0].text), { ok: true, status: 200, json: async () => ({ candidates: [] }) }) });
+  assert.match(prompt, /Casa, à venda, em Jardins Itália, Goiânia - GO, de R\$ 4 mi a R\$ 5 mi, 4\+ suítes/);
+});
+
+test('Painel › Busca por filtros (API): valida, usa os campos e o texto livre vira "mais detalhes"', async () => {
+  const { app } = require('../index');
+  const server = await new Promise(r => {
+    const s = app.listen(0, '127.0.0.1', () => r(s));
+  });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const H = { 'x-secretaria': '1' };
+  try {
+    let r = await fetch(`${base}/api/login`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify({ senha: process.env.PAINEL_SENHA }) });
+    const J = { ...H, cookie: r.headers.get('set-cookie').split(';')[0], 'Content-Type': 'application/json' };
+    anuncios._reset();
+    anuncios.registrar({ id: 'f1', ts: Date.now(), texto: 'Vendo casa no Condomínio Jardins Itália, 5 suítes, 450m², R$ 4,5 milhões', grupo: 'G', grupoId: 'g1@g.us', autor: 'Ana', telefone: '5562999990000' });
+    r = await fetch(`${base}/api/busca`, { method: 'POST', headers: J, body: JSON.stringify({ filtros: { tipo: 'Casa', negocio: 'VENDA', local: 'Jardins Itália', suites: 4, valorMin: '4 milhões', valorMax: '5 milhões', cidade: '' } }) });
+    const j = await r.json();
+    assert.equal(r.status, 200);
+    assert.equal(j.busca.grupos.length, 1);
+    assert.equal(j.busca.filtros.valorMax, 5000000);
+    assert.ok(j.estado.historico.some(h => h.id === j.busca.id));
+    r = await fetch(`${base}/api/busca/item/${j.busca.id}`, { headers: J });
+    assert.equal((await r.json()).filtros.local, 'Jardins Itália', 'histórico guarda os filtros (Refazer com estes filtros)');
+    r = await fetch(`${base}/api/busca`, { method: 'POST', headers: J, body: JSON.stringify({ filtros: { valorMin: 'caro demais' } }) });
+    assert.equal(r.status, 400);
+    assert.match((await r.json()).error, /Não entendi o valor/);
+    r = await fetch(`${base}/api/busca`, { method: 'POST', headers: J, body: JSON.stringify({ filtros: { negocio: 'VENDA' }, texto: '' }) });
+    assert.equal(r.status, 400, 'sem nenhum filtro e sem texto');
+    r = await fetch(`${base}/api/busca`, { method: 'POST', headers: J, body: JSON.stringify({ texto: F.pedidoClienteMarista }) });
+    assert.equal(r.status, 200, 'só texto livre continua funcionando');
+  } finally {
+    server.close();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Caso real do João: "a cota grátis acabou" sem ele ter usado nada (429 da busca com Google)
 test('Diagnóstico do Gemini: separa "chave gera texto" de "busca com Google sem cota" e mostra o motivo exato do Google', async () => {
   const g = require('../src/gemini-chave');

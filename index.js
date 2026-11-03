@@ -400,10 +400,25 @@ async function relatorioNoWhatsApp(r) {
 app.get('/api/busca', (req, res) => res.json(estadoBusca()));
 app.post('/api/busca', ah(async (req, res) => {
   const texto = str(req.body?.texto, 500).trim();
-  if (texto.length < 8) return res.status(400).json({ error: 'Escreva o pedido do cliente (ex.: apto 800 mil a 1 milhão no Setor Marista, mínimo 100 m²).' });
-  const { countCriteria } = require('./src/brain/engine');
-  if (countCriteria(buscaInt.entenderPedido(texto).criterios) < 2) return res.status(400).json({ error: 'Preciso de mais detalhes: tipo, bairro, preço ou metragem.' });
-  const r = await buscaInt.buscar(texto);
+  // Filtros (campos iguais aos dos portais). Se vierem preenchidos, valem eles; o texto livre, se houver, entra como "mais detalhes".
+  const bf = require('./src/busca-filtros');
+  const bruto = {};
+  for (const k of ['tipo', 'negocio', 'cidade', 'bairro', 'local', 'valorMin', 'valorMax', 'quartos', 'suites', 'vagas', 'areaMin', 'areaMax', 'extras']) {
+    const v = req.body?.filtros?.[k];
+    if (typeof v === 'string' || typeof v === 'number') bruto[k] = String(v);
+  }
+  const { filtros: normalizados, erros: errosFiltros } = bf.normalizarFiltros(bruto);
+  if (errosFiltros.length) return res.status(400).json({ error: errosFiltros.join(' ') });
+  let r;
+  if (bf.preenchidos(normalizados)) {
+    if (texto) bruto.extras = [bruto.extras, texto].filter(Boolean).join(', ').slice(0, 200);
+    r = await buscaInt.buscarComFiltros(bruto);
+  } else {
+    if (texto.length < 8) return res.status(400).json({ error: 'Preencha os filtros (cidade, bairro, valor…) ou escreva o pedido do cliente (ex.: apto 800 mil a 1 milhão no Setor Marista).' });
+    const { countCriteria } = require('./src/brain/engine');
+    if (countCriteria(buscaInt.entenderPedido(texto).criterios) < 2) return res.status(400).json({ error: 'Preciso de mais detalhes: tipo, bairro, preço ou metragem.' });
+    r = await buscaInt.buscar(texto);
+  }
   wa.addLog('BUSCA', `🔎 Busca nº ${r.id} (painel): ${r.descricao} — ${r.grupos.length} nos grupos, ${r.portais.itens.length} nos portais.`);
   if (req.body?.whatsapp) await relatorioNoWhatsApp(r).catch(() => {});
   res.json({ ok: true, busca: r, estado: estadoBusca() });

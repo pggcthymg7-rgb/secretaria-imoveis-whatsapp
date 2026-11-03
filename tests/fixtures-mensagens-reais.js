@@ -14,5 +14,7 @@ module.exports = {
   pedidoClienteMarista: 'apartamento de 800 mil a 1.000.000,00 no setor marista com no minimo 100 metros quadrados',
   anuncioMarista950: 'Vendo apartamento no Setor Marista, 3 suítes, 120m², 2 vagas, R$ 950 mil. Aceita financiamento. Chama no pv',
   anuncioMaristaSemVerbo: 'Apto 3Q Marista 110m² 980 mil lazer completo',
-  anuncioCasaMilhoes: 'Casa em condomínio Aldeia do Vale 4 suítes 400m² R$ 2,8 mi'
+  anuncioCasaMilhoes: 'Casa em condomínio Aldeia do Vale 4 suítes 400m² R$ 2,8 mi',
+  // pedido do João (03/11/2026) que virou os filtros da Busca: preencher campos como nos portais
+  pedidoJardinsItalia: 'procuro casa no condomínio jardins italia, 4 suites, de 4 milhoes ate 5 milhoes'
 };
