@@ -15,10 +15,11 @@
 const { readJson, writeJson } = require('./store');
 const { normalize } = require('./brain/text');
 const { parseRequest, fmtPrice } = require('./brain/parser');
-const { buildIndex, osmVersion } = require('./brain/locations');
+const { buildIndex, osmVersion, detectLocations } = require('./brain/locations');
 const { evaluateProperty } = require('./brain/engine');
 const { loadSettings } = require('./settings');
 const anuncios = require('./anuncios');
+const { normalizarFiltros, preenchidos } = require('./busca-filtros');
 
 const USO_FILE = 'busca_inteligente.json';
 const PORTAIS = { 'olx.com.br': 'OLX', 'zapimoveis.com.br': 'ZAP Imóveis', 'vivareal.com.br': 'VivaReal' };
@@ -41,6 +42,98 @@ function entenderPedido(texto) {
   const c = parseRequest(texto, { index });
   c.intent = 'BUSCA';
   return { criterios: c, index };
+}
+
+// ---------------------------------------------------------------------------
+// FILTROS (campos iguais aos dos portais) -> critérios, sem "adivinhar" texto
+// ---------------------------------------------------------------------------
+const GENERICAS = new Set(['condominio', 'residencial', 'edificio', 'ed', 'edif', 'predio', 'empreendimento', 'setor', 'jardim', 'jardins', 'parque', 'vila', 'bairro', 'loteamento', 'de', 'do', 'da', 'dos', 'das', 'e']);
+const tokens = s => normalize(s).split(' ').filter(Boolean);
+function lev1(a, b) {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  if (a.length === b.length) return a.slice(i + 1) === b.slice(i + 1); // troca
+  const [c, d] = a.length > b.length ? [a, b] : [b, a];
+  return c.slice(i + 1) === d.slice(i); // 1 letra a mais
+}
+// tolerante (só condomínio/edifício): aceita 1 letra de diferença ("Itália"/"Italia"). Cidade e bairro: exato — Goiânia e Goianira diferem por 1 letra.
+const tokenIgual = (a, b, tolerante) => a === b || (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a))) || (tolerante && Math.min(a.length, b.length) >= 5 && lev1(a, b));
+/** O que o mapa achou serve para o que o corretor digitou? (o cérebro erra: "Goiânia" -> Goianira, "Xyzabc Park" -> outro condomínio) */
+function credivel(digitado, nome, aliases = [], tolerante = false) {
+  let ts = tokens(digitado).filter(t => !GENERICAS.has(t));
+  if (!ts.length) ts = tokens(digitado);
+  if (!ts.length) return false;
+  const alvo = [nome, ...aliases].flatMap(tokens).filter(t => !GENERICAS.has(t) || ts.every(x => GENERICAS.has(x)));
+  return ts.every(t => alvo.some(a => tokenIgual(t, a, tolerante)));
+}
+
+function montarLocal(f, index, avisos) {
+  const local = { qualquer: false, regioes: [], bairros: [], perto: [], marcos: [], condominios: [], edificios: [], cidades: [], raio: null, nomesDesconhecidos: [], mencionaLocal: false, resumo: [], localNaoReconhecido: false, rotulos: [] };
+  const L = t => detectLocations(t, { index });
+  if (f.cidade) {
+    const n = normalize(f.cidade);
+    const cid = /^goiania(\s+go)?$/.test(n) ? 'Goiânia' : L(f.cidade).cidades.find(x => credivel(f.cidade, x, [x]));
+    if (cid) {
+      local.cidades.push(cid);
+      local.rotulos.push(cid);
+    } else avisos.push(`Não conheço a cidade "${f.cidade}" no meu mapa: não filtrei por cidade.`);
+  }
+  const nome = f.local || f.bairro;
+  if (f.local && f.bairro) avisos.push('Bairro e condomínio/edifício preenchidos: usei só o condomínio/edifício (é o mais específico).');
+  if (nome) {
+    const r = L(nome);
+    const ach = [];
+    for (const b of r.bairros) if (credivel(nome, b, [b])) ach.push(['bairros', b]);
+    for (const x of r.regioes) if (credivel(nome, x, [x])) ach.push(['regioes', x]);
+    for (const c of r.condominios) if (credivel(nome, c.name, c.aliases, true)) ach.push(['condominios', c]);
+    for (const e of r.edificios) if (credivel(nome, e.name, e.aliases, true)) ach.push(['edificios', e]);
+    if (ach.length) for (const [k, v] of ach) local[k].push(v);
+    else {
+      local.nomesDesconhecidos.push(normalize(nome));
+      avisos.push(`"${nome}" não está no meu mapa: procuro esse nome escrito nos anúncios.`);
+    }
+    local.rotulos.push(nome);
+  }
+  local.mencionaLocal = Boolean(local.cidades.length || local.bairros.length || local.regioes.length || local.condominios.length || local.edificios.length || local.nomesDesconhecidos.length);
+  local.resumo = local.rotulos.slice();
+  return local;
+}
+
+/** Filtros já validados (normalizarFiltros) -> critérios do mesmo formato do parseRequest */
+function entenderFiltros(f) {
+  const index = getIndex();
+  const avisos = [];
+  const c = parseRequest(f.extras ? String(f.extras) : 'busco imovel', { index }); // "extras": piscina, mobiliado, aceita permuta…
+  c.intent = 'BUSCA';
+  if (f.tipo) {
+    c.tipos = [f.tipo];
+    c.subtipo_casa = null;
+  }
+  c.transacao = f.negocio === 'ALUGUEL' ? 'ALUGUEL' : 'VENDA';
+  c.agio = false;
+  if (f.valorMin !== undefined || f.valorMax !== undefined) {
+    c.valor_min = f.valorMin ?? null;
+    c.valor_max = f.valorMax ?? null;
+    c.valor_alvo = null;
+  }
+  if (f.areaMin !== undefined || f.areaMax !== undefined) {
+    c.area_min = f.areaMin ?? null;
+    c.area_max = f.areaMax ?? null;
+    c.alternativas = [];
+  }
+  if (f.quartos) c.quartos_min = f.quartos;
+  if (f.suites) c.suites_min = f.suites;
+  if (f.vagas) c.vagas_min = f.vagas;
+  if (f.cidade || f.bairro || f.local) c.local = montarLocal(f, index, avisos);
+  c.filtros = f;
+  c.resumo = descreverPedido(c);
+  return { criterios: c, index, avisos };
+}
+
+/** Texto dos filtros (histórico, prompt dos portais e relatório) */
+function textoDosFiltros(f) {
+  return descreverPedido(entenderFiltros(f).criterios);
 }
 
 // ---------------------------------------------------------------------------
@@ -72,7 +165,8 @@ const slug = s => normalize(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
 function linksProntos(criterios) {
   const c = criterios;
-  const bairro = c.local.bairros[0] || '';
+  const fl = c.filtros || {};
+  const bairro = fl.bairro || c.local.bairros[0] || '';
   const cidade = (c.local.cidades.find(x => x !== 'Goiânia') || 'Goiânia');
   const tipo = c.tipos[0] || 'Apartamento';
   const aluguel = c.transacao === 'ALUGUEL';
@@ -89,7 +183,7 @@ function linksProntos(criterios) {
   const zap = `https://www.zapimoveis.com.br/${neg}/${zapTipo}/go+${slug(cidade)}${bairro ? `++${slug(bairro)}` : ''}/${qs}`;
   const vivareal = `https://www.vivareal.com.br/${neg}/goias/${slug(cidade)}/${bairro ? `bairros/${slug(bairro)}/` : ''}${vrTipo ? `${vrTipo}/` : ''}${qs}`;
   const o = new URLSearchParams();
-  o.set('q', `${tipo} ${bairro}`.trim().toLowerCase());
+  o.set('q', `${tipo} ${fl.local || bairro}`.trim().toLowerCase());
   if (c.valor_min) o.set('ps', c.valor_min);
   if (c.valor_max) o.set('pe', c.valor_max);
   if (c.area_min) o.set('ss', Math.round(c.area_min));
@@ -211,7 +305,7 @@ function descreverPedido(c) {
   const partes = [];
   if (c.tipos.length) partes.push(c.tipos.join(' ou '));
   partes.push(c.transacao === 'ALUGUEL' ? 'para alugar' : 'à venda');
-  const locais = [...c.local.bairros, ...c.local.condominios.map(x => x.name), ...c.local.regioes.map(r => `região ${r}`)];
+  const locais = c.local.rotulos && c.local.rotulos.length ? c.local.rotulos.filter(x => !c.local.cidades.includes(x)) : [...c.local.bairros, ...c.local.condominios.map(x => x.name), ...c.local.regioes.map(r => `região ${r}`)];
   partes.push(`em ${locais.length ? locais.join(', ') + ', ' : ''}${c.local.cidades.find(x => x !== 'Goiânia') || 'Goiânia'} - GO`);
   if (c.valor_min && c.valor_max) partes.push(`de ${fmtPrice(c.valor_min)} a ${fmtPrice(c.valor_max)}`);
   else if (c.valor_max) partes.push(`até ${fmtPrice(c.valor_max)}`);
@@ -381,14 +475,30 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
 // ---------------------------------------------------------------------------
 // BUSCA COMPLETA + RELATÓRIO
 // ---------------------------------------------------------------------------
-async function buscar(texto, opts = {}) {
-  const { criterios, index } = entenderPedido(texto);
+async function executar(texto, criterios, index, opts = {}) {
   const grupos = buscarNosGrupos(criterios, index);
   const portais = await buscarNosPortais(criterios, texto, opts);
   const r = { texto: String(texto).slice(0, 500), criterios, descricao: descreverPedido(criterios), grupos, portais, links: linksProntos(criterios), memoria: anuncios.resumo() };
+  if (opts.filtros) r.filtros = opts.filtros;
+  if (opts.avisos && opts.avisos.length) r.avisos = opts.avisos;
   if (opts.guardar === false) return r;
   const { id, ts } = guardarNoHistorico(r);
   return { id, ts, ...r };
+}
+
+/** Busca por texto livre (como o corretor escreveria no grupo) */
+async function buscar(texto, opts = {}) {
+  const { criterios, index } = entenderPedido(texto);
+  return executar(texto, criterios, index, opts);
+}
+
+/** Busca pelos filtros (campos iguais aos dos portais; o que ficar em branco fica aberto) */
+async function buscarComFiltros(bruto, opts = {}) {
+  const { filtros, erros } = normalizarFiltros(bruto);
+  if (erros.length) throw Object.assign(new Error(erros.join(' ')), { status: 400 });
+  if (!preenchidos(filtros)) throw Object.assign(new Error('Preencha pelo menos um campo (cidade, bairro, valor, quartos…).'), { status: 400 });
+  const { criterios, index, avisos } = entenderFiltros(filtros);
+  return executar(criterios.resumo, criterios, index, { ...opts, filtros, avisos });
 }
 
 const dataBR = ts => new Date(ts).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit' });
@@ -414,7 +524,7 @@ function linhaImovelPortal(p, i) {
 /** Relatório em mensagens de até ~3.500 caracteres (limite confortável do WhatsApp) */
 function formatarRelatorio(r) {
   const blocos = [];
-  blocos.push(`🔎 *BUSCA INTELIGENTE*${r.id ? ` nº ${r.id}` : ''}\n_${r.descricao}_`);
+  blocos.push(`🔎 *BUSCA INTELIGENTE*${r.id ? ` nº ${r.id}` : ''}\n_${r.descricao}_${(r.avisos || []).length ? `\n${r.avisos.map(a => `⚠️ ${a}`).join('\n')}` : ''}`);
 
   // 1. grupos
   const mem = r.memoria;
@@ -475,4 +585,4 @@ function formatarRelatorio(r) {
   return msgs;
 }
 
-module.exports = { getConfig, atualizarConfig, grupoNaBusca, portaisAtivos, resumoHistorico, getBusca, buscar, entenderPedido, buscarNosGrupos, buscarNosPortais, linksProntos, formatarRelatorio, descreverPedido, extrairJson, classificar, _uso: { usoHoje } };
+module.exports = { getConfig, atualizarConfig, grupoNaBusca, portaisAtivos, resumoHistorico, getBusca, buscar, buscarComFiltros, entenderFiltros, textoDosFiltros, credivel, entenderPedido, buscarNosGrupos, buscarNosPortais, linksProntos, formatarRelatorio, descreverPedido, extrairJson, classificar, _uso: { usoHoje } };
