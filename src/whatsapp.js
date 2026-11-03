@@ -543,8 +543,12 @@ async function importarHistoricoGrupos({ onFim, pausaMs = 1500, esperaMs = 25000
   (async () => {
     const lista = [...connectedGroups];
     for (const id of Object.keys(ancoras)) if (!lista.some(g => g.id === id)) lista.push({ id, subject: id });
+    estado.total = lista.length;
+    estado.vistos = 0;
     for (const g of lista) {
       if (!isConnected()) break;
+      estado.vistos++;
+      estado.atual = g.subject;
       if (!ancoras[g.id]) {
         estado.semAncora.push(g.subject);
         continue;
