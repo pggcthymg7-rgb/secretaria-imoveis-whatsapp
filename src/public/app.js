@@ -788,16 +788,42 @@
   };
   const views = { inicio: viewHome, hoje: viewGeral, geral: viewGeral, garimpo: (...a) => viewGarimpo(...a), busca: viewBusca, radar: viewRadar, carteira: viewCarteira, vitrine: viewVitrine, prospeccao: viewProspeccao, atendimento: viewAtendimento, cerebro: viewCerebro, simulador: viewSimulador, ajustes: viewAjustes };
 
-  function render() {
+  // Desenha a página atual. Ao TROCAR de página (go) anima a entrada; nas atualizações da mesma
+  // página não anima, mantém a rolagem e (manterCampos) o que estava sendo digitado.
+  function render(opts = {}) {
     if (!S.authed) return viewLogin();
+    const navegando = Boolean(S._navegando);
+    const y = scrollY;
+    const campos = opts.manterCampos ? capturarCampos() : null;
+    root.classList.toggle('sem-anim', !navegando);
     (views[S.route] || viewHome)();
-    afterRender();
+    if (campos) restaurarCampos(campos);
+    afterRender(navegando);
+    if (!navegando) scrollTo(0, y);
+  }
+  function capturarCampos() {
+    const ativo = document.activeElement && document.activeElement.name;
+    return { ativo, valores: $$('input[name]:not([type=file]):not([type=password]), textarea[name], select[name]', root).map(el => [el.name, el.closest('[id]')?.id || '', el.value]) };
+  }
+  function restaurarCampos({ ativo, valores }) {
+    for (const [nome, caixa, valor] of valores) {
+      const el = $$(`[name="${CSS.escape(nome)}"]`, root).find(x => (x.closest('[id]')?.id || '') === caixa);
+      if (el && el.value !== valor) el.value = valor;
+    }
+    if (ativo) $(`[name="${CSS.escape(ativo)}"]`, root)?.focus({ preventScroll: true });
   }
 
   // Animações de entrada (cada bloco aparece ao entrar na tela) e contadores
   let io = null;
-  function afterRender() {
+  function afterRender(animar = true) {
     if (io) io.disconnect();
+    if (!animar) {
+      // mesma página: tudo aparece na hora, números já no valor final
+      $$('.reveal').forEach(el => el.classList.add('in'));
+      $$('.stat .n[data-count]').forEach(el => (el.textContent = Number(el.dataset.count) || 0));
+      ['vit', 'mg'].forEach(applyGroupFilter);
+      return;
+    }
     io = new IntersectionObserver(entries => {
       for (const e of entries) if (e.isIntersecting) {
         e.target.classList.add('in');
@@ -853,7 +879,9 @@
     } catch (err) {
       toast(err.message, true);
     }
+    S._navegando = true;
     render();
+    S._navegando = false;
     scrollTo(0, 0);
     if (animate) playCurtain('out');
   }
@@ -863,8 +891,9 @@
     if (!S.authed || document.hidden || !['hoje', 'geral'].includes(S.route)) return;
     if (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
     try {
+      const antes = JSON.stringify(S.status);
       await loadStatus();
-      render();
+      if (JSON.stringify(S.status) !== antes) render({ manterCampos: true }); // só redesenha se algo mudou
     } catch {}
   }, 5000);
 

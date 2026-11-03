@@ -312,3 +312,8 @@ details summary::-webkit-details-marker { display: none; }
   .menu-list li { opacity: 1; transform: none; }
 }
 .stack > .toggle, .stack-sm > .toggle { display: flex; }
+
+/* Atualizações na MESMA página (salvar, filtrar, dados novos) não repetem a animação de entrada:
+   antes a página inteira "apagava e piscava" (todas as páginas). A animação fica só ao trocar de página. */
+.sem-anim .reveal, .sem-anim .reveal.in { transition: none !important; opacity: 1; transform: none; }
+.sem-anim main.page-enter { animation: none; }
