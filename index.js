@@ -224,7 +224,7 @@ app.post('/api/config', ah(async (req, res) => {
   }
   if (typeof b.meuWhatsappAlerta === 'string') upd.meuWhatsappAlerta = b.meuWhatsappAlerta.replace(/\D/g, '').slice(0, 13);
   const envUpd = {};
-  if (typeof b.geminiApiKey === 'string' && b.geminiApiKey.trim()) envUpd.GEMINI_API_KEY = b.geminiApiKey.trim();
+  if (typeof b.geminiApiKey === 'string' && b.geminiApiKey.trim()) envUpd.GEMINI_API_KEY = require('./src/gemini-chave').limparChave(b.geminiApiKey);
   for (const [k, envK] of [['googleSheetsUrl', 'GOOGLE_SHEETS_CSV_URL'], ['googleSheetsWebhookUrl', 'GOOGLE_SHEETS_WEBHOOK_URL']]) {
     if (typeof b[k] === 'string') {
       const v = b[k].trim();
@@ -411,15 +411,17 @@ app.post('/api/busca/item/:id/whatsapp', ah(async (req, res) => {
   await relatorioNoWhatsApp(r);
   res.json({ ok: true });
 }));
-app.post('/api/busca/config', (req, res) => {
+app.post('/api/busca/config', ah(async (req, res) => {
   const b = req.body || {};
+  let chaveMsg = null;
   if (typeof b.geminiApiKey === 'string' && b.geminiApiKey.trim()) {
-    const k = b.geminiApiKey.trim();
-    if (!/^[\w-]{20,200}$/.test(k)) return res.status(400).json({ error: 'Chave do Gemini inválida.' });
-    updateEnvFile({ GEMINI_API_KEY: k });
+    const v = await require('./src/gemini-chave').validarChave(b.geminiApiKey);
+    if (!v.ok) return res.status(400).json({ error: v.mensagem });
+    updateEnvFile({ GEMINI_API_KEY: v.chave });
+    chaveMsg = v.mensagem;
   }
-  res.json({ ok: true, config: buscaInt.atualizarConfig(b), estado: estadoBusca() });
-});
+  res.json({ ok: true, chaveMsg, config: buscaInt.atualizarConfig(b), estado: estadoBusca() });
+}));
 app.post('/api/busca/importar-historico', ah(async (req, res) => {
   await wa.importarHistoricoGrupos({
     onFim: e => wa.sendOwnerWhatsAppAlert(`🤖 📥 *Histórico importado*\n${e.anuncios} anúncios de ${e.comHistorico} de ${e.grupos} grupos.`).catch(() => {})
