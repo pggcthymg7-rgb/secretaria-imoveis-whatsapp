@@ -49,6 +49,10 @@ Fomos por ciclos `/resolver-tudo`: bug real → caso no fixture → correção �
 - **Na VM (01/11 ~16h):** BIGA da Laura no ar em https://laura.147-15-87-168.sslip.io (HTTPS ok, senha criada, `/api` com 401 sem login). WhatsApp dela ainda `AGUARDANDO_QR_CODE` — falta ela ler o QR Code. Conferir com `curl https://laura.147-15-87-168.sslip.io/health`.
 - Testado aqui: instância vazia sobe sem a carteira do João; código errado recusado/certo cria senha; script rodado como root com stubs de systemctl/caddy; idempotência; backup. **Não testado na VM real** ainda.
 
+## 03/11/2026 — Laura não conseguia parear (408 → 515)
+- 408 = QR venceu; 515 = QR lido, WhatsApp pede reconexão para terminar. A BIGA esperava até 60 s (espera crescente após vários 408) e o celular desistia → voltava a pedir QR.
+- Correção `reconnectDelay()` em `src/whatsapp.js`: 515 → 1 s; 408 ou sem aparelho pareado → 3 s; demais quedas seguem crescentes até 60 s. Teste em `tests/whatsapp-fluxo.test.js`.
+
 ## Próximos passos (BACKLOG_TAREFAS.md)
 1. ~~Confirmar atualização pelo celular~~ — feito em 01/11 (df28ac1).
 2. Revisar os imóveis da carteira: edifício, suítes, vagas, condomínio, permuta.
