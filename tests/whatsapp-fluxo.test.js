@@ -311,3 +311,23 @@ test('Grupos da busca pelo "Mensagem para mim": listar, escolher, e anúncio de 
   assert.match(await cmd('busca grupos todos'), /todos/);
   assert.equal(bi.getConfig().todosGrupos, true);
 });
+
+test('"testar gemini fundo" no WhatsApp mostra o diagnóstico (resposta simples + busca com Google)', async () => {
+  const fetchReal = global.fetch;
+  process.env.GEMINI_API_KEY = 'AIzaChaveDeTesteChaveDeTeste123';
+  global.fetch = async (url, o = {}) => {
+    if (/\/models\?pageSize/.test(String(url))) return { ok: true, status: 200, json: async () => ({ models: [{ name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }] }) };
+    return JSON.parse(o.body).tools ? { ok: false, status: 429, json: async () => ({ error: { message: 'limit: 0' } }) } : { ok: true, status: 200, json: async () => ({ candidates: [] }) };
+  };
+  try {
+    sent.length = 0;
+    fakeSock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: `${SELF}@s.whatsapp.net`, id: 'DG1', fromMe: true }, messageTimestamp: nowTs(), message: { conversation: 'testar gemini fundo' } }] });
+    await wait(600);
+    const txt = sent.map(s => s.content.text).join('\n');
+    assert.match(txt, /Testando a chave/);
+    assert.match(txt, /Resposta simples: funcionou[\s\S]*Busca com Google: erro 429 — limit: 0[\s\S]*faturamento/);
+  } finally {
+    global.fetch = fetchReal;
+    process.env.GEMINI_API_KEY = '';
+  }
+});
