@@ -32,7 +32,8 @@ const DATA_FILES = [
   'agendador.json',
   'garimpo.json',
   'anuncios.json',
-  'ancoras_grupos.json'
+  'ancoras_grupos.json',
+  'busca_historico.json'
 ];
 const PHOTO_RX = /^[A-Za-z0-9._-]+\.(jpe?g|png|webp)$/i;
 const MAX_BYTES = 200 * 1024 * 1024; // 200 MB descompactado

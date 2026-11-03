@@ -50,5 +50,6 @@
 - [x] Importar histórico dos grupos (pedido ao celular) e conversa exportada (.txt/.zip)
 - [x] Portais via Gemini com busca no Google (só links confirmados; limite diário)
 - [x] Leitor de preços: "R$ 950 mil", "R$ 2,8 mi", faixas com valores completos e "milhão"
+- [x] Página Busca no painel + todas as configurações da busca também pelo "Mensagem para mim"
 - [ ] Colocar a chave do Gemini (AI Studio) e conferir a cota grátis da busca com Google — **precisa de você**
 - [ ] Rodar `importar histórico` com o celular ligado; exportar os grupos que vierem com pouco histórico — **precisa de você**
