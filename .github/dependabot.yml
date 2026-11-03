@@ -1,0 +1,17 @@
+# Dependabot: abre PR sozinho quando um pacote (npm) ou uma Action do GitHub tem versão nova/correção de segurança.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [dependencias]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    labels: [dependencias]
