@@ -608,7 +608,7 @@
           ${toggle('memoriaAtiva', c.memoriaAtiva !== false, 'Guardar os anúncios dos grupos', 'Desligado: paro de guardar anúncios novos (os guardados continuam).')}
           <div class="fields">${field('limiteDia', 'Limite de buscas nos portais por dia', c.limiteDia ?? 20, { type: 'number', attrs: 'min="0" max="500"' })}
           ${field('geminiApiKey', 'Chave do Gemini (grátis em aistudio.google.com)', '', { type: 'password', ph: c.temChaveGemini ? '•••••••• (manter a atual)' : 'cole aqui', attrs: 'autocomplete="off"' })}</div>
-          <div class="row"><button class="btn-primary" data-action="salvarBuscaCfg">Salvar configurações</button></div>
+          <div class="row"><button class="btn-primary" data-action="salvarBuscaCfg">Salvar configurações</button>${c.temChaveGemini ? '<button class="btn-ghost accent" data-action="testarChave">Testar chave salva</button>' : ''}</div>
         </div>
       </div></section>
       <section class="section"><div class="container stack reveal" id="buscaGrupos">
@@ -974,6 +974,11 @@
       }
       if (r.estado.importacao && $('#impAndamento')) $('#impAndamento').textContent = textoAndamento(r.estado.importacao);
       acompanharImportacao();
+    },
+    testarChave: async () => {
+      toast('Perguntando ao Google…');
+      const r = await api('POST', '/api/busca/testar-chave');
+      toast(r.mensagem, !r.ok);
     },
     salvarBuscaGrupos: async () => {
       const f = formData($('#buscaGrupos'));
