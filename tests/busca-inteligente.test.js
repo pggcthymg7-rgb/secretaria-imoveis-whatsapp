@@ -705,7 +705,7 @@ test('Cascata: Gemini sem cota na curadoria ou sem chave -> mostra os anúncios 
   assert.equal(r.semCuradoria, true, 'sem chave do Gemini');
   assert.equal(w.corpos.gemini.length, 0);
   const txt = bi.formatarRelatorio({ ...(await bi.buscar('apto 800 mil a 1 milhão setor marista', { env: {}, guardar: false })), portais: r }).join('\n');
-  assert.match(txt, /Sem a chave\/resposta do Gemini não consegui filtrar/);
+  assert.match(txt, /Não consegui filtrar \(sem chave\/resposta do Gemini\)/);
   assert.match(txt, /vivareal\.com\.br\/imovel\//);
 });
 
@@ -834,4 +834,109 @@ test('Ajustes (API): chave de busca com formato estranho é recusada antes de sa
   } finally {
     server.close();
   }
+});
+
+
+// ---------------------------------------------------------------------------
+// Caso real do João (diagnóstico de 03/11): 2.5 "indisponível para usuários novos", gemini-3.8-flash com 503 "alta demanda"
+test('Curadoria resiliente: 404 lembra, 503 tenta de novo e depois passa ao próximo modelo (lite primeiro)', async () => {
+  const M = require('../src/gemini-modelo');
+  const { curar } = require('../src/busca-curadoria');
+  const catalogo = [{ id: 1, portal: 'OLX', dominio: 'olx.com.br', url: OLX_AD, titulo: 'Casa', conteudo: 'R$ 4.500.000' }];
+  const modelos = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.5-flash'].map(n => ({ name: `models/${n}`, supportedGenerationMethods: ['generateContent'] }));
+  const montar = comportamento => {
+    const chamadas = [];
+    const fetcher = async (url, o = {}) => {
+      if (/\/models\?pageSize/.test(String(url))) return { ok: true, status: 200, json: async () => ({ models: modelos }) };
+      const m = decodeURIComponent(String(url).match(/models\/([^:]+):generateContent/)[1]);
+      chamadas.push(m);
+      const r = comportamento(m, chamadas.filter(x => x === m).length);
+      return r === 'ok' ? { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: '[{"id":1,"preco":4500000,"tipo_anunciante":"PARTICULAR"}]' }] } }] }) } : { ok: false, status: r, json: async () => ({ error: { message: r === 404 ? `This model models/${m} is no longer available to new users.` : 'This model is currently experiencing high demand.' } }) };
+    };
+    return { fetcher, chamadas };
+  };
+  const env = { GEMINI_RETRY_MS: '0' };
+
+  // 1) o caso do João: 2.5 aposentados (404), 3.8 sobrecarregado (503), 3.5-lite responde
+  M.esquecer('k-res');
+  let w = montar((m) => (/^gemini-2\.5/.test(m) ? 404 : m === 'gemini-3.8-flash' ? 503 : 'ok'));
+  let r = await curar({ chave: 'k-res', descricao: 'x', catalogo, env, fetcher: w.fetcher });
+  assert.equal(r.ok, true);
+  assert.equal(r.modelo, 'gemini-3.5-flash-lite', 'os "lite" vão primeiro nesta tarefa simples');
+  assert.deepEqual(w.chamadas, ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.5-flash-lite']);
+  // 2) na 2ª busca os 2.5 já são lembrados como indisponíveis: nem são chamados
+  w = montar(m => (/^gemini-2\.5/.test(m) ? 404 : m === 'gemini-3.8-flash' ? 503 : 'ok'));
+  r = await curar({ chave: 'k-res', descricao: 'x', catalogo, env, fetcher: w.fetcher });
+  assert.deepEqual(w.chamadas, ['gemini-3.5-flash-lite']);
+  assert.ok(M.ehIndisponivel('k-res', 'gemini-2.5-flash') && M.ehIndisponivel('k-res', 'gemini-2.5-flash-lite'));
+
+  // 3) 503 passageiro: o mesmo modelo é tentado de novo e funciona na 3ª vez
+  M.esquecer('k-res');
+  w = montar((m, vez) => (m === 'gemini-3.5-flash-lite' && vez < 3 ? 503 : /^gemini-2\.5/.test(m) ? 404 : 'ok'));
+  r = await curar({ chave: 'k-res', descricao: 'x', catalogo, env, fetcher: w.fetcher });
+  assert.equal(r.ok, true);
+  assert.equal(w.chamadas.filter(m => m === 'gemini-3.5-flash-lite').length, 3);
+
+  // 4) tudo sobrecarregado: motivo "sobrecarga" (não "erro" genérico)
+  M.esquecer('k-res');
+  w = montar(() => 503);
+  r = await curar({ chave: 'k-res', descricao: 'x', catalogo, env, fetcher: w.fetcher });
+  assert.equal(r.ok, false);
+  assert.equal(r.motivo, 'sobrecarga');
+  assert.ok(r.tentativas.length >= 6, 'cada modelo foi tentado mais de uma vez');
+  M.esquecer('k-res');
+});
+
+test('Busca com o Gemini sobrecarregado: o relatório explica e mostra os anúncios achados (e sem espera nos testes)', async () => {
+  const w = mundoFalso({ gemini: '429' });
+  const original = w.fetcher;
+  const fetcher = async (u, o = {}) => (/generateContent/.test(String(u)) ? { ok: false, status: 503, json: async () => ({ error: { message: 'This model is currently experiencing high demand.' } }) } : original(u, o));
+  const c = pedidoJardins({ tipo: 'casa', local: 'Jardins Itália', suites: '4', valor: '4 a 5 milhões' });
+  const r = await bi.buscarNosPortais(c, c.resumo, { env: { SERPER_API_KEY: 'serper-chave-1234567', GEMINI_API_KEY: 'k-res-503', GEMINI_RETRY_MS: '0', BUSCA_LIMITE_DIA: '99' }, fetcher });
+  assert.equal(r.ok, true);
+  assert.equal(r.semCuradoria, true);
+  assert.match(r.curadoriaErro, /o Gemini está sobrecarregado agora \(tentei /);
+  const txt = bi.formatarRelatorio({ ...(await bi.buscar('apto 800 mil a 1 milhão setor marista', { env: {}, guardar: false })), portais: r }).join('\n');
+  assert.match(txt, /Não consegui filtrar: o Gemini está sobrecarregado agora[\s\S]*tente de novo em alguns minutos/);
+  assert.match(txt, /vivareal\.com\.br\/imovel\//);
+});
+
+test('Diagnóstico: a resposta simples passa por outros modelos quando o principal dá 503, e o 503 é explicado como passageiro', async () => {
+  const g = require('../src/gemini-chave');
+  const M = require('../src/gemini-modelo');
+  const modelos = ['gemini-3.8-flash', 'gemini-3.5-flash-lite'].map(n => ({ name: `models/${n}`, supportedGenerationMethods: ['generateContent'] }));
+  const fabrica = ok => async (u, o = {}) => {
+    if (/\/models\?pageSize/.test(String(u))) return { ok: true, status: 200, json: async () => ({ models: modelos }) };
+    const m = decodeURIComponent(String(u).match(/models\/([^:]+):generateContent/)[1]);
+    if (JSON.parse(o.body).tools) return { ok: false, status: 429, json: async () => ({ error: { message: 'limit: 0' } }) };
+    return ok(m) ? { ok: true, status: 200, json: async () => ({ candidates: [] }) } : { ok: false, status: 503, json: async () => ({ error: { message: 'This model is currently experiencing high demand.' } }) };
+  };
+  M.esquecer('k-diag-503');
+  let d = await g.diagnosticar('k-diag-503', fabrica(m => m === 'gemini-3.5-flash-lite'));
+  assert.equal(d.simples.ok, true);
+  assert.equal(d.simples.modelo, 'gemini-3.5-flash-lite');
+  let t = g.textoDiagnostico(d);
+  assert.match(t, /↳ gemini-3\.8-flash: erro 503 — This model is currently experiencing high demand/);
+  assert.match(t, /✅ Resposta simples \(sem busca\): funcionou \(gemini-3\.5-flash-lite\)/);
+  M.esquecer('k-diag-503');
+  d = await g.diagnosticar('k-diag-503', fabrica(() => false));
+  t = g.textoDiagnostico(d);
+  assert.match(t, /Gemini está sobrecarregado agora \(erro 503 "alta demanda"\): é passageiro/);
+  M.esquecer('k-diag-503');
+});
+
+test('Busca desacoplada: se a consulta precisa vem vazia, tenta a solta e informa o que o buscador devolveu', async () => {
+  const consultas = [];
+  const fetcher = async (url, opts) => {
+    const corpo = JSON.parse(opts.body);
+    consultas.push(corpo.q);
+    const solta = !/"/.test(corpo.q);
+    const organic = solta ? [{ link: ZAP_AD, title: 'Casa Marista', snippet: 'Casa 3 quartos' }, { link: 'https://www.zapimoveis.com.br/venda/casas/go+goiania/', title: 'lista', snippet: '' }] : [];
+    return { ok: true, status: 200, json: async () => ({ organic }) };
+  };
+  const r = await Serp.buscarAnuncios({ criterios: pedidoJardins({ tipo: 'casa', local: 'Setor Marista' }), dominios: ['zapimoveis.com.br'], env: { SERPER_API_KEY: 'x'.repeat(20) }, fetcher });
+  assert.ok(r.ok);
+  assert.equal(r.catalogo.length, 1);
+  assert.equal(consultas.length, 2);
+  assert.deepEqual(r.diag['zapimoveis.com.br'], { brutos: 2, anuncios: 1 });
 });

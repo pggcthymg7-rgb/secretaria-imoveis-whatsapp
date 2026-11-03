@@ -71,6 +71,11 @@ function consultaSite(portal, t) {
   return [base, aspas(t.cidade), aspas(t.local), aspas(t.tipo), t.aluguel ? 'aluguel' : 'venda'].filter(Boolean).join(' ');
 }
 
+/** Consulta solta (sem aspas nem caminho): usada quando a precisa não acha nada */
+function consultaSolta(portal, t) {
+  return [`site:${portal}`, t.tipo, t.local, t.cidade, t.aluguel ? 'aluguel' : 'venda'].filter(Boolean).join(' ');
+}
+
 /** Consulta em texto simples (Tavily é semântico: o domínio vai em include_domains) */
 function consultaSimples(t) {
   return [t.tipo, t.aluguel ? 'para alugar' : 'à venda', t.local, t.cidade, 'GO'].filter(Boolean).join(' ');
@@ -117,11 +122,11 @@ async function tavily({ env, fetcher, portal, t }) {
   return (j.results || []).map(x => ({ url: x.url, titulo: x.title, conteudo: x.content }));
 }
 
-async function serper({ env, fetcher, portal, t }) {
+async function serper({ env, fetcher, portal, t, solta }) {
   const r = await fetcher('https://google.serper.dev/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-API-KEY': chaveDe(env, 'SERPER_API_KEY') },
-    body: JSON.stringify({ q: consultaSite(portal, t), gl: 'br', hl: 'pt-br', num: 10 }),
+    body: JSON.stringify({ q: solta ? consultaSolta(portal, t) : consultaSite(portal, t), gl: 'br', hl: 'pt-br', num: 10 }),
     signal: AbortSignal.timeout(30000)
   });
   const j = await lerJson(r);
@@ -129,8 +134,8 @@ async function serper({ env, fetcher, portal, t }) {
   return (j.organic || []).map(x => ({ url: x.link, titulo: x.title, conteudo: x.snippet }));
 }
 
-async function brave({ env, fetcher, portal, t }) {
-  const q = new URLSearchParams({ q: consultaSite(portal, t), country: 'BR', search_lang: 'pt', count: '10' });
+async function brave({ env, fetcher, portal, t, solta }) {
+  const q = new URLSearchParams({ q: solta ? consultaSolta(portal, t) : consultaSite(portal, t), country: 'BR', search_lang: 'pt', count: '10' });
   const r = await fetcher(`https://api.search.brave.com/res/v1/web/search?${q}`, {
     headers: { Accept: 'application/json', 'X-Subscription-Token': chaveDe(env, 'BRAVE_SEARCH_API_KEY', 'BRAVE_API_KEY') },
     signal: AbortSignal.timeout(30000)
@@ -154,31 +159,48 @@ async function buscarAnuncios({ criterios, dominios, env = process.env, fetcher 
   const t = termosDoPedido(criterios);
   let ultimoErro = null;
   for (const p of provedores) {
-    const resultados = await Promise.allSettled(dominios.map(d => ADAPTADORES[p]({ env, fetcher, portal: d, t }).then(lista => ({ d, lista }))));
-    const falhas = resultados.filter(r => r.status === 'rejected');
-    if (falhas.length === resultados.length) {
-      const e = falhas[0].reason || {};
+    const vistos = new Set();
+    const catalogo = [];
+    const diag = {}; // por portal: { brutos: páginas devolvidas, anuncios: páginas de anúncio aceitas }
+    let falhasParciais = 0;
+    let todasFalharam = true;
+    let erroFalha = null;
+    // 1ª rodada: consulta precisa; 2ª (só se não achou anúncio nenhum): consulta solta
+    for (const solta of [false, true]) {
+      if (catalogo.length || (solta && p === 'tavily')) break; // Tavily já é semântico: não há "solta"
+      const resultados = await Promise.allSettled(dominios.map(d => ADAPTADORES[p]({ env, fetcher, portal: d, t, solta }).then(lista => ({ d, lista }))));
+      const falhas = resultados.filter(r => r.status === 'rejected');
+      falhasParciais = falhas.length;
+      if (falhas.length === resultados.length) {
+        erroFalha = falhas[0].reason || {};
+        break;
+      }
+      todasFalharam = false;
+      for (const r of resultados) {
+        if (r.status !== 'fulfilled') continue;
+        const dg = (diag[r.value.d] = diag[r.value.d] || { brutos: 0, anuncios: 0 });
+        for (const x of r.value.lista) {
+          dg.brutos++;
+          const portal = portalDaUrl(x.url);
+          if (!portal || !dominios.includes(portal) || !ehPaginaDeAnuncio(x.url)) continue;
+          const chave = (() => {
+            const u = new URL(x.url);
+            return `${u.hostname.replace(/^www\./, '')}${u.pathname.replace(/\/+$/, '')}`.toLowerCase();
+          })();
+          if (vistos.has(chave)) continue;
+          vistos.add(chave);
+          dg.anuncios++;
+          catalogo.push({ id: catalogo.length + 1, portal: PORTAIS[portal], dominio: portal, url: x.url, titulo: String(x.titulo || '').slice(0, 160), conteudo: String(x.conteudo || '').replace(/\s+/g, ' ').slice(0, 500) });
+          if (catalogo.length >= limite) break;
+        }
+      }
+    }
+    if (todasFalharam) {
+      const e = erroFalha || {};
       ultimoErro = { ok: false, motivo: e.status === 429 ? 'cota_busca' : e.status === 401 || e.status === 403 ? 'chave_busca_recusada' : 'erro_busca', detalhe: String(e.message || e).slice(0, 240), provedor: NOME[p] };
       continue; // próximo provedor
     }
-    const vistos = new Set();
-    const catalogo = [];
-    for (const r of resultados) {
-      if (r.status !== 'fulfilled') continue;
-      for (const x of r.value.lista) {
-        const portal = portalDaUrl(x.url);
-        if (!portal || !dominios.includes(portal) || !ehPaginaDeAnuncio(x.url)) continue;
-        const chave = (() => {
-          const u = new URL(x.url);
-          return `${u.hostname.replace(/^www\./, '')}${u.pathname.replace(/\/+$/, '')}`.toLowerCase();
-        })();
-        if (vistos.has(chave)) continue;
-        vistos.add(chave);
-        catalogo.push({ id: catalogo.length + 1, portal: PORTAIS[portal], dominio: portal, url: x.url, titulo: String(x.titulo || '').slice(0, 160), conteudo: String(x.conteudo || '').replace(/\s+/g, ' ').slice(0, 500) });
-        if (catalogo.length >= limite) break;
-      }
-    }
-    return { ok: true, provedor: NOME[p], catalogo, buscas: dominios.length, falhasParciais: falhas.length };
+    return { ok: true, provedor: NOME[p], catalogo, buscas: dominios.length, falhasParciais, diag };
   }
   return ultimoErro;
 }
@@ -193,4 +215,4 @@ async function testarProvedor(p, { env = process.env, fetcher = fetch } = {}) {
   }
 }
 
-module.exports = { PORTAIS, NOME, portalDaUrl, ehPaginaDeAnuncio, termosDoPedido, consultaSite, consultaSimples, provedoresConfigurados, buscarAnuncios, testarProvedor, norm };
+module.exports = { PORTAIS, NOME, portalDaUrl, ehPaginaDeAnuncio, termosDoPedido, consultaSite, consultaSimples, consultaSolta, provedoresConfigurados, buscarAnuncios, testarProvedor, norm };
