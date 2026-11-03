@@ -312,6 +312,52 @@ test('Grupos da busca pelo "Mensagem para mim": listar, escolher, e anúncio de 
   assert.equal(bi.getConfig().todosGrupos, true);
 });
 
+test('Busca por filtros no WhatsApp: guiada (pergunta campo a campo) e "campo: valor; campo: valor"', async () => {
+  anunciosMem._reset();
+  anunciosMem.registrar({ id: 'wg1', ts: Date.now(), texto: 'Vendo casa no Condomínio Jardins Itália, 5 suítes, 450m², R$ 4,5 milhões', grupo: 'Alto Padrão', grupoId: 'g1@g.us', autor: 'Ana Corretora', telefone: '5562999990000' });
+  const dizer = async t => {
+    sent.length = 0;
+    fakeSock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: `${SELF}@s.whatsapp.net`, id: 'FG' + Math.random(), fromMe: true }, messageTimestamp: nowTs(), message: { conversation: t } }] });
+    await wait(500);
+    return sent.map(s => s.content.text).join('\n');
+  };
+  // em uma linha
+  let t = await dizer('busca cidade: Goiânia; condomínio: Jardins Itália; suítes: 4; valor: 4 a 5 milhões');
+  assert.match(t, /Buscando/);
+  await wait(800);
+  t = sent.map(s => s.content.text).join('\n');
+  assert.match(t, /Ana Corretora \(wa\.me\/5562999990000\)/);
+  assert.match(t, /em Jardins Itália, Goiânia - GO, de R\$ 4 mi a R\$ 5 mi, 4\+ suítes/);
+  // campo inválido: explica
+  assert.match(await dizer('busca valor: caro; cidade: Goiânia'), /Não entendi o valor "caro"/);
+  // guiada
+  t = await dizer('busca guiada');
+  assert.match(t, /Busca por filtros[\s\S]*1\/13[\s\S]*Tipo do imóvel/);
+  assert.match(await dizer('casa'), /2\/13[\s\S]*Venda ou aluguel/);
+  assert.match(await dizer('venda'), /3\/13[\s\S]*Cidade/);
+  assert.match(await dizer('Goiânia'), /4\/13[\s\S]*Bairro/);
+  assert.match(await dizer('-'), /5\/13[\s\S]*Condomínio ou edifício/);
+  assert.match(await dizer('Jardins Itália'), /6\/13[\s\S]*a partir de/);
+  assert.match(await dizer('4 milhões'), /7\/13[\s\S]*até/);
+  assert.match(await dizer('caro'), /Não entendi o valor "caro"[\s\S]*7\/13/, 'resposta inválida: pergunta de novo');
+  assert.match(await dizer('5 milhões'), /8\/13[\s\S]*Quartos/);
+  assert.match(await dizer('voltar'), /7\/13/);
+  assert.match(await dizer('5 milhões'), /8\/13/);
+  assert.match(await dizer('-'), /9\/13[\s\S]*Suítes/);
+  assert.match(await dizer('4'), /10\/13[\s\S]*Vagas/);
+  await dizer('-');
+  await dizer('-');
+  await dizer('-');
+  await dizer('buscar'); // "pronto/buscar": termina antes do fim
+  await wait(800);
+  t = sent.map(s => s.content.text).join('\n');
+  assert.match(t, /BUSCA INTELIGENTE[\s\S]*Casa, à venda, em Jardins Itália[\s\S]*Ana Corretora/);
+  // cancelar libera a conversa para os outros comandos
+  await dizer('busca guiada');
+  assert.match(await dizer('cancelar'), /Busca cancelada/);
+  assert.match(await dizer('config busca'), /Configuração da busca/);
+});
+
 test('"testar gemini fundo" no WhatsApp mostra o diagnóstico (resposta simples + busca com Google)', async () => {
   const fetchReal = global.fetch;
   process.env.GEMINI_API_KEY = 'AIzaChaveDeTesteChaveDeTeste123';
