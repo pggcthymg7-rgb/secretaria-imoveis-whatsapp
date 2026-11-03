@@ -446,6 +446,10 @@ test('Busca por filtros nos grupos: condomínio + 4 suítes + de 4 a 5 milhões 
   // só o condomínio preenchido: o resto fica aberto (acha os 3 do Jardins Itália)
   const aberto = await bi.buscarComFiltros({ local: 'Jardins Itália' }, { env: {}, guardar: false });
   assert.deepEqual(aberto.grupos.map(g => g.fontes[0].autor).sort(), ['Ana', 'Caio', 'Duda']);
+  // o mesmo pedido escrito em texto livre (caso real do João) dá os mesmos critérios dos campos
+  const livre = bi.entenderPedido(F.pedidoJardinsItalia).criterios;
+  const porCampos = bi.entenderFiltros(require('../src/busca-filtros').normalizarFiltros({ tipo: 'casa', local: 'Jardins Itália', suites: '4', valor: 'de 4 milhões até 5 milhões' }).filtros).criterios;
+  assert.deepEqual([livre.tipos, livre.valor_min, livre.valor_max, livre.suites_min, livre.local.condominios.map(x => x.name)], [porCampos.tipos, porCampos.valor_min, porCampos.valor_max, porCampos.suites_min, porCampos.local.condominios.map(x => x.name)]);
   // sem nenhum campo: recusa
   await assert.rejects(() => bi.buscarComFiltros({ negocio: 'VENDA' }, { env: {}, guardar: false }), /Preencha pelo menos um campo/);
   // links prontos usam o nome digitado
