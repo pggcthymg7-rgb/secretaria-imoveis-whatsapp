@@ -64,10 +64,14 @@ function termosDoPedido(c) {
   return { local, tipo, cidade, aluguel: c.transacao === 'ALUGUEL' };
 }
 
-/** Consulta no estilo Google (Serper/Brave aceitam o operador site:) */
+/**
+ * Consulta no estilo Google (Serper/Brave aceitam o operador site:).
+ * OLX: o anúncio real é go.olx.com.br/<região>/imoveis/<slug>-<id> — a região vem ANTES de /imoveis,
+ * então `site:olx.com.br/imoveis` não casa com nenhum anúncio (só com listas).
+ */
 function consultaSite(portal, t) {
   const aspas = s => (s ? `"${s}"` : '');
-  const base = { 'olx.com.br': 'site:olx.com.br/imoveis', 'zapimoveis.com.br': 'site:zapimoveis.com.br/imovel', 'vivareal.com.br': 'site:vivareal.com.br/imovel' }[portal];
+  const base = { 'olx.com.br': 'site:go.olx.com.br', 'zapimoveis.com.br': 'site:zapimoveis.com.br/imovel', 'vivareal.com.br': 'site:vivareal.com.br/imovel' }[portal];
   return [base, aspas(t.cidade), aspas(t.local), aspas(t.tipo), t.aluguel ? 'aluguel' : 'venda'].filter(Boolean).join(' ');
 }
 
@@ -165,24 +169,33 @@ async function buscarAnuncios({ criterios, dominios, env = process.env, fetcher 
     let falhasParciais = 0;
     let todasFalharam = true;
     let erroFalha = null;
-    // 1ª rodada: consulta precisa; 2ª (só se não achou anúncio nenhum): consulta solta
+    // 1ª rodada: consulta precisa em todos os portais; 2ª: consulta solta só nos portais que ficaram sem anúncio
     for (const solta of [false, true]) {
-      if (catalogo.length || (solta && p === 'tavily')) break; // Tavily já é semântico: não há "solta"
-      const resultados = await Promise.allSettled(dominios.map(d => ADAPTADORES[p]({ env, fetcher, portal: d, t, solta }).then(lista => ({ d, lista }))));
+      if (solta && p === 'tavily') break; // Tavily já é semântico: não há "solta"
+      const alvo = solta ? dominios.filter(d => !(diag[d] && diag[d].anuncios)) : dominios;
+      if (!alvo.length) break;
+      const resultados = await Promise.allSettled(alvo.map(d => ADAPTADORES[p]({ env, fetcher, portal: d, t, solta }).then(lista => ({ d, lista }))));
       const falhas = resultados.filter(r => r.status === 'rejected');
-      falhasParciais = falhas.length;
       if (falhas.length === resultados.length) {
-        erroFalha = falhas[0].reason || {};
+        if (!solta) erroFalha = falhas[0].reason || {};
         break;
       }
+      if (!solta) falhasParciais = falhas.length;
       todasFalharam = false;
       for (const r of resultados) {
         if (r.status !== 'fulfilled') continue;
-        const dg = (diag[r.value.d] = diag[r.value.d] || { brutos: 0, anuncios: 0 });
+        const dg = (diag[r.value.d] = diag[r.value.d] || { brutos: 0, anuncios: 0, descartadas: [] });
         for (const x of r.value.lista) {
           dg.brutos++;
           const portal = portalDaUrl(x.url);
-          if (!portal || !dominios.includes(portal) || !ehPaginaDeAnuncio(x.url)) continue;
+          if (!portal || !dominios.includes(portal) || !ehPaginaDeAnuncio(x.url)) {
+            if (dg.descartadas.length < 2) {
+              try {
+                dg.descartadas.push(new URL(x.url).pathname.slice(0, 70));
+              } catch {}
+            }
+            continue;
+          }
           const chave = (() => {
             const u = new URL(x.url);
             return `${u.hostname.replace(/^www\./, '')}${u.pathname.replace(/\/+$/, '')}`.toLowerCase();
