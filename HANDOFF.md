@@ -79,6 +79,8 @@ Fomos por ciclos `/resolver-tudo`: bug real → caso no fixture → correção �
 - Config em `settings.json` (`buscaLimiteDia`, `buscaOlx/Zap/Vivareal`, `buscaMemoriaAtiva`); histórico em `busca_historico.json` (30). `src/envfile.js` (saiu do index.js) grava chaves no `.env` para painel e WhatsApp.
 - Rotas: `GET/POST /api/busca`, `GET /api/busca/item/:id`, `POST /api/busca/item/:id/whatsapp`, `POST /api/busca/config`, `POST /api/busca/importar-historico`, `POST /api/busca/importar-conversa` (multer em memória, 40 MB, nome UTF-8 corrigido).
 - Testado no navegador (Playwright) em computador e celular (390 px, sem rolagem lateral).
+- 03/11: TODAS as páginas: redesenho na mesma página não anima mais (`.sem-anim`), mantém rolagem; "Hoje" só redesenha se o status mudou e mantém o que foi digitado; `render({ manterCampos })`. Painel pede assets com `?v=<versão>` (sem cache velho após atualizar).
+- 03/11: durante a importação a página se redesenhava a cada 5 s ("piscava", apagava o texto e a rolagem). Agora só o texto do andamento (`#impAndamento`: "X de Y grupos lidos · N anúncios · agora: grupo") é atualizado; o pedido digitado fica em `S.buscaTexto`.
 
 ## Próximos passos (BACKLOG_TAREFAS.md)
 1. ~~Confirmar atualização pelo celular~~ — feito em 01/11 (df28ac1).

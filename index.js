@@ -51,9 +51,13 @@ if (!fs.existsSync(FOTOS_DIR)) fs.mkdirSync(FOTOS_DIR, { recursive: true });
 app.get('/ping', (req, res) => res.json({ ok: true, status: 'awake', time: new Date().toISOString() }));
 app.get('/health', (req, res) => res.json({ ok: true, whatsapp: wa.getAgentState().connectionStatus }));
 app.use('/assets', express.static(path.join(__dirname, 'src', 'public'), { maxAge: '1h', index: false }));
+// O painel pede app.js/app.css com ?v=<versão>: depois de "atualizar", o celular já carrega o
+// painel novo (antes o navegador podia usar a versão antiga por até 1 hora).
+const INDEX_HTML = path.join(__dirname, 'src', 'public', 'index.html');
 app.get(['/', '/dia-a-dia'], (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  res.sendFile(path.join(__dirname, 'src', 'public', 'index.html'));
+  const v = require('./src/sistema').version() || String(fs.statSync(INDEX_HTML).mtimeMs | 0);
+  res.type('html').send(fs.readFileSync(INDEX_HTML, 'utf-8').replace(/(\/assets\/[\w-]+\.(?:js|css))"/g, `$1?v=${v}"`));
 });
 
 app.use('/api', auth.requireAppHeader);
@@ -375,7 +379,7 @@ function estadoBusca() {
   return {
     config: buscaInt.getConfig(),
     memoria: anunciosMem.resumo(),
-    importacao: imp ? { rodando: imp.rodando, anuncios: imp.anuncios, grupos: imp.grupos, comHistorico: imp.comHistorico, semAncora: imp.semAncora.slice(0, 20), inicio: imp.inicio, fim: imp.fim || null } : null,
+    importacao: imp ? { rodando: imp.rodando, anuncios: imp.anuncios, grupos: imp.grupos, comHistorico: imp.comHistorico, total: imp.total || 0, vistos: imp.vistos || 0, atual: imp.atual || '', semAncora: imp.semAncora.slice(0, 20), inicio: imp.inicio, fim: imp.fim || null } : null,
     historico: buscaInt.resumoHistorico()
   };
 }

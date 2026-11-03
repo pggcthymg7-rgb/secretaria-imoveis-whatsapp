@@ -101,3 +101,15 @@ test('Comando "corretores" mostra o endereço e o código da Laura para o João'
   assert.match(sent[2], /senha já criada/);
   assert.doesNotMatch(sent[2], /ABCDEF1234/);
 });
+
+test('Painel carrega app.js/app.css com a versão (depois de "atualizar" o celular pega o painel novo)', async () => {
+  const server = await new Promise(r => {
+    const s = app.listen(0, '127.0.0.1', () => r(s));
+  });
+  try {
+    const html = await (await fetch(`http://127.0.0.1:${server.address().port}/`)).text();
+    for (const f of ['app.js', 'app.css', 'biga-art.js']) assert.match(html, new RegExp(`/assets/${f.replace('.', '\\.')}\\?v=[0-9a-f]{7}"`));
+  } finally {
+    server.close();
+  }
+});
