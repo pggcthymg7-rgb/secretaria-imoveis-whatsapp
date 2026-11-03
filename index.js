@@ -448,6 +448,9 @@ app.post('/api/busca/config', ah(async (req, res) => {
 app.post('/api/busca/testar-chave', ah(async (req, res) => {
   res.json(await require('./src/gemini-chave').testarChaveSalva());
 }));
+app.post('/api/busca/diagnostico', ah(async (req, res) => {
+  res.json(await require('./src/gemini-chave').diagnosticarSalva());
+}));
 app.post('/api/busca/importar-historico', ah(async (req, res) => {
   await wa.importarHistoricoGrupos({
     onFim: e => wa.sendOwnerWhatsAppAlert(`🤖 📥 *Histórico importado*\n${e.anuncios} anúncios de ${e.comHistorico} de ${e.grupos} grupos.`).catch(() => {})

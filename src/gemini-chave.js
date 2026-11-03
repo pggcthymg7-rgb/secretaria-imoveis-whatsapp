@@ -66,4 +66,53 @@ async function testarChaveSalva(fetcher) {
   return { ok: false, mensagem: t.ok === null ? t.motivo : `${t.motivo} Crie outra chave em aistudio.google.com › Get API key.` };
 }
 
-module.exports = { limparChave, formatoValido, testarChave, validarChave, testarChaveSalva };
+/**
+ * Diagnóstico a fundo: (1) uma resposta simples, (2) uma busca com Google. Cada uma com a
+ * resposta EXATA do Google. Serve para separar "a chave não gera texto" de "a busca com Google
+ * não está liberada para esta chave" (no plano grátis ela costuma vir com limite 0).
+ */
+async function diagnosticar(chave, fetcher = fetch) {
+  const M = require('./gemini-modelo');
+  const modelo = process.env.GEMINI_BUSCA_MODEL || (await M.escolherModelo(chave, { fetcher }));
+  const chamar = async corpo => {
+    try {
+      const r = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
+        body: JSON.stringify(corpo),
+        signal: AbortSignal.timeout(60000)
+      });
+      let j = {};
+      try {
+        j = await r.json();
+      } catch {}
+      if (r.ok) return { ok: true, status: r.status, fontes: (j.candidates?.[0]?.groundingMetadata?.groundingChunks || []).length };
+      return { ok: false, status: r.status, mensagem: String(j?.error?.message || r.status).slice(0, 300) };
+    } catch (err) {
+      return { ok: false, status: 0, mensagem: String(err.message).slice(0, 200) };
+    }
+  };
+  const simples = await chamar({ contents: [{ role: 'user', parts: [{ text: 'Responda apenas: ok' }] }], generationConfig: { maxOutputTokens: 8 } });
+  const busca = await chamar({ contents: [{ role: 'user', parts: [{ text: 'Qual é a capital de Goiás? Responda em uma palavra.' }] }], tools: [{ google_search: {} }], generationConfig: { maxOutputTokens: 50 } });
+  return { modelo, simples, busca };
+}
+
+function textoDiagnostico(d) {
+  const linha = (nome, x) => (x.ok ? `✅ ${nome}: funcionou${x.fontes !== undefined && nome.includes('Google') ? ` (${x.fontes} fonte(s))` : ''}` : `❌ ${nome}: erro ${x.status || ''} — ${x.mensagem}`);
+  let conclusao;
+  if (d.simples.ok && d.busca.ok) conclusao = 'Tudo certo: a chave gera texto e a busca com Google está liberada.';
+  else if (d.simples.ok && !d.busca.ok && d.busca.status === 429) conclusao = 'A chave funciona, mas a *busca com Google* está sem cota para ela. No plano grátis isso costuma ser "limite 0": é preciso ativar o faturamento do projeto no Google AI Studio (aistudio.google.com › Settings › Billing). Enquanto isso, use os links prontos.';
+  else if (d.simples.ok && !d.busca.ok) conclusao = 'A chave gera texto, mas a busca com Google foi recusada. Veja a mensagem acima.';
+  else if (d.simples.status === 429) conclusao = 'A cota geral desta chave está esgotada agora (nem uma resposta simples passou).';
+  else conclusao = 'A chave não conseguiu gerar nem uma resposta simples. Veja a mensagem acima.';
+  return [`🔬 *Diagnóstico do Gemini*`, `Modelo: ${d.modelo}`, linha('Resposta simples', d.simples), linha('Busca com Google', d.busca), '', conclusao].join('\n');
+}
+
+async function diagnosticarSalva(fetcher) {
+  const chave = limparChave(process.env.GEMINI_API_KEY);
+  if (!chave) return { ok: false, texto: 'Nenhuma chave do Gemini salva ainda.' };
+  const d = await diagnosticar(chave, fetcher);
+  return { ok: d.simples.ok && d.busca.ok, texto: textoDiagnostico(d), diagnostico: d };
+}
+
+module.exports = { limparChave, formatoValido, testarChave, validarChave, testarChaveSalva, diagnosticar, textoDiagnostico, diagnosticarSalva };
