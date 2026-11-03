@@ -92,7 +92,20 @@ async function diagnosticar(chave, fetcher = fetch) {
       return { ok: false, status: 0, mensagem: String(err.message).slice(0, 200) };
     }
   };
-  const simples = await chamar({ contents: [{ role: 'user', parts: [{ text: 'Responda apenas: ok' }] }], generationConfig: { maxOutputTokens: 8 } });
+  // resposta simples: se o modelo principal estiver sobrecarregado (503) ou sem cota, testa os outros da chave
+  const corpoSimples = { contents: [{ role: 'user', parts: [{ text: 'Responda apenas: ok' }] }], generationConfig: { maxOutputTokens: 8 } };
+  let simples = await chamar(corpoSimples, modelo);
+  simples.modelo = modelo;
+  const falhasSimples = [];
+  if (!simples.ok) {
+    for (const outro of (await M.escolherModelos(chave, { fetcher, preferirLite: true, max: 3 })).filter(m => m !== modelo)) {
+      falhasSimples.push({ modelo: simples.modelo, status: simples.status, mensagem: simples.mensagem });
+      const t = await chamar(corpoSimples, outro);
+      simples = { ...t, modelo: outro };
+      if (simples.ok) break;
+    }
+  }
+  simples.falhas = falhasSimples;
   // a busca com Google é testada em cada modelo da fila (os 2.5 são os únicos com cota grátis documentada)
   const corpoBusca = { contents: [{ role: 'user', parts: [{ text: 'Qual é a capital de Goiás? Responda em uma palavra.' }] }], tools: [{ google_search: {} }], generationConfig: { maxOutputTokens: 50 } };
   const buscas = [];
@@ -101,7 +114,7 @@ async function diagnosticar(chave, fetcher = fetch) {
 }
 
 function textoDiagnostico(d, motores) {
-  const linha = (nome, x) => (x.ok ? `✅ ${nome}: funcionou${x.fontes !== undefined && nome.includes('Google') ? ` (${x.fontes} fonte(s))` : ''}` : `❌ ${nome}: erro ${x.status || ''} — ${x.mensagem}`);
+  const linha = (nome, x) => (x.ok ? `✅ ${nome}: funcionou${x.fontes !== undefined && nome.includes('Google') ? ` (${x.fontes} fonte(s))` : ''}${x.modelo && !nome.includes(x.modelo) ? ` (${x.modelo})` : ''}` : `❌ ${nome}: erro ${x.status || ''} — ${x.mensagem}`);
   const buscas = d.buscas || [{ modelo: d.modelo, ...d.busca }];
   const algumaOk = buscas.some(b => b.ok);
   const todas429 = buscas.every(b => !b.ok && b.status === 429);
@@ -113,10 +126,12 @@ function textoDiagnostico(d, motores) {
   else if (d.simples.ok && indisponiveis.length === buscas.length) conclusao = 'A chave gera texto, mas o Google não oferece a busca com Google nesses modelos para a sua chave (modelos aposentados para chaves novas). A BIGA usa o modelo mais novo da sua chave sozinha.';
   else if (d.simples.ok) conclusao = 'A chave gera texto, mas a busca com Google foi recusada. Veja a mensagem acima.';
   else if (d.simples.status === 429) conclusao = 'A cota geral desta chave está esgotada agora (nem uma resposta simples passou).';
+  else if ([500, 502, 503, 504].includes(d.simples.status)) conclusao = 'O Gemini está sobrecarregado agora (erro 503 "alta demanda"): é passageiro. Tente de novo em alguns minutos; a busca nos portais tenta de novo sozinha e passa por outros modelos.';
   else conclusao = 'A chave não conseguiu gerar nem uma resposta simples. Veja a mensagem acima.';
   const partes = [
     '🔬 *Diagnóstico do Gemini*',
     `Modelo (texto): ${d.modelo}`,
+    ...(d.simples.falhas || []).map(f => `↳ ${f.modelo}: erro ${f.status} — ${String(f.mensagem || '').slice(0, 90)}`),
     linha('Resposta simples (sem busca)', d.simples),
     ...buscas.map(b => linha(`Busca com Google em ${b.modelo}`, b)),
     '',

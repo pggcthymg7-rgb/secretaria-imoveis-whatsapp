@@ -429,7 +429,7 @@ async function buscarPortaisGemini(criterios, textoOriginal, { env, fetcher, dom
     tools: [{ google_search: {} }],
     generationConfig: { temperature: 0.2 }
   };
-  const ordem = [...new Set([String(env.GEMINI_BUSCA_MODEL || '').trim(), 'gemini-2.5-flash', 'gemini-2.5-flash-lite', await M.escolherModelo(key, { fetcher })].filter(Boolean))];
+  const ordem = [...new Set([String(env.GEMINI_BUSCA_MODEL || '').trim(), 'gemini-2.5-flash', 'gemini-2.5-flash-lite', ...(await M.escolherModelos(key, { fetcher, max: 2 })), await M.escolherModelo(key, { fetcher })].filter(Boolean))].filter(m => !M.ehIndisponivel(key, m) || m === String(env.GEMINI_BUSCA_MODEL || '').trim());
   const tentativas = [];
   let data = null;
   let usado = ordem[0];
@@ -450,7 +450,8 @@ async function buscarPortaisGemini(criterios, textoOriginal, { env, fetcher, dom
       }
       const msg = String((d && d.error && d.error.message) || r.status).slice(0, 500);
       tentativas.push({ modelo, status: r.status, mensagem: msg });
-      if (M.modeloIndisponivel(r.status, msg) || r.status === 429) continue; // sem cota/indisponível: tenta o próximo modelo da fila
+      if (M.modeloIndisponivel(r.status, msg)) M.marcarIndisponivel(key, modelo);
+      if (M.modeloIndisponivel(r.status, msg) || r.status === 429 || M.erroTransitorio(r.status, msg)) continue; // sem cota/indisponível/sobrecarga: tenta o próximo modelo da fila
       return { ok: false, motivo: 'erro', detalhe: msg, modelo, tentativas, itens: [], fontesSoltas: [] };
     } catch (err) {
       tentativas.push({ modelo, status: 0, mensagem: String(err.message).slice(0, 200) });
@@ -520,6 +521,7 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
   let fontesSoltas = [];
   let modelo;
   let semCuradoria = false;
+  let curadoriaErro = '';
   let algumOk = false;
   let cobertos = [];
 
@@ -561,6 +563,7 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
           } else {
             erros.push({ camada: 'curadoria', ...cur });
             semCuradoria = true;
+            curadoriaErro = `${cur.motivo === 'sobrecarga' ? 'o Gemini está sobrecarregado agora' : cur.motivo === 'cota' ? 'o Gemini está sem cota' : 'o Gemini não respondeu'}${(cur.tentativas || []).length ? ` (tentei ${[...new Set(cur.tentativas.map(t => t.modelo))].join(', ')})` : ''}`;
             via.push(`${r.provedor} (sem curadoria)`);
             fontesSoltas.push(...r.catalogo.slice(0, 8).map(x => ({ url: x.url, titulo: x.titulo })));
           }
@@ -607,7 +610,7 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
     itens.push(it);
   }
   fontesSoltas = fontesSoltas.filter(f => !vistos.has(urlChave(f.url))).slice(0, 8);
-  return { ok: true, itens, fontesSoltas, modelo, via, semCuradoria, avisosMotor: erros.map(e => `${e.camada}: ${e.detalhe || e.motivo}`), usadasHoje: usoHoje(), limite: limiteDia(env) };
+  return { ok: true, itens, fontesSoltas, modelo, via, semCuradoria, curadoriaErro, avisosMotor: erros.map(e => `${e.camada}: ${e.detalhe || e.motivo}`), usadasHoje: usoHoje(), limite: limiteDia(env) };
 }
 
 // ---------------------------------------------------------------------------
@@ -684,7 +687,7 @@ function formatarRelatorio(r) {
     const prof = p.itens.filter(x => x.tipoAnunciante === 'profissional');
     const part = p.itens.filter(x => x.tipoAnunciante === 'particular');
     const outros = p.itens.filter(x => x.tipoAnunciante === 'desconhecido');
-    blocos.push(`🌐 *NOS PORTAIS* (${p.itens.length})\n_só anúncios com link confirmado pela busca · via ${(p.via || []).join(' + ') || 'busca'} · ${p.usadasHoje}/${p.limite} buscas hoje_${p.semCuradoria ? '\n⚠️ Sem a chave/resposta do Gemini não consegui filtrar: abaixo, os anúncios achados.' : ''}`);
+    blocos.push(`🌐 *NOS PORTAIS* (${p.itens.length})\n_só anúncios com link confirmado pela busca · via ${(p.via || []).join(' + ') || 'busca'} · ${p.usadasHoje}/${p.limite} buscas hoje_${p.semCuradoria ? `\n⚠️ Não consegui filtrar${p.curadoriaErro ? `: ${p.curadoriaErro}` : ' (sem chave/resposta do Gemini)'}. Abaixo, os anúncios achados; tente de novo em alguns minutos.` : ''}`);
     if (part.length) {
       blocos.push(`👤 *PARTICULAR* (${part.length})`);
       part.forEach((x, i) => blocos.push(linhaImovelPortal(x, i)));
