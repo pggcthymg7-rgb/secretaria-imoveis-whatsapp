@@ -278,3 +278,21 @@ test('Chave do Gemini: limpa o que vem colado e confere no Google (caso João: c
   await g.testarChave(k, async (url, o) => ((header = o.headers['x-goog-api-key']), ok()));
   assert.equal(header, k, 'chave vai no cabeçalho, nunca na URL');
 });
+
+test('Grupos da busca são separados dos grupos de pedidos (padrão: todos; conversa exportada sempre entra)', async () => {
+  anuncios._reset();
+  bi.atualizarConfig({ todosGrupos: true });
+  const add = (id, grupoId, grupo) => anuncios.registrar({ id, ts: Date.now(), texto: F.anuncioMarista950.replace('950', String(900 + id.length)), grupo, grupoId, autor: 'Ana' });
+  add('a', 'g1@g.us', 'Grupo A');
+  add('bb', 'g2@g.us', 'Grupo B');
+  add('ccc', 'exp:alto padrao', 'Alto Padrão (exportado)');
+  const nomes = () => bi.buscarNosGrupos(bi.entenderPedido(F.pedidoClienteMarista).criterios, bi.entenderPedido(F.pedidoClienteMarista).index).flatMap(g => g.fontes.map(f => f.grupo)).sort();
+  assert.deepEqual(nomes(), ['Alto Padrão (exportado)', 'Grupo A', 'Grupo B'], 'padrão: todos');
+  const cfg = bi.atualizarConfig({ gruposIds: ['g1@g.us', 'lixo', '<script>@g.us', 'g1@g.us'] });
+  assert.deepEqual(cfg.gruposIds, ['g1@g.us'], 'só ids válidos, sem repetir');
+  assert.equal(cfg.todosGrupos, false);
+  assert.ok(bi.grupoNaBusca('g1@g.us') && !bi.grupoNaBusca('g2@g.us') && bi.grupoNaBusca('exp:qualquer'));
+  assert.deepEqual(nomes(), ['Alto Padrão (exportado)', 'Grupo A'], 'Grupo B fora da busca');
+  bi.atualizarConfig({ todosGrupos: true });
+  assert.equal(bi.getConfig().todosGrupos, true);
+});

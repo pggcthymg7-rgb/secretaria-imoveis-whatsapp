@@ -161,6 +161,7 @@ const HELP = `${BOT} *Oi, eu sou a BIGA!* Seus comandos:
 • mande a conversa exportada de um grupo (.txt/.zip) para guardar os anúncios
 • *memória* (quantos anúncios estão guardados) · *memória ligar/desligar*
 • *minhas buscas* · *ver busca 3* · *config busca*
+• *grupos da busca* · *busca grupos 1,4,7* · *busca grupos todos*
 • *limite busca 30* · *portais olx zap vivareal* · *chave gemini SUA_CHAVE*
 ⚙️ *status* · *pausar* · *retomar* · *ajuda*`;
 
@@ -245,6 +246,52 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
     const on = /^(ligar|liga|ativar)$/.test(memCmd[1]);
     require('./busca-inteligente').atualizarConfig({ memoriaAtiva: on });
     await reply(wa, chatJid, on ? '🧠 Volto a guardar os anúncios dos grupos.' : '🧠 Parei de guardar anúncios novos dos grupos (os já guardados continuam na busca).');
+    return true;
+  }
+  // Grupos da busca (separados dos grupos de pedidos)
+  const ordenarGrupos = () => [...(ctx.listarGrupos ? ctx.listarGrupos() : [])].sort((a, b) => String(a.subject).localeCompare(String(b.subject), 'pt-BR'));
+  if (/^(grupos da busca|grupos busca|busca grupos)$/.test(norm)) {
+    const bi = require('./busca-inteligente');
+    const gs = ordenarGrupos();
+    if (!gs.length) {
+      await reply(wa, chatJid, 'Ainda não tenho a lista de grupos (WhatsApp conectando). Tente em 1 minuto.');
+      return true;
+    }
+    const todos = bi.getConfig().todosGrupos;
+    const linhas = gs.map((g, i) => `${bi.grupoNaBusca(g.id) ? '✅' : '⬜'} ${i + 1}. ${g.subject}`);
+    const partes = [`📂 *Grupos da busca* (${todos ? 'todos' : `${gs.filter(g => bi.grupoNaBusca(g.id)).length} escolhidos`})\nSão separados dos grupos de pedidos.\n`];
+    for (const l of linhas) {
+      if ((partes[partes.length - 1] + '\n' + l).length > 3500) partes.push(l);
+      else partes[partes.length - 1] += '\n' + l;
+    }
+    partes[partes.length - 1] += '\n\nEscolher: *busca grupos 1,4,7* · tirar: *busca grupos tirar 4* · *busca grupos todos*';
+    for (const p of partes) await reply(wa, chatJid, p);
+    return true;
+  }
+  const gCmd = norm.match(/^(?:busca grupos|grupos da busca|grupos busca)\s+(todos|(?:tirar|remover|adicionar|incluir|por)?\s*[\d ,e]+)$/);
+  if (gCmd) {
+    const bi = require('./busca-inteligente');
+    const gs = ordenarGrupos();
+    if (gCmd[1] === 'todos') {
+      bi.atualizarConfig({ todosGrupos: true });
+      await reply(wa, chatJid, `📂 Busca em *todos* os ${gs.length} grupos.`);
+      return true;
+    }
+    const nums = [...gCmd[1].matchAll(/\d+/g)].map(m => Number(m[0]));
+    const fora = nums.filter(n => n < 1 || n > gs.length);
+    if (!gs.length || fora.length) {
+      await reply(wa, chatJid, gs.length ? `Não existe o grupo nº ${fora.join(', ')}. Mande *grupos da busca* para ver a lista.` : 'Ainda não tenho a lista de grupos. Tente em 1 minuto.');
+      return true;
+    }
+    const ids = nums.map(n => gs[n - 1].id);
+    const atuais = gs.filter(g => bi.grupoNaBusca(g.id)).map(g => g.id);
+    let novos;
+    if (/^(tirar|remover)/.test(gCmd[1])) novos = atuais.filter(id => !ids.includes(id));
+    else if (/^(adicionar|incluir|por)/.test(gCmd[1])) novos = [...new Set([...atuais, ...ids])];
+    else novos = ids;
+    bi.atualizarConfig({ gruposIds: novos });
+    const nomes = gs.filter(g => novos.includes(g.id)).map(g => g.subject);
+    await reply(wa, chatJid, `📂 Busca em ${nomes.length} grupo(s): ${nomes.slice(0, 15).join(', ')}${nomes.length > 15 ? '…' : ''}`);
     return true;
   }
   const chaveCmd = text.match(/^\s*chave\s+(?:do\s+)?gemini\s*:?\s+([\s\S]{10,400})$/i);

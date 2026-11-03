@@ -49,6 +49,7 @@ function entenderPedido(texto) {
 function buscarNosGrupos(criterios, index) {
   const porImovel = new Map();
   for (const a of anuncios.todos()) {
+    if (!grupoNaBusca(a.grupoId)) continue;
     const r = evaluateProperty({ ...a.prop, id: a.id, descricao: a.texto }, criterios, index);
     if (r.status !== 'MATCH' && r.status !== 'QUASE') continue;
     const chave = a.fp && a.fp.replace(/\|/g, '') ? a.fp : a.id;
@@ -129,6 +130,8 @@ function getConfig() {
     zap: s.buscaZap !== false,
     vivareal: s.buscaVivareal !== false,
     memoriaAtiva: s.buscaMemoriaAtiva !== false,
+    todosGrupos: !Array.isArray(s.buscaGruposIds),
+    gruposIds: Array.isArray(s.buscaGruposIds) ? s.buscaGruposIds : [],
     temChaveGemini: Boolean(String(process.env.GEMINI_API_KEY || '').trim()),
     usadasHoje: usoHoje()
   };
@@ -144,8 +147,18 @@ function atualizarConfig(b = {}) {
     upd.buscaLimiteDia = n;
   }
   for (const [k, key] of [['olx', 'buscaOlx'], ['zap', 'buscaZap'], ['vivareal', 'buscaVivareal'], ['memoriaAtiva', 'buscaMemoriaAtiva']]) if (b[k] !== undefined) upd[key] = Boolean(b[k]);
+  // grupos da busca (separados dos grupos de pedidos): todosGrupos=true -> todos; senão a lista escolhida
+  if (b.todosGrupos === true) upd.buscaGruposIds = null;
+  else if (Array.isArray(b.gruposIds)) upd.buscaGruposIds = [...new Set(b.gruposIds.map(String).filter(g => /^[\w.-]+@g\.us$/.test(g)))].slice(0, 500);
   if (Object.keys(upd).length) saveSettings(upd);
   return getConfig();
+}
+
+/** O grupo entra na busca? (conversa exportada sempre entra: foi você que mandou) */
+function grupoNaBusca(grupoId) {
+  const ids = loadSettings().buscaGruposIds;
+  if (!Array.isArray(ids)) return true;
+  return String(grupoId || '').startsWith('exp:') || ids.includes(grupoId);
 }
 
 function portaisAtivos() {
@@ -448,4 +461,4 @@ function formatarRelatorio(r) {
   return msgs;
 }
 
-module.exports = { getConfig, atualizarConfig, portaisAtivos, resumoHistorico, getBusca, buscar, entenderPedido, buscarNosGrupos, buscarNosPortais, linksProntos, formatarRelatorio, descreverPedido, extrairJson, classificar, _uso: { usoHoje } };
+module.exports = { getConfig, atualizarConfig, grupoNaBusca, portaisAtivos, resumoHistorico, getBusca, buscar, entenderPedido, buscarNosGrupos, buscarNosPortais, linksProntos, formatarRelatorio, descreverPedido, extrairJson, classificar, _uso: { usoHoje } };

@@ -290,3 +290,24 @@ test('Configurações da busca pelo "Mensagem para mim" (as mesmas do painel)', 
   process.env.GEMINI_API_KEY = '';
   bi.atualizarConfig({ limiteDia: 20 });
 });
+
+test('Grupos da busca pelo "Mensagem para mim": listar, escolher, e anúncio de grupo fora da lista não é guardado', async () => {
+  const bi = require('../src/busca-inteligente');
+  const cmd = async t => {
+    sent.length = 0;
+    fakeSock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: `${SELF}@s.whatsapp.net`, id: 'GB' + Math.random(), fromMe: true }, messageTimestamp: nowTs(), message: { conversation: t } }] });
+    await wait(400);
+    return sent.map(s => s.content.text).join('\n');
+  };
+  assert.match(await cmd('grupos da busca'), /Grupos da busca\* \(todos\)[\s\S]*✅ 1\. BUSCA ADÃO/);
+  assert.match(await cmd('busca grupos 1'), /Busca em 1 grupo\(s\): BUSCA ADÃO/);
+  assert.deepEqual(bi.getConfig().gruposIds, ['g1@g.us']);
+  // g2 não está na busca -> anúncio não é guardado; e os pedidos do g1 continuam funcionando como antes
+  fakeSock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: 'g2@g.us', participant: '5562911114444@s.whatsapp.net', id: 'FORA1', fromMe: false }, pushName: 'Y', messageTimestamp: nowTs(), message: { conversation: F2.anuncioMaristaSemVerbo } }] });
+  await wait(300);
+  assert.ok(!anunciosMem.todos().some(a => a.id === 'g2@g.us:FORA1'));
+  assert.match(await cmd('busca grupos 9'), /Não existe o grupo nº 9/);
+  assert.match(await cmd('busca grupos tirar 1'), /Busca em 0 grupo/);
+  assert.match(await cmd('busca grupos todos'), /todos/);
+  assert.equal(bi.getConfig().todosGrupos, true);
+});
