@@ -159,7 +159,9 @@ const HELP = `${BOT} *Oi, eu sou a BIGA!* Seus comandos:
   → procura nos seus grupos (últimos 90 dias) e na OLX, ZAP e VivaReal
 • *importar histórico* (pede ao celular os anúncios antigos dos grupos)
 • mande a conversa exportada de um grupo (.txt/.zip) para guardar os anúncios
-• *memória* (quantos anúncios estão guardados)
+• *memória* (quantos anúncios estão guardados) · *memória ligar/desligar*
+• *minhas buscas* · *ver busca 3* · *config busca*
+• *limite busca 30* · *portais olx zap vivareal* · *chave gemini SUA_CHAVE*
 ⚙️ *status* · *pausar* · *retomar* · *ajuda*`;
 
 async function reply(wa, chatJid, text) {
@@ -197,6 +199,60 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
     return true;
   }
   if (!text) return false;
+
+  // --- Busca inteligente: configuração e histórico (iguais ao painel › Busca) ---
+  if (/^(minhas buscas|historico de buscas|ultimas buscas)$/.test(norm)) {
+    const h = require('./busca-inteligente').resumoHistorico().slice(0, 10);
+    await reply(wa, chatJid, h.length ? `🗂️ *Últimas buscas*\n${h.map(x => `• *nº ${x.id}* (${new Date(x.ts).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit' })}) ${x.descricao} — ${x.grupos} nos grupos, ${x.portais} nos portais`).join('\n')}\n\nPara rever: *ver busca 3*` : 'Nenhuma busca ainda. Ex.: *busca apto 800 mil a 1 milhão no Setor Marista, mínimo 100 m²*');
+    return true;
+  }
+  const verBusca = norm.match(/^(?:ver busca|busca n[o°]?|rever busca)\s*(\d{1,4})$/);
+  if (verBusca) {
+    const bi = require('./busca-inteligente');
+    const r = bi.getBusca(verBusca[1]);
+    if (!r) await reply(wa, chatJid, `Não achei a busca nº ${verBusca[1]}. Mande *minhas buscas*.`);
+    else for (const parte of bi.formatarRelatorio(r)) await reply(wa, chatJid, parte);
+    return true;
+  }
+  if (/^(config busca|configuracao da busca|configuracoes da busca|busca config)$/.test(norm)) {
+    const c = require('./busca-inteligente').getConfig();
+    const sn = v => (v ? '✅' : '❌');
+    await reply(wa, chatJid, `⚙️ *Configuração da busca*\n• Portais: OLX ${sn(c.olx)} · ZAP ${sn(c.zap)} · VivaReal ${sn(c.vivareal)}\n• Limite: ${c.limiteDia} buscas nos portais por dia (hoje: ${c.usadasHoje})\n• Guardar anúncios dos grupos: ${sn(c.memoriaAtiva)}\n• Chave do Gemini: ${c.temChaveGemini ? '✅ configurada' : '❌ falta'}\n\nMudar: *limite busca 30* · *portais olx zap* · *memória desligar* · *chave gemini SUA_CHAVE*`);
+    return true;
+  }
+  const limBusca = norm.match(/^limite (?:da )?busca\s+(\d{1,3})$/);
+  if (limBusca) {
+    try {
+      const c = require('./busca-inteligente').atualizarConfig({ limiteDia: limBusca[1] });
+      await reply(wa, chatJid, `Pronto: até *${c.limiteDia}* buscas nos portais por dia.`);
+    } catch (err) {
+      await reply(wa, chatJid, err.message);
+    }
+    return true;
+  }
+  const portaisCmd = norm.match(/^portais\s+(.+)$/);
+  if (portaisCmd) {
+    const p = portaisCmd[1];
+    const todos = /\btodos\b/.test(p);
+    const nenhum = /\b(nenhum|desligar|desliga)\b/.test(p);
+    const c = require('./busca-inteligente').atualizarConfig({ olx: todos || (!nenhum && /\bolx\b/.test(p)), zap: todos || (!nenhum && /\bzap\b/.test(p)), vivareal: todos || (!nenhum && /\bviva ?real\b/.test(p)) });
+    const sn = v => (v ? '✅' : '❌');
+    await reply(wa, chatJid, `Portais da busca: OLX ${sn(c.olx)} · ZAP ${sn(c.zap)} · VivaReal ${sn(c.vivareal)}`);
+    return true;
+  }
+  const memCmd = norm.match(/^(?:memoria|memoria de anuncios)\s+(ligar|liga|ativar|desligar|desliga|desativar)$/);
+  if (memCmd) {
+    const on = /^(ligar|liga|ativar)$/.test(memCmd[1]);
+    require('./busca-inteligente').atualizarConfig({ memoriaAtiva: on });
+    await reply(wa, chatJid, on ? '🧠 Volto a guardar os anúncios dos grupos.' : '🧠 Parei de guardar anúncios novos dos grupos (os já guardados continuam na busca).');
+    return true;
+  }
+  const chaveCmd = text.match(/^\s*chave\s+(?:do\s+)?gemini\s+([\w-]{20,200})\s*$/i);
+  if (chaveCmd) {
+    require('./envfile').updateEnvFile({ GEMINI_API_KEY: chaveCmd[1] });
+    await reply(wa, chatJid, '🔑 Chave do Gemini salva. Por segurança, *apague esta mensagem com a chave* (toque e segure › Apagar para mim).');
+    return true;
+  }
 
   // --- Busca inteligente ---
   const busca = text.match(/^\s*(?:busca(?:r)?(?:\s+inteligente)?|procur(?:ar|a))\s*[:\-]?\s+([\s\S]{8,})$/i);
