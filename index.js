@@ -430,6 +430,9 @@ app.post('/api/busca/config', ah(async (req, res) => {
   }
   res.json({ ok: true, chaveMsg, config: buscaInt.atualizarConfig(b), estado: estadoBusca() });
 }));
+app.post('/api/busca/testar-chave', ah(async (req, res) => {
+  res.json(await require('./src/gemini-chave').testarChaveSalva());
+}));
 app.post('/api/busca/importar-historico', ah(async (req, res) => {
   await wa.importarHistoricoGrupos({
     onFim: e => wa.sendOwnerWhatsAppAlert(`🤖 📥 *Histórico importado*\n${e.anuncios} anúncios de ${e.comHistorico} de ${e.grupos} grupos.`).catch(() => {})

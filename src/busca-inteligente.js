@@ -301,7 +301,7 @@ function dentroDoPedido(item, c) {
 }
 
 async function buscarNosPortais(criterios, textoOriginal, { env = process.env, fetcher = fetch } = {}) {
-  const key = String(env.GEMINI_API_KEY || '').trim();
+  const key = require('./gemini-chave').limparChave(env.GEMINI_API_KEY);
   if (!key) return { ok: false, motivo: 'sem_chave', itens: [], fontesSoltas: [] };
   const dominios = portaisAtivos();
   if (!dominios.length) return { ok: false, motivo: 'desligado', itens: [], fontesSoltas: [] };

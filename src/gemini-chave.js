@@ -51,4 +51,16 @@ async function validarChave(bruto, fetcher) {
   return { ok: true, chave, mensagem: t.aviso || 'Chave do Gemini funcionando ✅' };
 }
 
-module.exports = { limparChave, formatoValido, testarChave, validarChave };
+/** Testa a chave que já está salva na BIGA (botão do painel e "testar gemini") */
+async function testarChaveSalva(fetcher) {
+  const bruta = String(process.env.GEMINI_API_KEY || '');
+  const chave = limparChave(bruta);
+  if (!chave) return { ok: false, mensagem: 'Nenhuma chave do Gemini salva ainda.' };
+  // chave salva "suja" (espaço ou caractere invisível no meio, colada pela versão antiga de Ajustes): corrige
+  if (chave !== bruta) require('./envfile').updateEnvFile({ GEMINI_API_KEY: chave });
+  const t = await testarChave(chave, fetcher);
+  if (t.ok === true) return { ok: true, mensagem: t.aviso || 'Chave do Gemini funcionando ✅ (a busca nos portais está liberada).' };
+  return { ok: false, mensagem: t.ok === null ? t.motivo : `${t.motivo} Crie outra chave em aistudio.google.com › Get API key.` };
+}
+
+module.exports = { limparChave, formatoValido, testarChave, validarChave, testarChaveSalva };
