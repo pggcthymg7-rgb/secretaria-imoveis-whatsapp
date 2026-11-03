@@ -10,7 +10,7 @@ BIGA é a secretária do João (corretor em Goiânia). Ela fica conectada ao Wha
 ## Status (01/11/2026)
 - **No ar** na VM Oracle grátis: https://147-15-87-168.sslip.io — WhatsApp CONECTADO.
 - Código final em `main` (bde3762, v4.1). A VM se atualiza sozinha ~04:15 e, a partir de 02/11, também pelo botão "Atualizar agora" (Ajustes › Sistema) ou pelo comando `atualizar`.
-- Testes: 109/109 passando (`npm run verify`) — com o mapa OSM agora versionado (ver sessão 01/11 abaixo).
+- Testes: 112/112 passando (`npm run verify`) — com o mapa OSM agora versionado (ver sessão 01/11 abaixo).
 - **Falta o João:** suspender o Render; colocar a chave Brave/Google e o token Meta no Garimpo.
 
 ## Decisões importantes
@@ -101,3 +101,9 @@ Fomos por ciclos `/resolver-tudo`: bug real → caso no fixture → correção �
 - Render MCP: serviço `srv-dbh7t6k9v7es73b9h0v0` (só para suspender).
 - Sempre responder em português.
 - O João é iniciante: sempre explicar em palavras simples qualquer termo técnico (PR, branch, merge, rede, etc.) quando pedir algo a ele.
+
+## Sessão 03/11 — curadoria resiliente (Gemini sobrecarregado)
+- Curadoria Gemini: tenta 3x por modelo em erro 5xx/"alta demanda" (espera `GEMINI_RETRY_MS`, padrão 1500ms), passa por vários modelos (lite primeiro) e lembra, por chave, modelos 404 ("não disponível") para pular.
+- Se a curadoria falhar, o relatório mostra os anúncios achados + motivo ("Gemini sobrecarregado…"), em vez de perder tudo.
+- `testar gemini fundo`: chamada simples passa por outros modelos e explica 503 como passageiro.
+- Testes: 112/112.
