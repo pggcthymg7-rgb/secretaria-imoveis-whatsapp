@@ -201,3 +201,59 @@ test('Conversa exportada: hora "PM" em inglês e mensagens diferentes no mesmo m
   const r = anuncios.importarExportacao(Buffer.from(`${d} 09:15 - Ana: ${a1}\n${d} 09:15 - Ana: ${a2}`), 'Conversa do WhatsApp com G.txt');
   assert.equal(r.anuncios, 2);
 });
+
+// ---------------------------------------------------------------------------
+// Painel › Busca (API) e configurações compartilhadas com o "Mensagem para mim"
+test('Painel › Busca: exige login, busca, guarda no histórico, valida configurações e importa conversa com acento', async () => {
+  const { app } = require('../index');
+  const server = await new Promise(r => {
+    const s = app.listen(0, '127.0.0.1', () => r(s));
+  });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const H = { 'x-secretaria': '1' };
+  try {
+    let r = await fetch(`${base}/api/busca`, { headers: H });
+    assert.equal(r.status, 401, 'sem login não entra');
+    r = await fetch(`${base}/api/login`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify({ senha: process.env.PAINEL_SENHA }) });
+    const cookie = r.headers.get('set-cookie').split(';')[0];
+    const J = { ...H, cookie, 'Content-Type': 'application/json' };
+    anuncios._reset();
+    anuncios.registrar({ id: 'p1', ts: Date.now(), texto: F.anuncioMarista950, grupo: 'Grupo Marista', autor: 'Ana', telefone: '5562999990000' });
+    r = await fetch(`${base}/api/busca`, { method: 'POST', headers: J, body: JSON.stringify({ texto: 'oi' }) });
+    assert.equal(r.status, 400);
+    r = await fetch(`${base}/api/busca`, { method: 'POST', headers: J, body: JSON.stringify({ texto: F.pedidoClienteMarista }) });
+    const j = await r.json();
+    assert.equal(j.busca.grupos.length, 1);
+    assert.ok(j.estado.historico.some(h => h.id === j.busca.id));
+    r = await fetch(`${base}/api/busca/item/${j.busca.id}`, { headers: J });
+    assert.equal((await r.json()).descricao, j.busca.descricao, 'rever sem buscar de novo');
+    // configurações
+    r = await fetch(`${base}/api/busca/config`, { method: 'POST', headers: J, body: JSON.stringify({ limiteDia: 999 }) });
+    assert.equal(r.status, 400);
+    r = await fetch(`${base}/api/busca/config`, { method: 'POST', headers: J, body: JSON.stringify({ geminiApiKey: 'chave com espaço e ; rm -rf' }) });
+    assert.equal(r.status, 400, 'chave inválida não é gravada');
+    r = await fetch(`${base}/api/busca/config`, { method: 'POST', headers: J, body: JSON.stringify({ limiteDia: 5, olx: false, zap: true, vivareal: false }) });
+    const cfg = (await r.json()).config;
+    assert.deepEqual([cfg.limiteDia, cfg.olx, cfg.zap, cfg.vivareal], [5, false, true, false]);
+    assert.deepEqual(Object.keys(bi.linksProntos(bi.entenderPedido(F.pedidoClienteMarista).criterios)), ['ZAP Imóveis'], 'só o portal ligado');
+    bi.atualizarConfig({ olx: false, zap: false, vivareal: false });
+    const sem = await bi.buscarNosPortais(bi.entenderPedido(F.pedidoClienteMarista).criterios, 'x', { env: { GEMINI_API_KEY: 'k' }, fetcher: async () => assert.fail('portais desligados não chamam o Gemini') });
+    assert.equal(sem.motivo, 'desligado');
+    bi.atualizarConfig({ olx: true, zap: true, vivareal: true, limiteDia: 20 });
+    // conversa exportada com acento no nome
+    const hoje = new Date();
+    const d = `${String(hoje.getDate()).padStart(2, '0')}/${String(hoje.getMonth() + 1).padStart(2, '0')}/${hoje.getFullYear()}`;
+    const fd = new FormData();
+    fd.append('arquivo', new Blob([`${d} 08:00 - Eva: ${F.anuncioCasaMilhoes}`]), 'Conversa do WhatsApp com Imóveis São João.txt');
+    r = await fetch(`${base}/api/busca/importar-conversa`, { method: 'POST', headers: { ...H, cookie }, body: fd });
+    const imp = await r.json();
+    assert.equal(imp.grupo, 'Imóveis São João');
+    assert.equal(imp.anuncios, 1);
+    const fd2 = new FormData();
+    fd2.append('arquivo', new Blob(['x']), 'foto.jpg');
+    r = await fetch(`${base}/api/busca/importar-conversa`, { method: 'POST', headers: { ...H, cookie }, body: fd2 });
+    assert.equal(r.status, 400, 'só .txt ou .zip');
+  } finally {
+    server.close();
+  }
+});

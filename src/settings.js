@@ -82,6 +82,13 @@ const DEFAULTS = {
   // Backup semanal (domingo) enviado para o seu WhatsApp
   backupSemanalAtivo: true,
 
+  // Busca inteligente (painel › Busca e "Mensagem para mim")
+  buscaLimiteDia: 20, // buscas nos portais por dia (protege de cobrança do Gemini)
+  buscaOlx: true,
+  buscaZap: true,
+  buscaVivareal: true,
+  buscaMemoriaAtiva: true, // guardar os anúncios dos grupos
+
   // Pausa geral (para tudo que é automático)
   pausado: false
 };

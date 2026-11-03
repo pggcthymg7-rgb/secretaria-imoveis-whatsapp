@@ -93,7 +93,8 @@ function linksProntos(criterios) {
   if (c.valor_max) o.set('pe', c.valor_max);
   if (c.area_min) o.set('ss', Math.round(c.area_min));
   const olx = `https://www.olx.com.br/imoveis/${aluguel ? 'aluguel' : 'venda'}/estado-go/grande-goiania-e-anapolis/${slug(cidade)}?${o}`;
-  return { 'OLX': olx, 'ZAP Imóveis': zap, 'VivaReal': vivareal };
+  const todos = { 'olx.com.br': ['OLX', olx], 'zapimoveis.com.br': ['ZAP Imóveis', zap], 'vivareal.com.br': ['VivaReal', vivareal] };
+  return Object.fromEntries(portaisAtivos().map(d => todos[d]));
 }
 
 // ---------------------------------------------------------------------------
@@ -110,8 +111,70 @@ function registrarUso() {
   writeJson(USO_FILE, { dia: hoje(), usadas: usoHoje() + 1 });
 }
 function limiteDia(env) {
-  const n = parseInt(env.BUSCA_LIMITE_DIA || '20', 10);
+  const bruto = env.BUSCA_LIMITE_DIA !== undefined && env.BUSCA_LIMITE_DIA !== '' ? env.BUSCA_LIMITE_DIA : loadSettings().buscaLimiteDia;
+  const n = parseInt(bruto ?? '20', 10);
   return Number.isFinite(n) && n >= 0 ? n : 20;
+}
+
+// ---------------------------------------------------------------------------
+// CONFIGURAÇÃO (a mesma no painel e no "Mensagem para mim")
+// ---------------------------------------------------------------------------
+const CHAVE_PORTAL = { 'olx.com.br': 'buscaOlx', 'zapimoveis.com.br': 'buscaZap', 'vivareal.com.br': 'buscaVivareal' };
+
+function getConfig() {
+  const s = loadSettings();
+  return {
+    limiteDia: limiteDia({}),
+    olx: s.buscaOlx !== false,
+    zap: s.buscaZap !== false,
+    vivareal: s.buscaVivareal !== false,
+    memoriaAtiva: s.buscaMemoriaAtiva !== false,
+    temChaveGemini: Boolean(String(process.env.GEMINI_API_KEY || '').trim()),
+    usadasHoje: usoHoje()
+  };
+}
+
+/** Aceita { limiteDia, olx, zap, vivareal, memoriaAtiva } (valida tudo) */
+function atualizarConfig(b = {}) {
+  const { saveSettings } = require('./settings');
+  const upd = {};
+  if (b.limiteDia !== undefined && b.limiteDia !== '') {
+    const n = parseInt(b.limiteDia, 10);
+    if (!Number.isFinite(n) || n < 0 || n > 500) throw Object.assign(new Error('Limite diário deve ser de 0 a 500.'), { status: 400 });
+    upd.buscaLimiteDia = n;
+  }
+  for (const [k, key] of [['olx', 'buscaOlx'], ['zap', 'buscaZap'], ['vivareal', 'buscaVivareal'], ['memoriaAtiva', 'buscaMemoriaAtiva']]) if (b[k] !== undefined) upd[key] = Boolean(b[k]);
+  if (Object.keys(upd).length) saveSettings(upd);
+  return getConfig();
+}
+
+function portaisAtivos() {
+  const s = loadSettings();
+  return Object.keys(PORTAIS).filter(d => s[CHAVE_PORTAL[d]] !== false);
+}
+
+// ---------------------------------------------------------------------------
+// HISTÓRICO DAS BUSCAS (rever sem gastar outra busca)
+// ---------------------------------------------------------------------------
+const HIST_FILE = 'busca_historico.json';
+const HIST_MAX = 30;
+function historico() {
+  const h = readJson(HIST_FILE, []);
+  return Array.isArray(h) ? h : [];
+}
+function guardarNoHistorico(r) {
+  const h = historico();
+  const seq = h.reduce((m, x) => Math.max(m, x.id || 0), 0) + 1;
+  const item = { id: seq, ts: Date.now(), ...r, grupos: r.grupos.slice(0, 40) };
+  h.unshift(item);
+  writeJson(HIST_FILE, h.slice(0, HIST_MAX));
+  return item;
+}
+function resumoHistorico() {
+  return historico().map(x => ({ id: x.id, ts: x.ts, texto: x.texto, descricao: x.descricao, grupos: x.grupos.length, portais: (x.portais.itens || []).length, portaisOk: x.portais.ok }));
+}
+function getBusca(id) {
+  return historico().find(x => String(x.id) === String(id)) || null;
 }
 
 function portalDe(url) {
@@ -147,15 +210,15 @@ function descreverPedido(c) {
   return partes.join(', ');
 }
 
-function promptPortais(descricao, textoOriginal) {
+function promptPortais(descricao, textoOriginal, dominios = Object.keys(PORTAIS)) {
   return [
     'Você é assistente de um corretor de imóveis em Goiânia. Use a busca do Google para achar ANÚNCIOS REAIS e ATUAIS',
-    'nos portais olx.com.br, zapimoveis.com.br e vivareal.com.br que atendam a este pedido:',
+    `nos portais ${dominios.join(', ')} que atendam a este pedido:`,
     `"${descricao}"`,
     `(texto original do cliente: "${String(textoOriginal).slice(0, 300)}")`,
     '',
     'Responda SOMENTE com um bloco ```json contendo uma lista. Cada item:',
-    '{"titulo":"","portal":"OLX|ZAP Imóveis|VivaReal","link":"URL do anúncio","preco":0,"area_m2":0,"quartos":0,"bairro":"",',
+    `{"titulo":"","portal":"${dominios.map(d => PORTAIS[d]).join('|')}","link":"URL do anúncio",`+'"preco":0,"area_m2":0,"quartos":0,"bairro":"",',
     '"anunciante":"nome da imobiliária/corretor ou Particular","tipo_anunciante":"profissional|particular|desconhecido","resumo":"1 frase"}',
     'Regras: só anúncios que você viu na busca (nunca invente link); preço em reais (número); de preferência a página do anúncio,',
     'não a página de lista; no máximo 15 itens; sem repetir o mesmo imóvel em portais diferentes.'
@@ -194,7 +257,7 @@ async function abrirFontes(chunks, fetcher) {
       return { url, titulo: w.title || '' };
     })
   );
-  return res.filter(f => portalDe(f.url));
+  return res.filter(f => portalDe(f.url) && portaisAtivos().includes(portalDe(f.url)));
 }
 
 function numero(v) {
@@ -227,11 +290,13 @@ function dentroDoPedido(item, c) {
 async function buscarNosPortais(criterios, textoOriginal, { env = process.env, fetcher = fetch } = {}) {
   const key = String(env.GEMINI_API_KEY || '').trim();
   if (!key) return { ok: false, motivo: 'sem_chave', itens: [], fontesSoltas: [] };
+  const dominios = portaisAtivos();
+  if (!dominios.length) return { ok: false, motivo: 'desligado', itens: [], fontesSoltas: [] };
   if (usoHoje() >= limiteDia(env)) return { ok: false, motivo: 'limite', itens: [], fontesSoltas: [] };
   registrarUso();
   const model = env.GEMINI_BUSCA_MODEL || 'gemini-2.5-flash';
   const body = {
-    contents: [{ role: 'user', parts: [{ text: promptPortais(descreverPedido(criterios), textoOriginal) }] }],
+    contents: [{ role: 'user', parts: [{ text: promptPortais(descreverPedido(criterios), textoOriginal, dominios) }] }],
     tools: [{ google_search: {} }],
     generationConfig: { temperature: 0.2 }
   };
@@ -260,7 +325,7 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
     const link = String(it.link || '');
     const portal = portalDe(link);
     // anti-invenção: o link tem que estar entre as fontes reais da busca do Google
-    if (!portal || !fontesPorChave.has(urlChave(link))) continue;
+    if (!portal || !dominios.includes(portal) || !fontesPorChave.has(urlChave(link))) continue;
     if (!dentroDoPedido(it, criterios)) continue;
     const ch = urlChave(link);
     const fp = [Math.round(numero(it.preco) / 10000), Math.round(numero(it.area_m2) / 5), normalize(it.bairro)].join('|');
@@ -293,7 +358,10 @@ async function buscar(texto, opts = {}) {
   const { criterios, index } = entenderPedido(texto);
   const grupos = buscarNosGrupos(criterios, index);
   const portais = await buscarNosPortais(criterios, texto, opts);
-  return { criterios, descricao: descreverPedido(criterios), grupos, portais, links: linksProntos(criterios), memoria: anuncios.resumo() };
+  const r = { texto: String(texto).slice(0, 500), criterios, descricao: descreverPedido(criterios), grupos, portais, links: linksProntos(criterios), memoria: anuncios.resumo() };
+  if (opts.guardar === false) return r;
+  const { id, ts } = guardarNoHistorico(r);
+  return { id, ts, ...r };
 }
 
 const dataBR = ts => new Date(ts).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit' });
@@ -319,7 +387,7 @@ function linhaImovelPortal(p, i) {
 /** Relatório em mensagens de até ~3.500 caracteres (limite confortável do WhatsApp) */
 function formatarRelatorio(r) {
   const blocos = [];
-  blocos.push(`🔎 *BUSCA INTELIGENTE*\n_${r.descricao}_`);
+  blocos.push(`🔎 *BUSCA INTELIGENTE*${r.id ? ` nº ${r.id}` : ''}\n_${r.descricao}_`);
 
   // 1. grupos
   const mem = r.memoria;
@@ -336,7 +404,8 @@ function formatarRelatorio(r) {
   const p = r.portais;
   if (!p.ok) {
     const motivo = {
-      sem_chave: 'falta a chave do Gemini (Ajustes › Chaves › GEMINI_API_KEY).',
+      sem_chave: 'falta a chave do Gemini (painel › Busca › Configurações, ou mande *chave gemini SUA_CHAVE*).',
+      desligado: 'todos os portais estão desligados (painel › Busca, ou *portais olx zap vivareal*).',
       limite: 'limite diário de buscas atingido (protege de cobranças). Volta amanhã.',
       cota: 'a cota grátis do Google acabou por hoje.',
       erro: `o Gemini não respondeu agora${p.detalhe ? ` (${p.detalhe})` : ''}.`
@@ -365,7 +434,7 @@ function formatarRelatorio(r) {
   }
 
   // 3. links prontos
-  blocos.push(`🔗 *BUSCA PRONTA NOS PORTAIS*\n${Object.entries(r.links).map(([n, u]) => `• ${n}: ${u}`).join('\n')}`);
+  if (Object.keys(r.links).length) blocos.push(`🔗 *BUSCA PRONTA NOS PORTAIS*\n${Object.entries(r.links).map(([n, u]) => `• ${n}: ${u}`).join('\n')}`);
 
   const msgs = [];
   let atual = '';
@@ -379,4 +448,4 @@ function formatarRelatorio(r) {
   return msgs;
 }
 
-module.exports = { buscar, entenderPedido, buscarNosGrupos, buscarNosPortais, linksProntos, formatarRelatorio, descreverPedido, extrairJson, classificar, _uso: { usoHoje } };
+module.exports = { getConfig, atualizarConfig, portaisAtivos, resumoHistorico, getBusca, buscar, entenderPedido, buscarNosGrupos, buscarNosPortais, linksProntos, formatarRelatorio, descreverPedido, extrairJson, classificar, _uso: { usoHoje } };

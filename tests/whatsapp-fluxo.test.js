@@ -255,3 +255,30 @@ test('Conversa exportada mandada no "Mensagem para mim" vira anúncios', async (
   assert.match(sent[0].content.text, /Conversa "Alto Padrão" lida: 1 mensagens, \*1 anúncios\*/);
   assert.ok(anunciosMem.todos().some(a => a.grupo === 'Alto Padrão' && a.prop.valor === 2800000));
 });
+
+test('Configurações da busca pelo "Mensagem para mim" (as mesmas do painel)', async () => {
+  const bi = require('../src/busca-inteligente');
+  const cmd = async t => {
+    sent.length = 0;
+    fakeSock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: `${SELF}@s.whatsapp.net`, id: 'CF' + Math.random(), fromMe: true }, messageTimestamp: nowTs(), message: { conversation: t } }] });
+    await wait(400);
+    return sent.map(s => s.content.text).join('\n');
+  };
+  assert.match(await cmd('config busca'), /Configuração da busca/);
+  assert.match(await cmd('limite busca 30'), /até \*30\*/);
+  assert.equal(bi.getConfig().limiteDia, 30);
+  assert.match(await cmd('portais olx zap'), /OLX ✅ · ZAP ✅ · VivaReal ❌/);
+  assert.match(await cmd('portais todos'), /VivaReal ✅/);
+  assert.match(await cmd('memória desligar'), /Parei de guardar/);
+  fakeSock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: 'g2@g.us', participant: '5562911113333@s.whatsapp.net', id: 'OFF1', fromMe: false }, pushName: 'X', messageTimestamp: nowTs(), message: { conversation: F2.anuncioMaristaSemVerbo } }] });
+  await wait(300);
+  assert.ok(!anunciosMem.todos().some(a => a.id === 'g2@g.us:OFF1'), 'desligado: não guarda');
+  assert.match(await cmd('memória ligar'), /Volto a guardar/);
+  assert.match(await cmd('minhas buscas'), /nº 1/);
+  assert.match(await cmd('ver busca 1'), /BUSCA INTELIGENTE\* nº 1/);
+  assert.match(await cmd('ver busca 999'), /Não achei/);
+  assert.match(await cmd('chave gemini AIzaTesteTesteTesteTeste123'), /apague esta mensagem/);
+  assert.equal(process.env.GEMINI_API_KEY, 'AIzaTesteTesteTesteTeste123');
+  process.env.GEMINI_API_KEY = '';
+  bi.atualizarConfig({ limiteDia: 20 });
+});

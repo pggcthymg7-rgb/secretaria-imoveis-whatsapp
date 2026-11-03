@@ -82,24 +82,8 @@ const upload = multer({
   }
 });
 
-// Atualiza variáveis no .env (somente chaves permitidas e sem quebra de linha)
-const ENV_PATH = process.env.DATA_DIR ? path.join(DATA_DIR, '.env') : path.join(ROOT_DIR, '.env');
-const ENV_ALLOWED = new Set(['GEMINI_API_KEY', 'GOOGLE_SHEETS_CSV_URL', 'GOOGLE_SHEETS_WEBHOOK_URL', 'MEU_WHATSAPP_ALERTA', 'BRAVE_API_KEY', 'GOOGLE_CSE_KEY', 'GOOGLE_CSE_CX', 'META_PAGE_TOKEN', 'META_PAGE_ID', 'META_IG_USER_ID']);
-function updateEnvFile(updates) {
-  let content = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf-8') : '';
-  for (const [key, raw] of Object.entries(updates)) {
-    if (!ENV_ALLOWED.has(key)) continue;
-    const value = String(raw).replace(/[\r\n]/g, '').trim().slice(0, 500);
-    process.env[key] = value;
-    const rx = new RegExp(`^${key}=.*$`, 'm');
-    content = rx.test(content) ? content.replace(rx, () => `${key}=${value}`) : `${content}\n${key}=${value}`;
-  }
-  try {
-    fs.writeFileSync(ENV_PATH, content.trim() + '\n', { encoding: 'utf-8', mode: 0o600 });
-  } catch (err) {
-    console.error('Aviso: não consegui gravar o .env:', err.message);
-  }
-}
+// Atualiza variáveis no .env (somente chaves permitidas e sem quebra de linha) — ver src/envfile.js
+const { updateEnvFile } = require('./src/envfile');
 
 function publicConfig() {
   const s = loadSettings();
@@ -379,6 +363,82 @@ app.get('/api/prospeccao/campanha/:id', (req, res) => {
   const c = prospeccao.getCampaign(req.params.id);
   if (!c) return res.status(404).json({ error: 'Campanha não encontrada.' });
   res.json(c);
+});
+
+// ---------------------------------------------------------------------------
+// Busca inteligente (mesmas funções do "Mensagem para mim")
+// ---------------------------------------------------------------------------
+const buscaInt = require('./src/busca-inteligente');
+const anunciosMem = require('./src/anuncios');
+function estadoBusca() {
+  const imp = wa.estadoImportacao();
+  return {
+    config: buscaInt.getConfig(),
+    memoria: anunciosMem.resumo(),
+    importacao: imp ? { rodando: imp.rodando, anuncios: imp.anuncios, grupos: imp.grupos, comHistorico: imp.comHistorico, semAncora: imp.semAncora.slice(0, 20), inicio: imp.inicio, fim: imp.fim || null } : null,
+    historico: buscaInt.resumoHistorico()
+  };
+}
+async function relatorioNoWhatsApp(r) {
+  for (const parte of buscaInt.formatarRelatorio(r)) {
+    const ok = await wa.sendOwnerWhatsAppAlert(`🤖 ${parte}`);
+    if (ok && ok.ok === false) throw Object.assign(new Error(ok.error || 'WhatsApp desconectado.'), { status: 409 });
+  }
+}
+app.get('/api/busca', (req, res) => res.json(estadoBusca()));
+app.post('/api/busca', ah(async (req, res) => {
+  const texto = str(req.body?.texto, 500).trim();
+  if (texto.length < 8) return res.status(400).json({ error: 'Escreva o pedido do cliente (ex.: apto 800 mil a 1 milhão no Setor Marista, mínimo 100 m²).' });
+  const { countCriteria } = require('./src/brain/engine');
+  if (countCriteria(buscaInt.entenderPedido(texto).criterios) < 2) return res.status(400).json({ error: 'Preciso de mais detalhes: tipo, bairro, preço ou metragem.' });
+  const r = await buscaInt.buscar(texto);
+  wa.addLog('BUSCA', `🔎 Busca nº ${r.id} (painel): ${r.descricao} — ${r.grupos.length} nos grupos, ${r.portais.itens.length} nos portais.`);
+  if (req.body?.whatsapp) await relatorioNoWhatsApp(r).catch(() => {});
+  res.json({ ok: true, busca: r, estado: estadoBusca() });
+}));
+app.get('/api/busca/item/:id', (req, res) => {
+  const r = buscaInt.getBusca(req.params.id);
+  if (!r) return res.status(404).json({ error: 'Busca não encontrada.' });
+  res.json(r);
+});
+app.post('/api/busca/item/:id/whatsapp', ah(async (req, res) => {
+  const r = buscaInt.getBusca(req.params.id);
+  if (!r) return res.status(404).json({ error: 'Busca não encontrada.' });
+  await relatorioNoWhatsApp(r);
+  res.json({ ok: true });
+}));
+app.post('/api/busca/config', (req, res) => {
+  const b = req.body || {};
+  if (typeof b.geminiApiKey === 'string' && b.geminiApiKey.trim()) {
+    const k = b.geminiApiKey.trim();
+    if (!/^[\w-]{20,200}$/.test(k)) return res.status(400).json({ error: 'Chave do Gemini inválida.' });
+    updateEnvFile({ GEMINI_API_KEY: k });
+  }
+  res.json({ ok: true, config: buscaInt.atualizarConfig(b), estado: estadoBusca() });
+});
+app.post('/api/busca/importar-historico', ah(async (req, res) => {
+  await wa.importarHistoricoGrupos({
+    onFim: e => wa.sendOwnerWhatsAppAlert(`🤖 📥 *Histórico importado*\n${e.anuncios} anúncios de ${e.comHistorico} de ${e.grupos} grupos.`).catch(() => {})
+  });
+  res.json({ ok: true, estado: estadoBusca() });
+}));
+const conversaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 40 * 1024 * 1024, files: 1 } });
+app.post('/api/busca/importar-conversa', (req, res) => {
+  conversaUpload.single('arquivo')(req, res, err => {
+    if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Arquivo grande demais (máximo 40 MB).' : 'Envio inválido.' });
+    if (!req.file || !/\.(txt|zip)$/i.test(req.file.originalname || '')) return res.status(400).json({ error: 'Envie a conversa exportada (.txt ou .zip).' });
+    try {
+      // o navegador manda o nome em UTF-8, mas o multer lê como latin1 ("PadrÃ£o")
+      let nome = String(req.file.originalname || '');
+      const utf8 = Buffer.from(nome, 'latin1').toString('utf8');
+      if (!utf8.includes('\uFFFD')) nome = utf8;
+      const r = anunciosMem.importarExportacao(req.file.buffer, nome);
+      wa.addLog('BUSCA', `📥 Conversa exportada "${r.grupo}" (painel): ${r.anuncios} anúncios de ${r.lidas} mensagens.`);
+      res.json({ ok: true, ...r, estado: estadoBusca() });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
