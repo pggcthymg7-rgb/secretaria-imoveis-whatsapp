@@ -611,6 +611,16 @@
           <div class="row"><button class="btn-primary" data-action="salvarBuscaCfg">Salvar configurações</button></div>
         </div>
       </div></section>
+      <section class="section"><div class="container stack reveal" id="buscaGrupos">
+        <span class="label">Grupos da busca (de onde guardo anúncios, importo o histórico e faço as buscas)</span>
+        <p class="caption">São separados dos grupos de pedidos (Ajustes). Conversas exportadas que você mandar sempre entram.</p>
+        ${toggle('todosGrupos', c.todosGrupos !== false, 'Usar todos os grupos', 'Desligue para escolher só alguns.')}
+        <div ${c.todosGrupos !== false ? 'hidden' : ''} id="escolhaGrupos">
+          ${groupSearch('bg', (b.grupos || []).length)}
+          <div class="chips scroll" data-filter="bg">${(b.grupos || []).length ? b.grupos.map(g => toggle(`bg:${g.id}`, g.naBusca && c.todosGrupos === false, `${g.subject} · ${g.participantsCount}`)).join('') : '<span class="body ash">Conecte o WhatsApp para listar os grupos.</span>'}</div>
+        </div>
+        <div class="row"><button class="btn-primary" data-action="salvarBuscaGrupos">Salvar grupos da busca</button></div>
+      </div></section>
       <section class="section"><div class="container"><span class="label reveal">Últimas buscas</span>
         <div class="list">${(b.historico || []).length ? b.historico.map(h => `<div class="item reveal row between"><div><p class="body"><b>nº ${esc(h.id)}</b> · ${esc(h.descricao)}</p><p class="caption">${esc(when(h.ts))} · ${h.grupos} nos grupos · ${h.portaisOk ? `${h.portais} nos portais` : 'portais não consultados'}</p></div><div class="row tight"><button class="btn-ghost accent" data-action="verBusca" data-id="${esc(h.id)}">Ver</button><button class="btn-ghost" data-action="buscaWhats" data-id="${esc(h.id)}">WhatsApp</button></div></div>`).join('') : '<div class="card"><p class="body muted">Nenhuma busca ainda.</p></div>'}</div>
       </div></section>`);
@@ -719,7 +729,8 @@
     shell(`
       ${header('Ajustes', 'Configurações', 'Grupos de busca, número de alerta, inteligência artificial, planilha e segurança.')}
       <section class="section"><div class="container stack" id="cfgForm">
-        <span class="label">Grupos de busca (onde a BIGA lê os pedidos)</span>
+        <span class="label">Grupos de pedidos (onde a BIGA lê os pedidos e oferece a sua carteira)</span>
+        <p class="caption">Os grupos da <b>Busca inteligente</b> são escolhidos à parte, na página Busca.</p>
         ${groupSearch('mg', groups.length)}
         <div class="chips scroll" data-filter="mg">${groups.length ? groups.map(g => toggle(`mg:${g.id}`, g.monitored, `${g.subject} · ${g.participantsCount}`)).join('') : '<span class="body ash">Conecte o WhatsApp para listar os grupos.</span>'}</div>
         <div class="row tight"><button class="btn-ghost" data-action="refreshGroups">Atualizar lista de grupos</button></div>
@@ -821,7 +832,7 @@
       // mesma página: tudo aparece na hora, números já no valor final
       $$('.reveal').forEach(el => el.classList.add('in'));
       $$('.stat .n[data-count]').forEach(el => (el.textContent = Number(el.dataset.count) || 0));
-      ['vit', 'mg'].forEach(applyGroupFilter);
+      ['vit', 'mg', 'bg'].forEach(applyGroupFilter);
       return;
     }
     io = new IntersectionObserver(entries => {
@@ -848,7 +859,7 @@
       };
       requestAnimationFrame(step);
     });
-    ['vit', 'mg'].forEach(applyGroupFilter);
+    ['vit', 'mg', 'bg'].forEach(applyGroupFilter);
   }
 
   // Cortina circular entre páginas (sai do ponto do clique)
@@ -963,6 +974,15 @@
       }
       if (r.estado.importacao && $('#impAndamento')) $('#impAndamento').textContent = textoAndamento(r.estado.importacao);
       acompanharImportacao();
+    },
+    salvarBuscaGrupos: async () => {
+      const f = formData($('#buscaGrupos'));
+      const gruposIds = Object.keys(f).filter(k => k.startsWith('bg:') && f[k]).map(k => k.slice(3));
+      if (!f.todosGrupos && !gruposIds.length) return toast('Marque pelo menos um grupo (ou ligue "Usar todos os grupos").', true);
+      const r = await api('POST', '/api/busca/config', f.todosGrupos ? { todosGrupos: true } : { gruposIds });
+      S.busca = r.estado;
+      toast(f.todosGrupos ? 'Busca em todos os grupos.' : `Busca em ${gruposIds.length} grupo(s).`);
+      render();
     },
     salvarBuscaCfg: async () => {
       const f = formData($('#buscaCfg'));
@@ -1290,6 +1310,11 @@
       }
       if (k.startsWith('g:')) applyGroupFilter('vit');
       if (k.startsWith('mg:')) applyGroupFilter('mg');
+      if (k.startsWith('bg:')) applyGroupFilter('bg');
+      if (k === 'todosGrupos' && $('#escolhaGrupos')) {
+        $('#escolhaGrupos').hidden = on;
+        applyGroupFilter('bg');
+      }
       if (k === 'pausado' && ['hoje', 'geral'].includes(S.route)) {
         try {
           await saveConfig({ pausado: on }, on ? 'BIGA pausada.' : 'BIGA de volta ao trabalho!');

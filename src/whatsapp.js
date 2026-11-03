@@ -486,6 +486,7 @@ function anotarAncora(msg) {
 async function guardarAnuncioDoGrupo(msg, origem = 'ao vivo') {
   if (msg.key.fromMe) return null;
   if (origem === 'ao vivo' && loadSettings().buscaMemoriaAtiva === false) return null; // desligado em Busca › Configurações
+  if (!require('./busca-inteligente').grupoNaBusca(msg.key.remoteJid)) return null; // grupo fora da lista da busca
   const texto = extractText(msg);
   if (!texto || texto.trim().length < 20 || !anuncios.pareceAnuncio(texto)) return null;
   const g = msg.key.remoteJid;
@@ -541,8 +542,9 @@ async function importarHistoricoGrupos({ onFim, pausaMs = 1500, esperaMs = 25000
   importacao = { rodando: true, inicio: Date.now(), grupos: 0, comHistorico: 0, anuncios: 0, semAncora: [], pedidos: 0 };
   const estado = importacao;
   (async () => {
-    const lista = [...connectedGroups];
-    for (const id of Object.keys(ancoras)) if (!lista.some(g => g.id === id)) lista.push({ id, subject: id });
+    const naBusca = require('./busca-inteligente').grupoNaBusca;
+    const lista = connectedGroups.filter(g => naBusca(g.id));
+    for (const id of Object.keys(ancoras)) if (naBusca(id) && !lista.some(g => g.id === id)) lista.push({ id, subject: id });
     estado.total = lista.length;
     estado.vistos = 0;
     for (const g of lista) {
@@ -764,7 +766,7 @@ async function startWhatsAppAgent() {
           await assistant.handleOwnerMessage(
             { sendText, sendImage, sendPdf },
             { chatJid: remoteJid, text, hasImage, downloadImage: () => downloadImageToFotos(msg) },
-            { approveAlert, log: addLog, sendBackup, importarHistorico: onFim => importarHistoricoGrupos({ onFim }), estadoImportacao }
+            { approveAlert, log: addLog, sendBackup, importarHistorico: onFim => importarHistoricoGrupos({ onFim }), estadoImportacao, listarGrupos: () => connectedGroups }
           );
           continue;
         }
