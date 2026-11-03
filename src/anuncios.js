@@ -126,7 +126,7 @@ function resumo() {
 // Conversa exportada do WhatsApp ("Exportar conversa" -> "Sem mídia")
 // Android: "03/11/2026 14:05 - Nome: texto"   iOS: "[03/11/2026, 14:05:33] Nome: texto"
 // ---------------------------------------------------------------------------
-const LINHA = /^‎?\[?(\d{1,2})\/(\d{1,2})\/(\d{2,4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(?:[AP]M)?\]?\s*(?:-\s*)?([^:]{1,80}?):\s([\s\S]*)$/;
+const LINHA = /^‎?\[?(\d{1,2})\/(\d{1,2})\/(\d{2,4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]M)?\]?\s*(?:-\s*)?([^:]{1,80}?):\s([\s\S]*)$/;
 
 function lerExportacao(conteudo) {
   const msgs = [];
@@ -135,7 +135,10 @@ function lerExportacao(conteudo) {
     const m = linha.match(LINHA);
     if (m) {
       if (atual) msgs.push(atual);
-      let [, d, mo, a, h, mi, s, autor, texto] = m;
+      let [, d, mo, a, h, mi, s, ampm, autor, texto] = m;
+      h = Number(h);
+      if (ampm === 'PM' && h < 12) h += 12; // exportação em inglês: "1:05 PM"
+      if (ampm === 'AM' && h === 12) h = 0;
       a = Number(a) < 100 ? 2000 + Number(a) : Number(a);
       const ts = new Date(a, Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || 0)).getTime();
       atual = { ts, autor: autor.replace(/^‎/, '').trim(), texto };
@@ -199,7 +202,8 @@ function importarExportacao(buf, nomeArquivo) {
   const msgs = lerExportacao(conteudo);
   let n = 0;
   for (const m of msgs) {
-    const id = `exp:${normalize(grupo)}:${m.ts}:${normalize(m.autor)}:${m.texto.length}`;
+    // hash do texto: duas mensagens diferentes do mesmo autor no mesmo minuto não se confundem
+    const id = `exp:${normalize(grupo)}:${m.ts}:${normalize(m.autor)}:${require('crypto').createHash('sha1').update(m.texto).digest('hex').slice(0, 12)}`;
     if (registrar({ id, ts: m.ts, texto: m.texto, grupo, grupoId: `exp:${normalize(grupo)}`, autor: m.autor, telefone: /^\+?\d[\d\s()-]{9,}$/.test(m.autor) ? m.autor : '', origem: 'conversa exportada' })) n++;
   }
   persist(true);
