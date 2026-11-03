@@ -15,8 +15,14 @@ const { FOTOS_DIR } = require('./src/paths');
 
 function isLegacyFakeTestProperty(prop) {
   const fotosStr = Array.isArray(prop.fotos) ? prop.fotos.join(';') : String(prop.fotos || '');
-  if (fotosStr.includes('images.unsplash.com')) return true;
-  return false;
+  // compara o DOMÍNIO da foto (não um pedaço do texto): "x.com/?u=images.unsplash.com" não conta
+  return fotosStr.split(';').some(f => {
+    try {
+      return new URL(f.trim()).hostname === 'images.unsplash.com';
+    } catch {
+      return false;
+    }
+  });
 }
 
 async function syncFromCloud() {
@@ -93,4 +99,5 @@ async function syncFromCloud() {
   }
 }
 
-syncFromCloud();
+if (require.main === module) syncFromCloud();
+module.exports = { isLegacyFakeTestProperty };

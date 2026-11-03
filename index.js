@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const QRCode = require('qrcode');
 
@@ -28,6 +29,18 @@ const sistema = require('./src/sistema');
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
+// Limite geral por IP (o login tem o seu, mais rígido, em auth.js). /ping e /health ficam de fora: são para monitor.
+// RATE_LIMIT_MAX muda o teto por minuto (o painel faz poucas chamadas; 600/min é bem folgado).
+app.use(
+  rateLimit({
+    windowMs: 60 * 1000,
+    limit: Number(process.env.RATE_LIMIT_MAX) || 600,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    skip: req => req.path === '/ping' || req.path === '/health',
+    message: { error: 'Muitas requisições. Aguarde um minuto.' }
+  })
+);
 app.use(express.json({ limit: '1mb' }));
 
 // Cabeçalhos de segurança
