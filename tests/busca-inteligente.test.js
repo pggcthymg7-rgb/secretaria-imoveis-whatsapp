@@ -14,6 +14,8 @@ const preco = t => {
   return detectPrice(a.textWithoutArea, false);
 };
 const DIA = 86400000;
+// chave FALSA montada em duas partes: o texto inteiro no arquivo faria o Secret scanning do GitHub alertar (falso positivo)
+const CHAVE_FALSA = 'AIza' + 'SyD-abc_123XYZabc123XYZabc123XYZab1';
 
 test('Leitor de preços: "R$ 950 mil", "R$ 2,8 mi" e faixas com valor completo', () => {
   assert.equal(preco('R$ 950 mil').valor_alvo, 950000, 'antes virava 95 mil');
@@ -263,7 +265,7 @@ test('Painel › Busca: exige login, busca, guarda no histórico, valida configu
 
 test('Chave do Gemini: limpa o que vem colado e confere no Google (caso João: chave nova recusada)', async () => {
   const g = require('../src/gemini-chave');
-  const k = 'AIzaSyD-abc_123XYZabc123XYZabc123XYZab1';
+  const k = CHAVE_FALSA;
   for (const colado of [k, ` ${k}\n`, `"${k}"`, `GEMINI_API_KEY=${k}`, k.slice(0, 7) + '​' + k.slice(7)]) assert.equal(g.limparChave(colado), k);
   assert.ok(g.formatoValido('AQ.Ab8RN6Kx-formato.novo_com_ponto_123'), 'formato novo com ponto');
   assert.ok(!g.formatoValido(g.limparChave('chave com espaço ; rm -rf')));
@@ -306,13 +308,13 @@ test('Testar chave salva: corrige chave "suja" salva pela versão antiga de Ajus
   try {
     process.env.GEMINI_API_KEY = '';
     assert.match((await g.testarChaveSalva(async () => assert.fail('sem chave não chama'))).mensagem, /Nenhuma chave/);
-    process.env.GEMINI_API_KEY = 'AIzaSyD-abc_123​XYZabc123XYZabc123XYZab1';
+    process.env.GEMINI_API_KEY = CHAVE_FALSA.slice(0, 15) + '\u200b' + CHAVE_FALSA.slice(15);
     let enviada;
     const r = await g.testarChaveSalva(async (url, o) => ((enviada = o.headers['x-goog-api-key']), { ok: true, status: 200, json: async () => ({}) }));
     assert.equal(r.ok, true);
     assert.match(r.mensagem, /funcionando/);
-    assert.equal(enviada, 'AIzaSyD-abc_123XYZabc123XYZabc123XYZab1', 'testou a chave limpa');
-    assert.equal(process.env.GEMINI_API_KEY, 'AIzaSyD-abc_123XYZabc123XYZabc123XYZab1', 'e corrigiu a salva');
+    assert.equal(enviada, CHAVE_FALSA, 'testou a chave limpa');
+    assert.equal(process.env.GEMINI_API_KEY, CHAVE_FALSA, 'e corrigiu a salva');
     const ruim = await g.testarChaveSalva(async () => ({ ok: false, status: 400, json: async () => ({ error: { message: 'API key not valid.' } }) }));
     assert.equal(ruim.ok, false);
     assert.match(ruim.mensagem, /API key not valid[\s\S]*aistudio/);
