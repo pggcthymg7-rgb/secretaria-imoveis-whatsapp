@@ -10,7 +10,7 @@ BIGA é a secretária do João (corretor em Goiânia). Ela fica conectada ao Wha
 ## Status (01/11/2026)
 - **No ar** na VM Oracle grátis: https://147-15-87-168.sslip.io — WhatsApp CONECTADO.
 - Código final em `main` (bde3762, v4.1). A VM se atualiza sozinha ~04:15 e, a partir de 02/11, também pelo botão "Atualizar agora" (Ajustes › Sistema) ou pelo comando `atualizar`.
-- Testes: 66/66 passando (`npm run verify`) — com o mapa OSM agora versionado (ver sessão 01/11 abaixo).
+- Testes: 80/80 passando (`npm run verify`) — com o mapa OSM agora versionado (ver sessão 01/11 abaixo).
 - **Falta o João:** suspender o Render; colocar a chave Brave/Google e o token Meta no Garimpo.
 
 ## Decisões importantes
@@ -55,6 +55,14 @@ Fomos por ciclos `/resolver-tudo`: bug real → caso no fixture → correção �
 
 ## 03/11/2026 — BIGA da Laura conectada mas não respondia `ajuda`
 - Causa não confirmada (sem acesso aos logs dela). Reforços em `src/whatsapp.js`: `isOwnerChatAsync` (reconhece "Mensagem para mim" que vem só por LID, resolvendo o LID → número); comando recente (≤ 2 min) que chega como `append` é atendido; registros `ASSISTENTE` explicam por que um comando foi ignorado (chat não reconhecido, mensagem antiga, assistente desligada, mensagem ilegível de aparelho novo). Ver "Atividade" na página inicial do painel.
+
+## Busca inteligente (03/11/2026) — `busca <pedido do cliente>` no "Mensagem para mim"
+- Ponto de restauração antes dela: branch `restauracao/v4.3-funcionando` (0c53019). O GitHub recusou o push da tag (proxy da sessão), por isso é um branch.
+- `src/anuncios.js`: memória de ANÚNCIOS dos grupos (90 dias, máx. 15 mil, `anuncios.json`). Fontes: ao vivo (todos os grupos, sem mudar o fluxo de pedidos), histórico pedido ao celular (`importar histórico` → `sock.fetchMessageHistory(50, âncora, tsMs)`; âncoras em `ancoras_grupos.json`; só funciona com o celular online) e conversa exportada .txt/.zip mandada no "Mensagem para mim" (leitor de zip próprio, sem dependência nova).
+- `src/busca-inteligente.js`: entende o pedido com o mesmo `parseRequest`; grupos via `evaluateProperty` (junta o mesmo imóvel de vários grupos por impressão digital); portais via Gemini + `google_search` (chave `GEMINI_API_KEY`, no cabeçalho). **Anti-invenção:** só entra item cujo link está nas fontes do `groundingMetadata` (redirect aberto só se o host for vertexaisearch.cloud.google.com). Limite diário `BUSCA_LIMITE_DIA` (padrão 20, em `busca_inteligente.json`). Profissional × particular: OLX pelo anúncio; ZAP/VivaReal é estimativa. Sempre manda links prontos (ZAP, VivaReal, OLX) com os filtros.
+- Corrigido no leitor de preços (afetava também os pedidos dos grupos): "R$ 950 mil" virava 95 mil; "R$ 2,8 mi" virava 2 mi; "de 800 mil a 1.000.000,00" e "entre R$ 900.000 e R$ 1,2 mi" não viravam faixa; "de 1,2 a 1,5 milhão" virava 1.200 reais.
+- Comandos novos: `busca …`, `importar histórico`, `memória`. Casos reais em `tests/fixtures-mensagens-reais.js`; testes em `tests/busca-inteligente.test.js` e `tests/whatsapp-fluxo.test.js`.
+- **Não testado com WhatsApp/Gemini reais.** Custo do Google Search no Gemini: conferir no AI Studio (fontes divergem). Ao pôr a chave, o reforço de lugares por IA nos pedidos (`usarIaGemini`, já existia) também liga — dá para desligar em Ajustes.
 
 ## Próximos passos (BACKLOG_TAREFAS.md)
 1. ~~Confirmar atualização pelo celular~~ — feito em 01/11 (df28ac1).

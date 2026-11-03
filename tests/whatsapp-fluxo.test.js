@@ -39,7 +39,7 @@ require.cache[baileysPath] = {
     useMultiFileAuthState: async () => ({ state: {}, saveCreds: () => {} }),
     DisconnectReason: { loggedOut: 401, timedOut: 408, restartRequired: 515 },
     fetchLatestBaileysVersion: async () => ({ version: [2, 3000, 0] }),
-    downloadMediaMessage: async () => Buffer.from([0xff, 0xd8, 0xff])
+    downloadMediaMessage: async m => (m.message && m.message.documentMessage ? Buffer.from(m._conteudo || '') : Buffer.from([0xff, 0xd8, 0xff]))
   }
 };
 
@@ -185,4 +185,73 @@ test('Comando recente que chega como "append" é atendido; antigo não; e fica r
   fakeSock.ev.emit('messages.upsert', { type: 'append', messages: [{ key: { remoteJid: '5562977776666@s.whatsapp.net', id: 'A3', fromMe: true }, messageTimestamp: nowTs(), message: { conversation: 'ajuda' } }] });
   await wait(300);
   assert.equal(sent.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Busca inteligente (memória de anúncios, histórico, conversa exportada, comando "busca")
+const anunciosMem = require('../src/anuncios');
+const F2 = require('./fixtures-mensagens-reais');
+
+test('Anúncio postado em QUALQUER grupo vai para a memória (sem mudar o fluxo de pedidos)', async () => {
+  anunciosMem._reset();
+  sent.length = 0;
+  fakeSock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: 'g2@g.us', participant: '777@lid', participantAlt: '5562988887777@s.whatsapp.net', id: 'AN1', fromMe: false }, pushName: 'Ana Corretora', messageTimestamp: nowTs(), message: { conversation: F2.anuncioMarista950 } }] });
+  await wait(300);
+  const a = anunciosMem.todos().find(x => x.id === 'g2@g.us:AN1');
+  assert.ok(a, 'anúncio guardado');
+  assert.equal(a.telefone, '5562988887777');
+  assert.equal(a.autor, 'Ana Corretora');
+  assert.equal(sent.length, 0, 'anúncio não gera mensagem para ninguém');
+});
+
+test('Comando "busca" no "Mensagem para mim" responde com o relatório; anotação "busca o João…" é ignorada', async () => {
+  sent.length = 0;
+  fakeSock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: `${SELF}@s.whatsapp.net`, id: 'BI1', fromMe: true }, messageTimestamp: nowTs(), message: { conversation: 'busca ' + F2.pedidoClienteMarista } }] });
+  await wait(1500);
+  assert.match(sent[0].content.text, /Buscando/);
+  const relatorio = sent.slice(1).map(s => s.content.text).join('\n');
+  assert.match(relatorio, /BUSCA INTELIGENTE/);
+  assert.match(relatorio, /Ana Corretora \(wa\.me\/5562988887777\)/);
+  assert.match(relatorio, /BUSCA PRONTA NOS PORTAIS/);
+  sent.length = 0;
+  fakeSock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: `${SELF}@s.whatsapp.net`, id: 'BI2', fromMe: true }, messageTimestamp: nowTs(), message: { conversation: 'busca o João no aeroporto amanhã cedo' } }] });
+  await wait(300);
+  assert.equal(sent.length, 0);
+});
+
+test('Importar histórico: pede ao celular 50 por vez a partir da mensagem mais antiga e guarda os anúncios antigos', async () => {
+  const pedidos = [];
+  const velho = nowTs() - 10 * 86400;
+  fakeSock.fetchMessageHistory = async (n, key, tsMs) => {
+    pedidos.push({ n, key, tsMs });
+    // o celular responde com mensagens mais antigas (só na 1ª vez; depois não tem mais nada)
+    if (key.remoteJid === 'g2@g.us' && key.id === 'AN1') {
+      setTimeout(() => fakeSock.ev.emit('messaging-history.set', { messages: [
+        { key: { remoteJid: 'g2@g.us', participant: '5562911112222@s.whatsapp.net', id: 'OLD1', fromMe: false }, pushName: 'Beto', messageTimestamp: velho, message: { conversation: F2.anuncioMaristaSemVerbo } },
+        { key: { remoteJid: 'g2@g.us', participant: '5562911112222@s.whatsapp.net', id: 'OLD2', fromMe: false }, messageTimestamp: velho - 60, message: { conversation: 'bom dia' } }
+      ] }), 20);
+    }
+    return 'ok';
+  };
+  const fim = new Promise(r => wa.importarHistoricoGrupos({ onFim: r, pausaMs: 0, esperaMs: 200 }));
+  const e = await fim;
+  const doG2 = pedidos.filter(p => p.key.remoteJid === 'g2@g.us');
+  assert.ok(doG2.length >= 2);
+  assert.equal(doG2[0].n, 50);
+  assert.equal(doG2[0].key.id, 'AN1', 'começa pela mensagem mais antiga conhecida do grupo');
+  assert.equal(doG2[1].key.id, 'OLD2', 'depois continua de onde parou');
+  assert.ok(anunciosMem.todos().some(a => a.id === 'g2@g.us:OLD1' && a.origem === 'histórico'));
+  assert.equal(e.anuncios, 1);
+  assert.ok(Array.isArray(e.semAncora));
+  assert.equal(e.rodando, false);
+});
+
+test('Conversa exportada mandada no "Mensagem para mim" vira anúncios', async () => {
+  sent.length = 0;
+  const hoje = new Date();
+  const d = `${String(hoje.getDate()).padStart(2, '0')}/${String(hoje.getMonth() + 1).padStart(2, '0')}/${hoje.getFullYear()}`;
+  fakeSock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: `${SELF}@s.whatsapp.net`, id: 'DOC1', fromMe: true }, messageTimestamp: nowTs(), message: { documentMessage: { fileName: 'Conversa do WhatsApp com Alto Padrão.txt', fileLength: 200 } }, _conteudo: `${d} 08:00 - Duda: ${F2.anuncioCasaMilhoes}` }] });
+  await wait(400);
+  assert.match(sent[0].content.text, /Conversa "Alto Padrão" lida: 1 mensagens, \*1 anúncios\*/);
+  assert.ok(anunciosMem.todos().some(a => a.grupo === 'Alto Padrão' && a.prop.valor === 2800000));
 });
