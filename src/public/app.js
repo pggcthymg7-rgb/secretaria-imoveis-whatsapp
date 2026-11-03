@@ -969,7 +969,7 @@
       if (!f.geminiApiKey) delete f.geminiApiKey;
       const r = await api('POST', '/api/busca/config', f);
       S.busca = r.estado;
-      toast('Configurações da busca salvas.');
+      toast(r.chaveMsg || 'Configurações da busca salvas.');
       render();
     },
     atualizarAgora: async () => {

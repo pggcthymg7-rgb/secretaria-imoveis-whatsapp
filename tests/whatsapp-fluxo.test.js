@@ -277,7 +277,15 @@ test('Configurações da busca pelo "Mensagem para mim" (as mesmas do painel)', 
   assert.match(await cmd('minhas buscas'), /nº 1/);
   assert.match(await cmd('ver busca 1'), /BUSCA INTELIGENTE\* nº 1/);
   assert.match(await cmd('ver busca 999'), /Não achei/);
-  assert.match(await cmd('chave gemini AIzaTesteTesteTesteTeste123'), /apague esta mensagem/);
+  const fetchReal = global.fetch;
+  global.fetch = async url => (/generativelanguage/.test(String(url)) ? { ok: true, status: 200, json: async () => ({ models: [] }) } : fetchReal(url));
+  try {
+    assert.match(await cmd('chave gemini AIzaTesteTesteTesteTeste123'), /funcionando[\s\S]*apague esta mensagem/);
+    global.fetch = async () => ({ ok: false, status: 400, json: async () => ({ error: { message: 'API key not valid.' } }) });
+    assert.match(await cmd('chave gemini AIzaOutraChaveErradaErrada9'), /Não salvei: O Google recusou a chave \(400: API key not valid/);
+  } finally {
+    global.fetch = fetchReal;
+  }
   assert.equal(process.env.GEMINI_API_KEY, 'AIzaTesteTesteTesteTeste123');
   process.env.GEMINI_API_KEY = '';
   bi.atualizarConfig({ limiteDia: 20 });
