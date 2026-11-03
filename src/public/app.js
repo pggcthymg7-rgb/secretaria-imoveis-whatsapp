@@ -596,7 +596,7 @@
           <p class="body muted">Guardo sozinha todo anúncio que aparece nos seus grupos. Para trazer os <b>anúncios antigos</b>:</p>
           <p class="body"><b>1.</b> Peça ao seu celular (deixe-o ligado e com internet):</p>
           <div class="row tight"><button class="btn-ghost accent" id="btnImportar" data-action="importarHistorico" ${imp && imp.rodando ? 'disabled' : ''}>${imp && imp.rodando ? 'Importando…' : 'Importar histórico dos grupos'}</button></div>
-          <p class="caption" id="impAndamento">${imp && imp.rodando ? textoAndamento(imp) : ''}</p>
+          <p class="caption" id="impAndamento">${imp && imp.rodando ? esc(textoAndamento(imp)) : ''}</p>
           ${imp && !imp.rodando && imp.fim ? `<p class="caption">Última importação: ${imp.anuncios} anúncios de ${imp.comHistorico} de ${imp.grupos} grupos (${esc(when(imp.fim))}).${imp.semAncora.length ? ` Sem mensagem recente para começar: ${esc(imp.semAncora.slice(0, 5).join(', '))}${imp.semAncora.length > 5 ? '…' : ''} — exporte a conversa desses.` : ''}</p>` : ''}
           <p class="body"><b>2.</b> Ou mande a conversa exportada de um grupo (WhatsApp › grupo › Exportar conversa › Sem mídia):</p>
           <div class="row tight"><label class="btn-ghost accent" style="cursor:pointer">Escolher arquivo (.txt ou .zip)<input type="file" id="conversaInput" accept=".txt,.zip,text/plain,application/zip" hidden></label></div>
