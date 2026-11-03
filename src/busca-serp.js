@@ -77,7 +77,8 @@ function consultaSite(portal, t) {
 
 /** Consulta solta (sem aspas nem caminho): usada quando a precisa não acha nada */
 function consultaSolta(portal, t) {
-  return [`site:${portal}`, t.tipo, t.local, t.cidade, t.aluguel ? 'aluguel' : 'venda'].filter(Boolean).join(' ');
+  const base = { 'olx.com.br': 'site:go.olx.com.br', 'zapimoveis.com.br': 'site:zapimoveis.com.br/imovel', 'vivareal.com.br': 'site:vivareal.com.br/imovel' }[portal] || `site:${portal}`;
+  return [base, t.tipo, t.local, t.cidade, t.aluguel ? 'aluguel' : 'venda'].filter(Boolean).join(' ');
 }
 
 /** Consulta em texto simples (Tavily é semântico: o domínio vai em include_domains) */

@@ -21,6 +21,7 @@ const { loadSettings } = require('./settings');
 const anuncios = require('./anuncios');
 const { normalizarFiltros, preenchidos } = require('./busca-filtros');
 const serp = require('./busca-serp');
+const leitor = require('./busca-anuncio');
 const { curar } = require('./busca-curadoria');
 const { buscarApify, apifyConfigurado } = require('./busca-apify');
 const links = require('./busca-links');
@@ -45,6 +46,9 @@ function entenderPedido(texto) {
   const index = getIndex();
   const c = parseRequest(texto, { index });
   c.intent = 'BUSCA';
+  // o cérebro erra uma letra ("Goiânia" -> Goianira): na busca só vale a cidade que está escrita no texto
+  const escrito = ` ${normalize(texto)} `;
+  c.local.cidades = c.local.cidades.filter(x => escrito.includes(` ${normalize(x)} `));
   return { criterios: c, index };
 }
 
@@ -379,6 +383,7 @@ function dentroDoPedido(item, c) {
   if (area && c.area_max && area > c.area_max * 1.05) return false;
   if (item.quartos && c.quartos_min && numero(item.quartos) < c.quartos_min) return false;
   if (item.suites && c.suites_min && numero(item.suites) < c.suites_min) return false;
+  if (item.vagas && c.vagas_min && numero(item.vagas) < c.vagas_min) return false;
   return true;
 }
 
@@ -402,7 +407,7 @@ function finalizarItens(brutos, { permitidos, dominios, criterios, certeza }) {
     if (vistos.has(ch) || (numero(it.preco) && numero(it.area_m2) && impressoes.has(fp))) continue;
     vistos.add(ch);
     impressoes.add(fp);
-    const cl = classificar(it, portal);
+    const cl = it.tipo_exato ? { tipo: it.tipo_exato, certeza: 'anúncio' } : classificar(it, portal);
     itens.push({
       titulo: String(it.titulo || '').slice(0, 140),
       portal: PORTAIS[portal],
@@ -410,6 +415,9 @@ function finalizarItens(brutos, { permitidos, dominios, criterios, certeza }) {
       preco: numero(it.preco),
       area: numero(it.area_m2),
       quartos: numero(it.quartos),
+      suites: numero(it.suites),
+      vagas: numero(it.vagas),
+      conferir: Array.isArray(it.conferir) ? it.conferir.slice(0, 4) : [],
       bairro: String(it.bairro || '').slice(0, 60),
       anunciante: String(it.anunciante || '').slice(0, 80),
       resumo: String(it.resumo || '').slice(0, 200),
@@ -548,34 +556,56 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
         diagBusca = Object.entries(r.diag || {}).map(([d, v]) => `${(serp.PORTAIS[d] || d)}: ${v.brutos} páginas, ${v.anuncios} anúncios${!v.anuncios && v.descartadas && v.descartadas.length ? ` (ex.: ${v.descartadas.join(' , ')})` : ''}`).join(' · ');
         const permitidos = new Set(r.catalogo.map(x => urlChave(x.url))); // urlsPermitidas
         const porId = new Map(r.catalogo.map(x => [x.id, x]));
+        // Passo 1.5 — leitura do anúncio (grátis, sem IA): OLX pela página, ZAP/VivaReal pelo endereço
+        const lei = await leitor.lerAnuncios({ catalogo: r.catalogo, criterios, fetcher, portalDaUrl: serp.portalDaUrl, ehPaginaDeAnuncio: serp.ehPaginaDeAnuncio, abrirPaginas: env.BUSCA_LER_PAGINAS !== '0' });
+        if (lei.lidas) via.push(`leitura de ${lei.lidas} anúncio${lei.lidas > 1 ? 's' : ''}`);
+        diagBusca += `${diagBusca ? ' · ' : ''}lidos ${lei.lidas}, reprovados ${lei.descartados.size}${lei.falhas ? `, ${lei.falhas} sem leitura` : ''}`;
+        const brutosLidos = lei.decididos.map(({ cat, dados, conferir, tipoExato }) => ({
+          link: cat.url,
+          titulo: dados.titulo || cat.titulo,
+          preco: dados.preco,
+          area_m2: dados.area,
+          quartos: dados.quartos,
+          suites: dados.suites,
+          vagas: dados.vagas,
+          bairro: dados.bairro,
+          anunciante: dados.anunciante,
+          tipo_exato: tipoExato,
+          conferir,
+          resumo: ''
+        }));
+        const lidos = finalizarItens(brutosLidos, { permitidos, dominios, criterios, certeza: 'anúncio' });
+        todos.push(...lidos.itens);
+        const resolvidos = new Set([...lidos.vistos, ...[...lei.descartados].map(id => urlChave(porId.get(id).url))]);
+        const aCurar = lei.aCurar;
         const chave = require('./gemini-chave').limparChave(env.GEMINI_API_KEY);
-        if (r.catalogo.length && chave) {
-          const cur = await curar({ chave, descricao, catalogo: r.catalogo, env, fetcher });
+        if (aCurar.length && chave) {
+          const cur = await curar({ chave, descricao, catalogo: aCurar, env, fetcher });
           if (cur.ok) {
             via.push(`${r.provedor} + Gemini`);
             modelo = cur.modelo;
             const brutos = [];
             for (const x of cur.itens) {
               const cat = porId.get(Number(x && x.id)); // o Gemini devolve o número; o link vem do catálogo
-              if (cat) brutos.push({ ...x, link: cat.url, titulo: cat.titulo, portalDominio: cat.dominio });
+              if (cat && aCurar.some(a => a.id === cat.id)) {
+                const e = (aCurar.find(a => a.id === cat.id) || {}).dadosEndereco || {};
+                brutos.push({ ...x, preco: x.preco || e.preco || 0, area_m2: x.area_m2 || e.area || 0, quartos: x.quartos || e.quartos || 0, link: cat.url, titulo: cat.titulo, portalDominio: cat.dominio });
+              }
             }
             const { itens, vistos } = finalizarItens(brutos, { permitidos, dominios, criterios });
             todos.push(...itens);
-            fontesSoltas.push(...r.catalogo.filter(x => !vistos.has(urlChave(x.url))).slice(0, 6).map(x => ({ url: x.url, titulo: x.titulo })));
+            for (const v of vistos) resolvidos.add(v);
           } else {
             erros.push({ camada: 'curadoria', ...cur });
             semCuradoria = true;
             curadoriaErro = `${cur.motivo === 'sobrecarga' ? 'o Gemini está sobrecarregado agora' : cur.motivo === 'cota' ? 'o Gemini está sem cota' : 'o Gemini não respondeu'}${(cur.tentativas || []).length ? ` (tentei ${[...new Set(cur.tentativas.map(t => t.modelo))].join(', ')})` : ''}`;
             via.push(`${r.provedor} (sem curadoria)`);
-            fontesSoltas.push(...r.catalogo.slice(0, 8).map(x => ({ url: x.url, titulo: x.titulo })));
           }
-        } else {
-          if (r.catalogo.length) {
-            semCuradoria = true; // sem chave do Gemini: mostro os anúncios achados, mas sem filtrar
-            fontesSoltas.push(...r.catalogo.slice(0, 8).map(x => ({ url: x.url, titulo: x.titulo })));
-          }
-          via.push(r.catalogo.length ? `${r.provedor} (sem curadoria)` : r.provedor);
-        }
+        } else if (aCurar.length) {
+          semCuradoria = true; // sem chave do Gemini: mostro os anúncios achados, mas sem filtrar
+          via.push(`${r.provedor} (sem curadoria)`);
+        } else via.push(r.provedor);
+        fontesSoltas.push(...r.catalogo.filter(x => !resolvidos.has(urlChave(x.url))).slice(0, 8).map(x => ({ url: x.url, titulo: x.titulo })));
       }
     }
   }
@@ -660,8 +690,9 @@ function linhaImovelGrupo(g, i) {
 }
 
 function linhaImovelPortal(p, i) {
-  const det = [p.preco ? fmtPrice(p.preco) : 'preço no link', p.area ? `${p.area} m²` : '', p.quartos ? `${p.quartos}q` : '', p.bairro].filter(Boolean).join(' · ');
-  return `*${i + 1}.* ${p.titulo || p.resumo || 'Imóvel'}\n   ${det} — ${p.portal}${p.anunciante ? ` · ${p.anunciante}` : ''}\n   ${p.link}`;
+  const det = [p.preco ? fmtPrice(p.preco) : 'preço no link', p.area ? `${p.area} m²` : '', p.quartos ? `${p.quartos}q` : '', p.suites ? `${p.suites} suítes` : '', p.vagas ? `${p.vagas} vagas` : '', p.bairro].filter(Boolean).join(' · ');
+  const conferir = (p.conferir || []).length ? `\n   ⚠️ conferir no anúncio: ${p.conferir.join(', ')}` : '';
+  return `*${i + 1}.* ${p.titulo || p.resumo || 'Imóvel'}\n   ${det} — ${p.portal}${p.anunciante ? ` · ${p.anunciante}` : ''}${conferir}\n   ${p.link}`;
 }
 
 /** Relatório em mensagens de até ~3.500 caracteres (limite confortável do WhatsApp) */
@@ -689,7 +720,7 @@ function formatarRelatorio(r) {
     const prof = p.itens.filter(x => x.tipoAnunciante === 'profissional');
     const part = p.itens.filter(x => x.tipoAnunciante === 'particular');
     const outros = p.itens.filter(x => x.tipoAnunciante === 'desconhecido');
-    blocos.push(`🌐 *NOS PORTAIS* (${p.itens.length})\n_só anúncios com link confirmado pela busca · via ${(p.via || []).join(' + ') || 'busca'} · ${p.usadasHoje}/${p.limite} buscas hoje_${p.semCuradoria ? `\n⚠️ Não consegui filtrar${p.curadoriaErro ? `: ${p.curadoriaErro}` : ' (sem chave/resposta do Gemini)'}. Abaixo, os anúncios achados; tente de novo em alguns minutos.` : ''}`);
+    blocos.push(`🌐 *NOS PORTAIS* (${p.itens.length})\n_só anúncios com link confirmado pela busca (OLX: dados lidos da própria página) · via ${(p.via || []).join(' + ') || 'busca'} · ${p.usadasHoje}/${p.limite} buscas hoje_${p.semCuradoria ? `\n⚠️ Não consegui filtrar${p.curadoriaErro ? `: ${p.curadoriaErro}` : ' (sem chave/resposta do Gemini)'}. Abaixo, os anúncios achados; tente de novo em alguns minutos.` : ''}`);
     if (part.length) {
       blocos.push(`👤 *PARTICULAR* (${part.length})`);
       part.forEach((x, i) => blocos.push(linhaImovelPortal(x, i)));
@@ -703,6 +734,7 @@ function formatarRelatorio(r) {
       outros.forEach((x, i) => blocos.push(linhaImovelPortal(x, i)));
     }
     if (!p.itens.length) blocos.push(`Nenhum anúncio confirmado com esse perfil.${p.diagBusca ? `\n_O buscador devolveu — ${p.diagBusca}._` : ''}`);
+    if (p.itens.length && p.diagBusca) blocos.push(`_Buscador — ${p.diagBusca}._`);
     if (p.fontesSoltas.length) blocos.push(`🔗 Outras páginas encontradas:\n${p.fontesSoltas.map(f => `• ${f.titulo ? f.titulo.slice(0, 60) + ' — ' : ''}${f.url}`).join('\n')}`);
     if (p.itens.some(x => x.certeza === 'estimativa')) blocos.push('_Profissional/particular no ZAP e VivaReal é estimativa (pelo texto do anúncio)._');
   }
