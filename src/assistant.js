@@ -155,7 +155,9 @@ const HELP = `${BOT} *Oi, eu sou a BIGA!* Seus comandos:
 👥 *corretores* (BIGAs de outros corretores)
 
 🔎 *Busca inteligente*
-• *busca* _apto 800 mil a 1 milhão no Marista, mínimo 100 m²_
+• *busca guiada* → eu pergunto os filtros (cidade, bairro, condomínio, valor, quartos…) como nos portais
+• *busca cidade: Goiânia; condomínio: Jardins Itália; suítes: 4; valor: 4 a 5 milhões*
+• *busca* _apto 800 mil a 1 milhão no Marista, mínimo 100 m²_ (texto livre)
   → procura nos seus grupos (últimos 90 dias) e na OLX, ZAP e VivaReal
 • *importar histórico* (pede ao celular os anúncios antigos dos grupos)
 • mande a conversa exportada de um grupo (.txt/.zip) para guardar os anúncios
@@ -173,6 +175,19 @@ async function reply(wa, chatJid, text) {
  * Processa uma mensagem do dono. Retorna true se tratou como comando.
  * msgInfo: { chatJid, text, hasImage, downloadImage: async () => filename }
  */
+// Busca guiada (pergunta um campo por vez): estado por conversa, vale 15 min
+const guiadas = new Map();
+
+/** Roda a busca (por filtros ou por texto livre) e manda o relatório; o aviso "Buscando…" já foi dado */
+function rodarBusca(wa, chatJid, ctx, { filtros, texto }) {
+  const bi = require('./busca-inteligente');
+  const p = filtros ? bi.buscarComFiltros(filtros) : bi.buscar(texto);
+  p.then(async r => {
+    for (const parte of bi.formatarRelatorio(r)) await reply(wa, chatJid, parte);
+    if (ctx.log) ctx.log('BUSCA', `🔎 Busca: ${r.descricao} — ${r.grupos.length} nos grupos, ${r.portais.itens.length} nos portais.`);
+  }).catch(err => reply(wa, chatJid, `Não consegui terminar a busca: ${err.message}`).catch(() => {}));
+}
+
 async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
   const { chatJid, hasImage } = msgInfo;
   const text = String(msgInfo.text || '').trim();
@@ -200,6 +215,25 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
     return true;
   }
   if (!text) return false;
+
+  // --- Busca guiada em andamento: a mensagem é a resposta da pergunta atual ---
+  const guia = guiadas.get(chatJid);
+  if (guia) {
+    const G = require('./busca-guiada');
+    if (Date.now() - guia.ts > G.TTL_MS) guiadas.delete(chatJid);
+    else {
+      const r = G.responder(guia, text);
+      if (r.acao === 'cancelada') {
+        guiadas.delete(chatJid);
+        await reply(wa, chatJid, 'Busca cancelada.');
+      } else if (r.acao === 'fim') {
+        guiadas.delete(chatJid);
+        await reply(wa, chatJid, '🔎 Buscando nos seus grupos e nos portais… (1 a 2 minutos)');
+        rodarBusca(wa, chatJid, ctx, { filtros: r.filtros });
+      } else await reply(wa, chatJid, r.texto);
+      return true;
+    }
+  }
 
   // --- Busca inteligente: configuração e histórico (iguais ao painel › Busca) ---
   if (/^(minhas buscas|historico de buscas|ultimas buscas)$/.test(norm)) {
@@ -312,6 +346,26 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
   }
 
   // --- Busca inteligente ---
+  if (/^(busca|buscar|procurar)\s+(guiada|por filtros?|passo a passo|com filtros?|filtros?)$|^(nova busca|busca guiada)$/.test(norm)) {
+    const G = require('./busca-guiada');
+    const st = G.iniciar();
+    guiadas.set(chatJid, st);
+    await reply(wa, chatJid, `🔎 *Busca por filtros* — como nos portais. Responda um campo por vez; o que ficar em aberto (*-*) não filtra.\n\n${G.pergunta(st)}`);
+    return true;
+  }
+  const buscaCampos = text.match(/^\s*(?:busca(?:r)?(?:\s+inteligente)?|procur(?:ar|a))\s*[:\-]?\s+([\s\S]{3,})$/i);
+  const camposBrutos = buscaCampos ? require('./busca-filtros').parseCampos(buscaCampos[1]) : null;
+  if (camposBrutos) {
+    const { normalizarFiltros, preenchidos } = require('./busca-filtros');
+    const { filtros, erros } = normalizarFiltros(camposBrutos);
+    if (erros.length || !preenchidos(filtros)) {
+      await reply(wa, chatJid, `${erros[0] || 'Preencha pelo menos um campo.'}\nCampos: tipo, negócio, cidade, bairro, condomínio, valor, quartos, suítes, vagas, área, extras.`);
+      return true;
+    }
+    await reply(wa, chatJid, '🔎 Buscando nos seus grupos e nos portais… (1 a 2 minutos)');
+    rodarBusca(wa, chatJid, ctx, { filtros: camposBrutos });
+    return true;
+  }
   const busca = text.match(/^\s*(?:busca(?:r)?(?:\s+inteligente)?|procur(?:ar|a))\s*[:\-]?\s+([\s\S]{8,})$/i);
   if (busca) {
     const bi0 = require('./busca-inteligente');
@@ -322,13 +376,7 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
       return true;
     }
     await reply(wa, chatJid, '🔎 Buscando nos seus grupos e nos portais… (1 a 2 minutos)');
-    const bi = require('./busca-inteligente');
-    bi.buscar(busca[1])
-      .then(async r => {
-        for (const parte of bi.formatarRelatorio(r)) await reply(wa, chatJid, parte);
-        if (ctx.log) ctx.log('BUSCA', `🔎 Busca: ${r.descricao} — ${r.grupos.length} nos grupos, ${r.portais.itens.length} nos portais.`);
-      })
-      .catch(err => reply(wa, chatJid, `Não consegui terminar a busca: ${err.message}`).catch(() => {}));
+    rodarBusca(wa, chatJid, ctx, { texto: busca[1] });
     return true;
   }
   if (/^(importar historico|importar o historico|importar anuncios|importar)$/.test(norm)) {
