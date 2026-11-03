@@ -299,3 +299,24 @@ test('Grupos da busca são separados dos grupos de pedidos (padrão: todos; conv
   bi.atualizarConfig({ todosGrupos: true });
   assert.equal(bi.getConfig().todosGrupos, true);
 });
+
+test('Testar chave salva: corrige chave "suja" salva pela versão antiga de Ajustes e diz se funciona', async () => {
+  const g = require('../src/gemini-chave');
+  const antes = process.env.GEMINI_API_KEY;
+  try {
+    process.env.GEMINI_API_KEY = '';
+    assert.match((await g.testarChaveSalva(async () => assert.fail('sem chave não chama'))).mensagem, /Nenhuma chave/);
+    process.env.GEMINI_API_KEY = 'AIzaSyD-abc_123​XYZabc123XYZabc123XYZab1';
+    let enviada;
+    const r = await g.testarChaveSalva(async (url, o) => ((enviada = o.headers['x-goog-api-key']), { ok: true, status: 200, json: async () => ({}) }));
+    assert.equal(r.ok, true);
+    assert.match(r.mensagem, /funcionando/);
+    assert.equal(enviada, 'AIzaSyD-abc_123XYZabc123XYZabc123XYZab1', 'testou a chave limpa');
+    assert.equal(process.env.GEMINI_API_KEY, 'AIzaSyD-abc_123XYZabc123XYZabc123XYZab1', 'e corrigiu a salva');
+    const ruim = await g.testarChaveSalva(async () => ({ ok: false, status: 400, json: async () => ({ error: { message: 'API key not valid.' } }) }));
+    assert.equal(ruim.ok, false);
+    assert.match(ruim.mensagem, /API key not valid[\s\S]*aistudio/);
+  } finally {
+    process.env.GEMINI_API_KEY = antes || '';
+  }
+});
