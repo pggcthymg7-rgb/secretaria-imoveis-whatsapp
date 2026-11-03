@@ -216,7 +216,8 @@ function priceCandidates(text) {
   }
   const rxMil = /(\d+(?:[.,]\d+)?)\s*(?:mil|k)\b(?!\s*(?:m2|metros))/g;
   while ((m = rxMil.exec(text)) !== null) push(parseBrazilianNumber(m[1]) * 1e3, m.index, m[0].length);
-  const rxRs = /(?:r\$|rs)\s*(\d{1,3}(?:\.\d{3})+(?:,\d{2})?|\d+(?:[.,]\d{1,2})?)(?!\s*(?:mil|k|milh|mi\b))/g;
+  // (?![\d]|[.,]\d): não deixa cortar o número no meio ("R$ 950 mil" virava 95 mil; "R$ 2,8 mi" virava 2 mi)
+  const rxRs = /(?:r\$|rs)\s*(\d{1,3}(?:\.\d{3})+(?:,\d{2})?|\d+(?:[.,]\d{1,2})?)(?![\d]|[.,]\d)(?!\s*(?:mil|k|milh|mi\b))/g;
   while ((m = rxRs.exec(text)) !== null) {
     let v = parseBrazilianNumber(m[1]);
     if (v < 50) v *= 1e6; // "R$1.2" / "R$ 1,5" = milhões
@@ -225,7 +226,8 @@ function priceCandidates(text) {
   }
   const rxFull = /\b(\d{1,3}(?:\.\d{3}){1,2}(?:,\d{2})?)\b/g;
   while ((m = rxFull.exec(text)) !== null) {
-    if (cands.some(c => m.index >= c.idx && m.index < c.idx + c.len + 4)) continue;
+    // pula se colado num valor já lido (ex.: "1.200 mil"), mas não o 2º valor de uma faixa ("800 mil a 1.000.000")
+    if (cands.some(c => m.index >= c.idx && m.index < c.idx + c.len + 4 && !/^\s*(?:e|a|ate)\s/.test(text.slice(c.idx + c.len, m.index + 1)))) continue;
     push(parseBrazilianNumber(m[1]), m.index, m[0].length);
   }
   const rxRaw = /(?:valor|orcamento|ate|teto|preco|por)\s*:?\s*(\d{6,9})\b/g;
@@ -251,14 +253,30 @@ function detectPrice(textNoArea, isAgio) {
   // "entre 400 e 500 mil" / "de 400 a 500 mil"
   const rangeRx = /\b(?:entre|de)\s*(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(?:mil|k)?\s*(?:e|a|ate)\s*(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(mil|k|milhao|milhoes|mi)\b/;
   const rm = text.match(rangeRx);
-  if (rm) {
-    const mult = /mil|k/.test(rm[3]) ? 1e3 : 1e6;
+  // "entre R$ 900.000 e R$ 1,2 mi": o 1º número já é valor completo; quem resolve é a faixa por candidatos abaixo
+  if (rm && !/^\d{1,3}(?:\.\d{3})+/.test(rm[1])) {
+    const mult = /^(?:mil|k)$/.test(rm[3]) ? 1e3 : 1e6; // "milhao" também começa com "mil"
     const a = parseBrazilianNumber(rm[1]) * (parseBrazilianNumber(rm[1]) < 10 && mult === 1e3 ? 1e3 : mult);
     const b = parseBrazilianNumber(rm[2]) * mult;
     out.valor_min = Math.min(a, b);
     out.valor_max = Math.max(a, b);
     out.preco_texto = `entre ${fmt(out.valor_min)} e ${fmt(out.valor_max)}`;
     return out;
+  }
+
+  // "de 800 mil a 1.000.000,00" / "entre R$ 900.000 e R$ 1,2 mi" (cada lado com a sua unidade)
+  for (let i = 0; i + 1 < cands.length; i++) {
+    const a = cands[i];
+    const b = cands.slice(i + 1).find(c => c.idx >= a.idx + a.len);
+    if (!b) break;
+    const meio = text.slice(a.idx + a.len, b.idx);
+    const antes = text.slice(Math.max(0, a.idx - 12), a.idx);
+    if (/^\s*(?:e|a|ate)\s*(?:r\$|rs)?\s*$/.test(meio) && /\b(?:entre|de)\s*(?:r\$|rs)?\s*$/.test(antes) && b.value > a.value) {
+      out.valor_min = a.value;
+      out.valor_max = b.value;
+      out.preco_texto = `entre ${fmt(out.valor_min)} e ${fmt(out.valor_max)}`;
+      return out;
+    }
   }
 
   // Usa o maior valor com qualificador "até"; senão o primeiro valor

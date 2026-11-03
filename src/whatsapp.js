@@ -445,6 +445,161 @@ async function downloadImageToFotos(msg) {
 }
 
 // ---------------------------------------------------------------------------
+// Busca inteligente: memória de anúncios dos grupos + importar histórico do celular
+// ---------------------------------------------------------------------------
+const anuncios = require('./anuncios');
+const ANCORAS_FILE = 'ancoras_grupos.json';
+let ancoras = readJson(ANCORAS_FILE, {});
+let ancorasTimer = null;
+let importacao = null;
+const esperasHistorico = new Set();
+
+function salvarAncoras() {
+  if (ancorasTimer) return;
+  ancorasTimer = setTimeout(() => {
+    ancorasTimer = null;
+    try {
+      writeJson(ANCORAS_FILE, ancoras);
+    } catch {}
+  }, 3000);
+  if (ancorasTimer.unref) ancorasTimer.unref();
+}
+
+function tsDaMensagem(msg) {
+  const t = Number(msg.messageTimestamp || 0);
+  return t > 0 ? t * 1000 : Date.now();
+}
+
+/** Guarda a mensagem mais antiga que a BIGA conhece de cada grupo (ponto de partida para pedir o histórico) */
+function anotarAncora(msg) {
+  const g = msg.key.remoteJid;
+  if (!g || !g.endsWith('@g.us') || !msg.key.id) return;
+  const ts = tsDaMensagem(msg);
+  const a = ancoras[g];
+  if (!a || ts < a.ts) {
+    ancoras[g] = { key: { remoteJid: g, id: msg.key.id, fromMe: Boolean(msg.key.fromMe), participant: msg.key.participant || undefined }, ts };
+    salvarAncoras();
+  }
+}
+
+/** Se a mensagem do grupo é anúncio de imóvel, guarda na memória (90 dias) */
+async function guardarAnuncioDoGrupo(msg, origem = 'ao vivo') {
+  if (msg.key.fromMe) return null;
+  const texto = extractText(msg);
+  if (!texto || texto.trim().length < 20 || !anuncios.pareceAnuncio(texto)) return null;
+  const g = msg.key.remoteJid;
+  const grupo = (connectedGroups.find(x => x.id === g) || {}).subject || 'Grupo';
+  const participante = msg.key.participant || msg.participant || '';
+  const telefone = await resolvePhone(participante, msg.key.participantAlt || null);
+  return anuncios.registrar({ id: `${g}:${msg.key.id}`, ts: tsDaMensagem(msg), texto, grupo, grupoId: g, autor: msg.pushName || (telefone ? `+${telefone}` : 'Corretor(a)'), telefone, origem });
+}
+
+function esperarHistorico(grupoId, tsAntes, ms) {
+  return new Promise(resolve => {
+    const w = { grupoId, tsAntes, resolve };
+    esperasHistorico.add(w);
+    setTimeout(() => {
+      esperasHistorico.delete(w);
+      resolve(false);
+    }, ms);
+  });
+}
+
+/** Mensagens antigas que o celular mandou (histórico) -> anúncios */
+async function processarHistorico(messages) {
+  let novos = 0;
+  for (const m of messages || []) {
+    try {
+      if (!m || !m.key || !String(m.key.remoteJid || '').endsWith('@g.us') || !m.message) continue;
+      anotarAncora(m);
+      if (await guardarAnuncioDoGrupo(m, 'histórico')) novos++;
+    } catch {}
+  }
+  if (importacao && importacao.rodando) importacao.anuncios += novos;
+  for (const w of [...esperasHistorico]) {
+    const a = ancoras[w.grupoId];
+    if (a && a.ts < w.tsAntes) {
+      esperasHistorico.delete(w);
+      w.resolve(true);
+    }
+  }
+  if (novos) anuncios.persist(true);
+  return novos;
+}
+
+/**
+ * Pede ao celular, grupo por grupo, as mensagens anteriores (50 por vez) até 90 dias atrás.
+ * O celular precisa estar ligado e com internet. Quanto vem é decisão do WhatsApp.
+ */
+async function importarHistoricoGrupos({ onFim, pausaMs = 1500, esperaMs = 25000, maxRodadas = 80 } = {}) {
+  if (importacao && importacao.rodando) return { jaRodando: true, ...importacao };
+  if (!isConnected()) throw new Error('WhatsApp não está conectado.');
+  if (typeof sock.fetchMessageHistory !== 'function') throw new Error('Esta versão do WhatsApp não permite pedir o histórico.');
+  if (!connectedGroups.length) await refreshGroups();
+  const limite = Date.now() - anuncios.DIAS * 86400000;
+  importacao = { rodando: true, inicio: Date.now(), grupos: 0, comHistorico: 0, anuncios: 0, semAncora: [], pedidos: 0 };
+  const estado = importacao;
+  (async () => {
+    const lista = [...connectedGroups];
+    for (const id of Object.keys(ancoras)) if (!lista.some(g => g.id === id)) lista.push({ id, subject: id });
+    for (const g of lista) {
+      if (!isConnected()) break;
+      if (!ancoras[g.id]) {
+        estado.semAncora.push(g.subject);
+        continue;
+      }
+      let rodadas = 0;
+      let parado = 0;
+      let andou = false;
+      while (ancoras[g.id].ts > limite && rodadas < maxRodadas && parado < 2 && isConnected()) {
+        const antes = ancoras[g.id].ts;
+        try {
+          await sock.fetchMessageHistory(50, ancoras[g.id].key, antes);
+          estado.pedidos++;
+        } catch (err) {
+          addLog('BUSCA', `Histórico de "${g.subject}": ${err.message}`);
+          break;
+        }
+        const veio = await esperarHistorico(g.id, antes, esperaMs);
+        if (veio) {
+          andou = true;
+          parado = 0;
+        } else parado++;
+        rodadas++;
+        if (pausaMs) await new Promise(r => setTimeout(r, pausaMs));
+      }
+      estado.grupos++;
+      if (andou) estado.comHistorico++;
+    }
+    estado.rodando = false;
+    estado.fim = Date.now();
+    anuncios.persist(true);
+    addLog('BUSCA', `📥 Histórico importado: ${estado.anuncios} anúncios de ${estado.comHistorico}/${estado.grupos} grupos.`);
+    if (onFim) await onFim(estado);
+  })().catch(err => {
+    estado.rodando = false;
+    addLog('ERRO', `Importação do histórico: ${err.message}`);
+  });
+  return estado;
+}
+
+function estadoImportacao() {
+  return importacao;
+}
+
+/** Conversa exportada (.txt/.zip) mandada no "Mensagem para mim" */
+async function importarConversaExportada(msg) {
+  const doc = msg.message.documentMessage || msg.message.documentWithCaptionMessage?.message?.documentMessage;
+  const nome = String(doc?.fileName || '');
+  if (!doc || !/\.(txt|zip)$/i.test(nome)) return null;
+  if (Number(doc.fileLength || 0) > 40 * 1024 * 1024) throw new Error('Arquivo grande demais (máximo 40 MB).');
+  const buf = await downloadMediaMessage(msg, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage });
+  const r = anuncios.importarExportacao(buf, nome);
+  addLog('BUSCA', `📥 Conversa exportada "${r.grupo}": ${r.anuncios} anúncios de ${r.lidas} mensagens.`);
+  return r;
+}
+
+// ---------------------------------------------------------------------------
 // Conexão
 // ---------------------------------------------------------------------------
 /**
@@ -520,6 +675,11 @@ async function startWhatsAppAgent() {
   });
 
   // Histórico e agenda -> todos viram contatos conhecidos
+  // Busca inteligente: anúncios do histórico (pareamento e pedidos de histórico)
+  sock.ev.on('messaging-history.set', ({ messages }) => {
+    processarHistorico(messages).catch(err => addLog('ERRO', `Histórico: ${err.message}`));
+  });
+
   sock.ev.on('messaging-history.set', ({ chats, contacts: cts, messages }) => {
     for (const c of chats || []) if (c.id && !c.id.endsWith('@g.us') && c.id !== 'status@broadcast') contacts.markKnown(c.id, c.pnJid, c.lidJid);
     for (const c of cts || []) {
@@ -581,13 +741,25 @@ async function startWhatsAppAgent() {
         }
         if (comandoAtrasado && !ownerChat) continue;
         if (ownerChat && loadSettings().assistenteAtivo !== false) {
+          if (msg.message.documentMessage || msg.message.documentWithCaptionMessage) {
+            try {
+              const r = await importarConversaExportada(msg);
+              if (r) {
+                await sendText(remoteJid, `${assistant.BOT} 📥 Conversa "${r.grupo}" lida: ${r.lidas} mensagens, *${r.anuncios} anúncios* guardados para a *busca*.`);
+                continue;
+              }
+            } catch (err) {
+              await sendText(remoteJid, `${assistant.BOT} Não consegui ler o arquivo: ${err.message}`);
+              continue;
+            }
+          }
           const text = extractText(msg);
           if (text.startsWith(assistant.BOT) || /^(🚨|✅ \*ENVIEI|🤔 \*CONFIRA|📊 \*RESUMO|🔔|💾|⛏️)/.test(text)) continue;
           const hasImage = Boolean(msg.message.imageMessage || msg.message.ephemeralMessage?.message?.imageMessage);
           await assistant.handleOwnerMessage(
             { sendText, sendImage, sendPdf },
             { chatJid: remoteJid, text, hasImage, downloadImage: () => downloadImageToFotos(msg) },
-            { approveAlert, log: addLog, sendBackup }
+            { approveAlert, log: addLog, sendBackup, importarHistorico: onFim => importarHistoricoGrupos({ onFim }), estadoImportacao }
           );
           continue;
         }
@@ -608,6 +780,8 @@ async function startWhatsAppAgent() {
           continue;
         }
 
+        anotarAncora(msg);
+        guardarAnuncioDoGrupo(msg).catch(err => addLog('ERRO', `Memória de anúncios: ${err.message}`));
         if (msg.key.fromMe) continue;
         await handleGroupMessage(msg, remoteJid);
       } catch (err) {
@@ -655,5 +829,7 @@ module.exports = {
   resetSession,
   approveAlert,
   api,
-  _test: { brazilVariants, isOwnerChat, isOwnerChatAsync, reconnectDelay }
+  importarHistoricoGrupos,
+  estadoImportacao,
+  _test: { brazilVariants, isOwnerChat, isOwnerChatAsync, reconnectDelay, processarHistorico, guardarAnuncioDoGrupo }
 };

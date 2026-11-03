@@ -153,6 +153,13 @@ const HELP = `${BOT} *Oi, eu sou a BIGA!* Seus comandos:
 
 💾 *backup* (arquivo com toda a memória) · 🔄 *atualizar* · *versão*
 👥 *corretores* (BIGAs de outros corretores)
+
+🔎 *Busca inteligente*
+• *busca* _apto 800 mil a 1 milhão no Marista, mínimo 100 m²_
+  → procura nos seus grupos (últimos 90 dias) e na OLX, ZAP e VivaReal
+• *importar histórico* (pede ao celular os anúncios antigos dos grupos)
+• mande a conversa exportada de um grupo (.txt/.zip) para guardar os anúncios
+• *memória* (quantos anúncios estão guardados)
 ⚙️ *status* · *pausar* · *retomar* · *ajuda*`;
 
 async function reply(wa, chatJid, text) {
@@ -190,6 +197,47 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
     return true;
   }
   if (!text) return false;
+
+  // --- Busca inteligente ---
+  const busca = text.match(/^\s*(?:busca(?:r)?(?:\s+inteligente)?|procur(?:ar|a))\s*[:\-]?\s+([\s\S]{8,})$/i);
+  if (busca) {
+    const bi0 = require('./busca-inteligente');
+    const { countCriteria } = require('./brain/engine');
+    if (countCriteria(bi0.entenderPedido(busca[1]).criterios) < 2) {
+      if (!/\b(ap|apto|apartamento|casa|sobrado|lote|terreno|cobertura|flat|chacara|sala|imovel|mil|milh|m2|quartos?)\b/.test(norm)) return false; // anotação comum ("busca o João…")
+      await reply(wa, chatJid, 'Preciso de mais detalhes. Ex.: *busca apto 800 mil a 1 milhão no Setor Marista, mínimo 100 m²*');
+      return true;
+    }
+    await reply(wa, chatJid, '🔎 Buscando nos seus grupos e nos portais… (1 a 2 minutos)');
+    const bi = require('./busca-inteligente');
+    bi.buscar(busca[1])
+      .then(async r => {
+        for (const parte of bi.formatarRelatorio(r)) await reply(wa, chatJid, parte);
+        if (ctx.log) ctx.log('BUSCA', `🔎 Busca: ${r.descricao} — ${r.grupos.length} nos grupos, ${r.portais.itens.length} nos portais.`);
+      })
+      .catch(err => reply(wa, chatJid, `Não consegui terminar a busca: ${err.message}`).catch(() => {}));
+    return true;
+  }
+  if (/^(importar historico|importar o historico|importar anuncios|importar)$/.test(norm)) {
+    if (!ctx.importarHistorico) return false;
+    try {
+      const st = await ctx.importarHistorico(async e => {
+        const sem = e.semAncora.length ? `\n⚠️ ${e.semAncora.length} grupo(s) ainda sem mensagem recente para começar (ex.: ${e.semAncora.slice(0, 3).join(', ')}). Para esses, exporte a conversa e me mande o arquivo.` : '';
+        await reply(wa, chatJid, `📥 *Histórico importado*\n${e.anuncios} anúncios de ${e.comHistorico} de ${e.grupos} grupos.${sem}\nMande *memória* para ver o total.`);
+      });
+      await reply(wa, chatJid, st.jaRodando ? `A importação já está rodando (${st.anuncios} anúncios até agora).` : '📥 Importando os anúncios antigos dos grupos (até 90 dias). Deixe o *celular ligado e com internet*. Pode levar de minutos a horas; eu aviso quando terminar.');
+    } catch (err) {
+      await reply(wa, chatJid, err.message);
+    }
+    return true;
+  }
+  if (/^(memoria|memoria de anuncios|anuncios)$/.test(norm)) {
+    const r = require('./anuncios').resumo();
+    const imp = ctx.estadoImportacao ? ctx.estadoImportacao() : null;
+    const desde = r.desde ? new Date(r.desde).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '—';
+    await reply(wa, chatJid, `🧠 *Memória de anúncios*\n${r.total} anúncios de ${r.grupos} grupos (desde ${desde}; guardo 90 dias).${imp && imp.rodando ? `\n📥 Importando histórico: ${imp.anuncios} anúncios até agora.` : ''}`);
+    return true;
+  }
 
   // --- rascunho aberto ---
   if (draft) {

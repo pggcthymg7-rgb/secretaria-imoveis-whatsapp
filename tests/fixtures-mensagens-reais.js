@@ -9,5 +9,10 @@ module.exports = {
   aptoTamandare: 'Busco apto de 1 quarto com até 50 m2 na região da praça tamandaré',
   casaDetran: 'Busco Casa térrea  Perto do DETRAN\n\nAté 600 mil \nNo mínimo 3 quartos',
   chacara: 'PROCuro CHÁCARA – ATÉ R$ 900 MIL À VISTA\nBusco uma chácara em um raio de até 40 km de Goiânia.\nEm condomínio: de 4 a 5 mil m².\nFora de condomínio: até 20 mil m² ou menos, desde que seja escriturada e com documentação regularizada.\nPreferência: muito verde, árvores, natureza e água (córrego, nascente, lago ou represa).\nNão tenho interesse em imóveis mais distantes.\nProcuro um lugar bonito, tranquilo e com bastante contato com a natureza.\nValor máximo: R$ 900 mil à vista.',
-  casaCanedo: '*BUSCO*\nCasa ou sobrado em condomínio Jardins de Senador Canedo\n*Até R$1.2*'
+  casaCanedo: '*BUSCO*\nCasa ou sobrado em condomínio Jardins de Senador Canedo\n*Até R$1.2*',
+  // Busca inteligente (03/11/2026): pedido real do João para um cliente + anúncios típicos dos grupos
+  pedidoClienteMarista: 'apartamento de 800 mil a 1.000.000,00 no setor marista com no minimo 100 metros quadrados',
+  anuncioMarista950: 'Vendo apartamento no Setor Marista, 3 suítes, 120m², 2 vagas, R$ 950 mil. Aceita financiamento. Chama no pv',
+  anuncioMaristaSemVerbo: 'Apto 3Q Marista 110m² 980 mil lazer completo',
+  anuncioCasaMilhoes: 'Casa em condomínio Aldeia do Vale 4 suítes 400m² R$ 2,8 mi'
 };
