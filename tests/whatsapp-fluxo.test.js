@@ -371,9 +371,38 @@ test('"testar gemini fundo" no WhatsApp mostra o diagnóstico (resposta simples 
     await wait(600);
     const txt = sent.map(s => s.content.text).join('\n');
     assert.match(txt, /Testando a chave/);
-    assert.match(txt, /Resposta simples: funcionou[\s\S]*Busca com Google: erro 429 — limit: 0[\s\S]*faturamento/);
+    assert.match(txt, /Resposta simples \(sem busca\): funcionou[\s\S]*Busca com Google em gemini-2\.5-flash: erro 429 — limit: 0[\s\S]*Busca com Google em gemini-2\.5-flash-lite[\s\S]*faturamento[\s\S]*Motores da busca nos portais[\s\S]*Tavily: ❌ sem chave[\s\S]*Motor principal agora: Gemini \+ Google/);
   } finally {
     global.fetch = fetchReal;
     process.env.GEMINI_API_KEY = '';
+  }
+});
+
+
+test('Chaves da busca nos portais pelo "Mensagem para mim": chave tavily/serper/apify (conferida antes de salvar) e config busca mostra os motores', async () => {
+  const fetchReal = global.fetch;
+  const guarda = process.env.TAVILY_API_KEY;
+  const dizer = async t => {
+    sent.length = 0;
+    fakeSock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: `${SELF}@s.whatsapp.net`, id: 'KT' + Math.random(), fromMe: true }, messageTimestamp: nowTs(), message: { conversation: t } }] });
+    await wait(500);
+    return sent.map(s => s.content.text).join('\n');
+  };
+  try {
+    global.fetch = async () => ({ ok: false, status: 401, json: async () => ({ detail: { error: 'Unauthorized' } }) });
+    let t = await dizer('chave tavily tvly-chave-errada-1234567890');
+    assert.match(t, /Não salvei: O Tavily recusou a chave/);
+    assert.ok(!process.env.TAVILY_API_KEY, 'chave recusada não é salva');
+    global.fetch = async () => ({ ok: true, status: 200, json: async () => ({ results: [] }) });
+    t = await dizer('chave tavily tvly-chave-certa-1234567890');
+    assert.match(t, /Chave do Tavily funcionando ✅[\s\S]*apague esta mensagem/);
+    assert.equal(process.env.TAVILY_API_KEY, 'tvly-chave-certa-1234567890');
+    t = await dizer('config busca');
+    assert.match(t, /Motores dos portais: .*Tavily ✅/);
+    assert.match(await dizer('ajuda'), /chave tavily SUA_CHAVE/);
+  } finally {
+    global.fetch = fetchReal;
+    if (guarda === undefined) delete process.env.TAVILY_API_KEY;
+    else process.env.TAVILY_API_KEY = guarda;
   }
 });
