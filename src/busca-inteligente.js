@@ -545,7 +545,7 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
       if (!r.ok) erros.push({ camada: 'busca', ...r });
       else {
         algumOk = true;
-        diagBusca = Object.entries(r.diag || {}).map(([d, v]) => `${(serp.PORTAIS[d] || d)}: ${v.brutos} páginas, ${v.anuncios} anúncios`).join(' · ');
+        diagBusca = Object.entries(r.diag || {}).map(([d, v]) => `${(serp.PORTAIS[d] || d)}: ${v.brutos} páginas, ${v.anuncios} anúncios${!v.anuncios && v.descartadas && v.descartadas.length ? ` (ex.: ${v.descartadas.join(' , ')})` : ''}`).join(' · ');
         const permitidos = new Set(r.catalogo.map(x => urlChave(x.url))); // urlsPermitidas
         const porId = new Map(r.catalogo.map(x => [x.id, x]));
         const chave = require('./gemini-chave').limparChave(env.GEMINI_API_KEY);

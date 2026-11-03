@@ -108,3 +108,9 @@ Fomos por ciclos `/resolver-tudo`: bug real → caso no fixture → correção �
 - `testar gemini fundo`: chamada simples passa por outros modelos e explica 503 como passageiro.
 - Testes: 113/113.
 - Busca vazia nos portais: se a consulta precisa (com aspas e caminho) não acha anúncio, tenta consulta solta (`consultaSolta`); o relatório mostra "O buscador devolveu — ZAP: N páginas, M anúncios" para diagnosticar. Teste real do João (Marista, casa 1–1,5 mi) deu 0 antes disso.
+
+## 03/11/2026 (noite) — busca nos portais: 0 anúncios na OLX
+- Causa provada: a consulta da OLX era `site:olx.com.br/imoveis`, mas o anúncio real é `go.olx.com.br/<região>/imoveis/<slug>-<id>` (região ANTES de /imoveis) — só casava com listas. Agora: `site:go.olx.com.br`. ZAP (`/imovel/…-id-N/`) e VivaReal (`/imovel/…-RS…-id-N/`) conferidos com URLs reais: `ehPaginaDeAnuncio` estava certo para eles.
+- A consulta "solta" agora roda por portal (só nos que ficaram sem anúncio), não só quando o catálogo inteiro vem vazio.
+- A linha "O buscador devolveu" mostra até 2 caminhos descartados quando um portal tem 0 anúncios (ex.: `/venda/casas/...`), para diagnosticar com a resposta real. **Se ZAP/VivaReal ainda vierem com 0 anúncios, colar essa linha.**
+- Teste novo: caso Setor Marista em `tests/busca-inteligente.test.js`. 114/114.
