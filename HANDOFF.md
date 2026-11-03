@@ -10,7 +10,7 @@ BIGA é a secretária do João (corretor em Goiânia). Ela fica conectada ao Wha
 ## Status (01/11/2026)
 - **No ar** na VM Oracle grátis: https://147-15-87-168.sslip.io — WhatsApp CONECTADO.
 - Código final em `main` (bde3762, v4.1). A VM se atualiza sozinha ~04:15 e, a partir de 02/11, também pelo botão "Atualizar agora" (Ajustes › Sistema) ou pelo comando `atualizar`.
-- Testes: 83/83 passando (`npm run verify`) — com o mapa OSM agora versionado (ver sessão 01/11 abaixo).
+- Testes: 90/90 passando (`npm run verify`) — com o mapa OSM agora versionado (ver sessão 01/11 abaixo).
 - **Falta o João:** suspender o Render; colocar a chave Brave/Google e o token Meta no Garimpo.
 
 ## Decisões importantes
@@ -80,6 +80,7 @@ Fomos por ciclos `/resolver-tudo`: bug real → caso no fixture → correção �
 - Rotas: `GET/POST /api/busca`, `GET /api/busca/item/:id`, `POST /api/busca/item/:id/whatsapp`, `POST /api/busca/config`, `POST /api/busca/importar-historico`, `POST /api/busca/importar-conversa` (multer em memória, 40 MB, nome UTF-8 corrigido).
 - Testado no navegador (Playwright) em computador e celular (390 px, sem rolagem lateral).
 - 03/11: **grupos da busca separados dos grupos de pedidos**: `buscaGruposIds` (null = todos) filtra memória ao vivo, histórico, importação e resultado (`grupoNaBusca`; `exp:` sempre entra). Painel › Busca › "Grupos da busca"; WhatsApp `grupos da busca`, `busca grupos 1,4,7`, `busca grupos tirar 4`, `busca grupos todos`. Em Ajustes a lista virou "Grupos de pedidos".
+- 03/11: **modelo do Gemini não é mais fixo** (o Google recusou `gemini-2.5-flash` para chave nova: "no longer available to new users"). `src/gemini-modelo.js` lista os modelos da chave (`/v1beta/models`), escolhe o `gemini-N.M-flash` estável de maior versão (comparação numérica; sem lite/preview/pro), guarda 6 h; se a chamada voltar "indisponível/404", escolhe outro e refaz sem gastar outra busca do dia; sem lista usa o apelido `gemini-flash-latest` (não verificado com chave real). Valem também no reforço de lugares dos pedidos (matcher). Para fixar: `GEMINI_MODEL` / `GEMINI_BUSCA_MODEL` no .env. `testar gemini` mostra o modelo.
 - 03/11: `testar gemini` (WhatsApp) e botão "Testar chave salva" (Busca › Configurações): testa a chave salva no Google e corrige chave salva "suja" pela versão antiga de Ajustes.
 - 03/11: chave do Gemini: `src/gemini-chave.js` limpa (espaços, invisíveis, aspas, "GEMINI_API_KEY=") e confere no Google (lista de modelos) antes de salvar; a regra antiga `[\w-]{20,200}` recusava chave válida.
 - 03/11: TODAS as páginas: redesenho na mesma página não anima mais (`.sem-anim`), mantém rolagem; "Hoje" só redesenha se o status mudou e mantém o que foi digitado; `render({ manterCampos })`. Painel pede assets com `?v=<versão>` (sem cache velho após atualizar).
