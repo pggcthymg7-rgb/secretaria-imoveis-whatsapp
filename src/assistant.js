@@ -165,6 +165,7 @@ const HELP = `${BOT} *Oi, eu sou a BIGA!* Seus comandos:
 • *minhas buscas* · *ver busca 3* · *config busca*
 • *grupos da busca* · *busca grupos 1,4,7* · *busca grupos todos*
 • *limite busca 30* · *portais olx zap vivareal* · *chave gemini SUA_CHAVE* · *testar gemini* · *testar gemini fundo*
+• busca nos portais sem depender do Google: *chave tavily SUA_CHAVE* ou *chave serper SUA_CHAVE* (grátis: tavily.com · serper.dev) · opcional: *chave apify SEU_TOKEN*
 ⚙️ *status* · *pausar* · *retomar* · *ajuda*`;
 
 async function reply(wa, chatJid, text) {
@@ -252,7 +253,7 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
   if (/^(config busca|configuracao da busca|configuracoes da busca|busca config)$/.test(norm)) {
     const c = require('./busca-inteligente').getConfig();
     const sn = v => (v ? '✅' : '❌');
-    await reply(wa, chatJid, `⚙️ *Configuração da busca*\n• Portais: OLX ${sn(c.olx)} · ZAP ${sn(c.zap)} · VivaReal ${sn(c.vivareal)}\n• Limite: ${c.limiteDia} buscas nos portais por dia (hoje: ${c.usadasHoje})\n• Guardar anúncios dos grupos: ${sn(c.memoriaAtiva)}\n• Chave do Gemini: ${c.temChaveGemini ? '✅ configurada' : '❌ falta'}\n\nMudar: *limite busca 30* · *portais olx zap* · *memória desligar* · *chave gemini SUA_CHAVE*`);
+    await reply(wa, chatJid, `⚙️ *Configuração da busca*\n• Portais: OLX ${sn(c.olx)} · ZAP ${sn(c.zap)} · VivaReal ${sn(c.vivareal)}\n• Limite: ${c.limiteDia} buscas nos portais por dia (hoje: ${c.usadasHoje})\n• Guardar anúncios dos grupos: ${sn(c.memoriaAtiva)}\n• Chave do Gemini: ${c.temChaveGemini ? '✅ configurada' : '❌ falta'}\n• Motores dos portais: ${c.motores.apify ? 'Apify ✅ · ' : ''}${c.motores.busca.length ? c.motores.busca.map(x => `${x} ✅`).join(' · ') + ' · ' : ''}${c.motores.gemini ? 'Gemini+Google (último recurso) ✅' : ''}${!c.motores.apify && !c.motores.busca.length && !c.motores.gemini ? '❌ nenhum (mande *chave tavily SUA_CHAVE*)' : ''}\n\nMudar: *limite busca 30* · *portais olx zap* · *memória desligar* · *chave gemini SUA_CHAVE*`);
     return true;
   }
   const limBusca = norm.match(/^limite (?:da )?busca\s+(\d{1,3})$/);
@@ -337,6 +338,19 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
   if (/^(testar gemini|testar chave|testar chave gemini|teste gemini)$/.test(norm)) {
     const r = await require('./gemini-chave').testarChaveSalva();
     await reply(wa, chatJid, `🔑 ${r.mensagem}`);
+    return true;
+  }
+  const chaveBusca = text.match(/^\s*chave\s+(tavily|serper|brave|apify)\s*:?\s+([\s\S]{8,400})$/i);
+  if (chaveBusca) {
+    const B = require('./busca-chaves');
+    const prov = chaveBusca[1].toLowerCase();
+    const v = await B.validar(prov, chaveBusca[2]);
+    if (!v.ok) {
+      await reply(wa, chatJid, `🔑 Não salvei: ${v.mensagem}`);
+      return true;
+    }
+    require('./envfile').updateEnvFile({ [B.PROVEDORES[prov].env]: v.chave });
+    await reply(wa, chatJid, `🔑 ${v.mensagem}\nPor segurança, *apague esta mensagem com a chave* (toque e segure › Apagar para mim).`);
     return true;
   }
   const chaveCmd = text.match(/^\s*chave\s+(?:do\s+)?gemini\s*:?\s+([\s\S]{10,400})$/i);

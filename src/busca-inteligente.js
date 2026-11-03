@@ -20,6 +20,10 @@ const { evaluateProperty } = require('./brain/engine');
 const { loadSettings } = require('./settings');
 const anuncios = require('./anuncios');
 const { normalizarFiltros, preenchidos } = require('./busca-filtros');
+const serp = require('./busca-serp');
+const { curar } = require('./busca-curadoria');
+const { buscarApify, apifyConfigurado } = require('./busca-apify');
+const links = require('./busca-links');
 
 const USO_FILE = 'busca_inteligente.json';
 const PORTAIS = { 'olx.com.br': 'OLX', 'zapimoveis.com.br': 'ZAP Imóveis', 'vivareal.com.br': 'VivaReal' };
@@ -164,32 +168,7 @@ function buscarNosGrupos(criterios, index) {
 const slug = s => normalize(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 function linksProntos(criterios) {
-  const c = criterios;
-  const fl = c.filtros || {};
-  const bairro = fl.bairro || c.local.bairros[0] || '';
-  const cidade = (c.local.cidades.find(x => x !== 'Goiânia') || 'Goiânia');
-  const tipo = c.tipos[0] || 'Apartamento';
-  const aluguel = c.transacao === 'ALUGUEL';
-  const zapTipo = { Apartamento: 'apartamentos', Cobertura: 'cobertura', Casa: 'casas', Sobrado: 'sobrado', Terreno: 'terrenos-lotes-condominios', Flat: 'flat', Studio: 'studio', Comercial: 'imoveis' }[tipo] || 'imoveis';
-  const vrTipo = { Apartamento: 'apartamento_residencial', Cobertura: 'cobertura_residencial', Casa: 'casa_residencial', Sobrado: 'sobrado_residencial', Terreno: 'lote-terreno_residencial', Flat: 'flat_residencial' }[tipo] || '';
-  const q = new URLSearchParams();
-  if (c.valor_min) q.set('precoMinimo', c.valor_min);
-  if (c.valor_max) q.set('precoMaximo', c.valor_max);
-  if (c.area_min) q.set('areaMinima', Math.round(c.area_min));
-  if (c.area_max) q.set('areaMaxima', Math.round(c.area_max));
-  if (c.quartos_min) q.set('quartos', c.quartos_min);
-  const qs = q.toString() ? `?${q}` : '';
-  const neg = aluguel ? 'aluguel' : 'venda';
-  const zap = `https://www.zapimoveis.com.br/${neg}/${zapTipo}/go+${slug(cidade)}${bairro ? `++${slug(bairro)}` : ''}/${qs}`;
-  const vivareal = `https://www.vivareal.com.br/${neg}/goias/${slug(cidade)}/${bairro ? `bairros/${slug(bairro)}/` : ''}${vrTipo ? `${vrTipo}/` : ''}${qs}`;
-  const o = new URLSearchParams();
-  o.set('q', `${tipo} ${fl.local || bairro}`.trim().toLowerCase());
-  if (c.valor_min) o.set('ps', c.valor_min);
-  if (c.valor_max) o.set('pe', c.valor_max);
-  if (c.area_min) o.set('ss', Math.round(c.area_min));
-  const olx = `https://www.olx.com.br/imoveis/${aluguel ? 'aluguel' : 'venda'}/estado-go/grande-goiania-e-anapolis/${slug(cidade)}?${o}`;
-  const todos = { 'olx.com.br': ['OLX', olx], 'zapimoveis.com.br': ['ZAP Imóveis', zap], 'vivareal.com.br': ['VivaReal', vivareal] };
-  return Object.fromEntries(portaisAtivos().map(d => todos[d]));
+  return links.linksProntos(criterios, portaisAtivos());
 }
 
 // ---------------------------------------------------------------------------
@@ -231,6 +210,10 @@ function getConfig() {
     todosGrupos: !Array.isArray(s.buscaGruposIds),
     gruposIds: Array.isArray(s.buscaGruposIds) ? s.buscaGruposIds : [],
     temChaveGemini: Boolean(String(process.env.GEMINI_API_KEY || '').trim()),
+    motores: (() => {
+      const m = motoresConfigurados(process.env);
+      return { apify: m.apify, busca: m.serp.map(x => serp.NOME[x]), gemini: m.gemini };
+    })(),
     usadasHoje: usoHoje()
   };
 }
@@ -395,64 +378,24 @@ function dentroDoPedido(item, c) {
   if (area && c.area_min && area < c.area_min * 0.95) return false;
   if (area && c.area_max && area > c.area_max * 1.05) return false;
   if (item.quartos && c.quartos_min && numero(item.quartos) < c.quartos_min) return false;
+  if (item.suites && c.suites_min && numero(item.suites) < c.suites_min) return false;
   return true;
 }
 
-async function buscarNosPortais(criterios, textoOriginal, { env = process.env, fetcher = fetch } = {}) {
-  const key = require('./gemini-chave').limparChave(env.GEMINI_API_KEY);
-  if (!key) return { ok: false, motivo: 'sem_chave', itens: [], fontesSoltas: [] };
-  const dominios = portaisAtivos();
-  if (!dominios.length) return { ok: false, motivo: 'desligado', itens: [], fontesSoltas: [] };
-  if (usoHoje() >= limiteDia(env)) return { ok: false, motivo: 'limite', itens: [], fontesSoltas: [] };
-  registrarUso();
-  const M = require('./gemini-modelo');
-  const body = {
-    contents: [{ role: 'user', parts: [{ text: promptPortais(descreverPedido(criterios), textoOriginal, dominios) }] }],
-    tools: [{ google_search: {} }],
-    generationConfig: { temperature: 0.2 }
-  };
-  const chamar = async model => {
-    const r = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(90000)
-    });
-    return { r, data: await r.json() };
-  };
-  let data;
-  let usado = env.GEMINI_BUSCA_MODEL || (await M.escolherModelo(key, { fetcher }));
-  try {
-    let { r, data: d } = await chamar(usado);
-    // "este modelo não está mais disponível para a sua chave": o Google aposenta modelos; tenta o mais novo que ele oferece
-    if (!r.ok && M.modeloIndisponivel(r.status, d?.error?.message)) {
-      M.esquecer(key);
-      const outro = await M.escolherModelo(key, { fetcher, ignorar: [usado] });
-      if (outro && outro !== usado) {
-        usado = outro;
-        ({ r, data: d } = await chamar(usado));
-      }
-    }
-    data = d;
-    if (!r.ok) devolverUso();
-    if (!r.ok) return { ok: false, motivo: r.status === 429 ? 'cota' : 'erro', detalhe: String(data?.error?.message || r.status).slice(0, 200), modelo: usado, itens: [], fontesSoltas: [] };
-  } catch (err) {
-    devolverUso();
-    return { ok: false, motivo: 'erro', detalhe: String(err.message).slice(0, 200), modelo: usado, itens: [], fontesSoltas: [] };
-  }
-  const cand = data?.candidates?.[0] || {};
-  const texto = (cand.content?.parts || []).map(p => p.text || '').join('');
-  const fontes = await abrirFontes(cand.groundingMetadata?.groundingChunks || [], fetcher);
-  const fontesPorChave = new Map(fontes.map(f => [urlChave(f.url), f]));
-
+/**
+ * Trava anti-invenção + filtro + separação profissional/particular.
+ * `permitidos`: Set com as urlChave REAIS devolvidas pela busca (qualquer link fora dele é descartado);
+ * null só para fonte já estruturada (Apify), que ainda precisa ser URL de um dos portais ligados.
+ */
+function finalizarItens(brutos, { permitidos, dominios, criterios, certeza }) {
   const vistos = new Set();
   const impressoes = new Set();
   const itens = [];
-  for (const it of extrairJson(texto)) {
+  for (const it of brutos) {
     const link = String(it.link || '');
     const portal = portalDe(link);
-    // anti-invenção: o link tem que estar entre as fontes reais da busca do Google
-    if (!portal || !dominios.includes(portal) || !fontesPorChave.has(urlChave(link))) continue;
+    if (!portal || !dominios.includes(portal)) continue;
+    if (permitidos && !permitidos.has(urlChave(link))) continue; // anti-invenção
     if (!dentroDoPedido(it, criterios)) continue;
     const ch = urlChave(link);
     const fp = [Math.round(numero(it.preco) / 10000), Math.round(numero(it.area_m2) / 5), normalize(it.bairro)].join('|');
@@ -471,11 +414,200 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
       anunciante: String(it.anunciante || '').slice(0, 80),
       resumo: String(it.resumo || '').slice(0, 200),
       tipoAnunciante: cl.tipo,
-      certeza: cl.certeza
+      certeza: certeza || cl.certeza
     });
   }
-  const fontesSoltas = fontes.filter(f => !vistos.has(urlChave(f.url))).slice(0, 8);
-  return { ok: true, itens, fontesSoltas, modelo: usado, usadasHoje: usoHoje(), limite: limiteDia(env) };
+  return { itens, vistos };
+}
+
+/** Camada 1 — Grounding do Gemini (google_search). Fila de modelos com o 2.5 primeiro (os únicos com cota grátis documentada). */
+async function buscarPortaisGemini(criterios, textoOriginal, { env, fetcher, dominios }) {
+  const key = require('./gemini-chave').limparChave(env.GEMINI_API_KEY);
+  const M = require('./gemini-modelo');
+  const body = {
+    contents: [{ role: 'user', parts: [{ text: promptPortais(descreverPedido(criterios), textoOriginal, dominios) }] }],
+    tools: [{ google_search: {} }],
+    generationConfig: { temperature: 0.2 }
+  };
+  const ordem = [...new Set([String(env.GEMINI_BUSCA_MODEL || '').trim(), 'gemini-2.5-flash', 'gemini-2.5-flash-lite', await M.escolherModelo(key, { fetcher })].filter(Boolean))];
+  const tentativas = [];
+  let data = null;
+  let usado = ordem[0];
+  for (const modelo of ordem) {
+    usado = modelo;
+    try {
+      const r = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(90000)
+      });
+      const d = await r.json();
+      if (r.ok) {
+        tentativas.push({ modelo, status: r.status });
+        data = d;
+        break;
+      }
+      const msg = String((d && d.error && d.error.message) || r.status).slice(0, 500);
+      tentativas.push({ modelo, status: r.status, mensagem: msg });
+      if (M.modeloIndisponivel(r.status, msg) || r.status === 429) continue; // sem cota/indisponível: tenta o próximo modelo da fila
+      return { ok: false, motivo: 'erro', detalhe: msg, modelo, tentativas, itens: [], fontesSoltas: [] };
+    } catch (err) {
+      tentativas.push({ modelo, status: 0, mensagem: String(err.message).slice(0, 200) });
+      return { ok: false, motivo: 'erro', detalhe: String(err.message).slice(0, 200), modelo, tentativas, itens: [], fontesSoltas: [] };
+    }
+  }
+  if (!data) {
+    const ult = tentativas[tentativas.length - 1] || {};
+    const algum429 = tentativas.some(t => t.status === 429);
+    return { ok: false, motivo: algum429 ? 'cota' : 'erro', detalhe: (algum429 ? tentativas.filter(t => t.status === 429).pop() : ult).mensagem || 'nenhum modelo aceitou', modelo: usado, tentativas, itens: [], fontesSoltas: [] };
+  }
+  const cand = data?.candidates?.[0] || {};
+  const texto = (cand.content?.parts || []).map(p => p.text || '').join('');
+  const fontes = await abrirFontes(cand.groundingMetadata?.groundingChunks || [], fetcher);
+  const fontesPorChave = new Set(fontes.map(f => urlChave(f.url)));
+  const { itens, vistos } = finalizarItens(extrairJson(texto), { permitidos: fontesPorChave, dominios, criterios });
+  return { ok: true, itens, fontesSoltas: fontes.filter(f => !vistos.has(urlChave(f.url))).slice(0, 8), modelo: usado, tentativas };
+}
+
+// ---------------------------------------------------------------------------
+// MOTORES (cascata) e mensagens
+// ---------------------------------------------------------------------------
+function motoresConfigurados(env = process.env) {
+  return { apify: apifyConfigurado(env), serp: serp.provedoresConfigurados(env), gemini: Boolean(require('./gemini-chave').limparChave(env.GEMINI_API_KEY)) };
+}
+
+/** Texto em português para cada motivo de falha (relatório do WhatsApp e painel) */
+function explicarMotivo(p) {
+  const d = p.detalhe ? `: ${p.detalhe}` : '';
+  const modelos = (p.tentativas || []).length ? ` Modelos tentados: ${p.tentativas.map(t => t.modelo).join(', ')}.` : '';
+  return (
+    {
+      sem_chave: 'falta uma chave de busca: Tavily ou Serper (grátis, recomendado) ou Gemini. Painel › Ajustes, ou mande *chave tavily SUA_CHAVE*.',
+      desligado: 'todos os portais estão desligados (painel › Busca, ou *portais olx zap vivareal*).',
+      limite: 'limite diário de buscas atingido (protege de cobranças). Volta amanhã.',
+      cota: `o Google respondeu "sem cota" (429)${d}.${modelos} Se a mensagem fala em "limit: 0", a busca com Google não vem no plano grátis desta chave: mande *testar gemini fundo*. Com uma chave Tavily ou Serper a busca passa a não depender disso.`,
+      erro: `o Gemini não respondeu agora${d}.${modelos}`,
+      sem_chave_busca: 'falta a chave do Tavily/Serper.',
+      cota_busca: `o ${p.provedor || 'provedor de busca'} recusou por cota${d}.`,
+      chave_busca_recusada: `o ${p.provedor || 'provedor de busca'} recusou a chave${d}. Gere outra e salve de novo.`,
+      erro_busca: `o ${p.provedor || 'provedor de busca'} não respondeu${d}.`,
+      chave_apify_recusada: `o Apify recusou o token${d}.`,
+      erro_apify: `o Apify não respondeu${d}.`
+    }[p.motivo] || `não consegui buscar${d}.`
+  );
+}
+
+/**
+ * BUSCA NOS PORTAIS — cascata:
+ *  3. Apify (opcional; ZAP e VivaReal estruturados, filtros do próprio portal)
+ *  2. Tavily/Serper/Brave (anúncios individuais reais) + Gemini SEM google_search (curadoria)
+ *  1. Gemini com google_search — só se nenhuma camada acima respondeu
+ * Em todas: link só vale se veio de uma fonte real (trava anti-invenção).
+ */
+async function buscarNosPortais(criterios, textoOriginal, { env = process.env, fetcher = fetch } = {}) {
+  const m = motoresConfigurados(env);
+  const vazio = { itens: [], fontesSoltas: [] };
+  if (!m.apify && !m.serp.length && !m.gemini) return { ok: false, motivo: 'sem_chave', explicacao: explicarMotivo({ motivo: 'sem_chave' }), ...vazio };
+  const dominios = portaisAtivos();
+  if (!dominios.length) return { ok: false, motivo: 'desligado', explicacao: explicarMotivo({ motivo: 'desligado' }), ...vazio };
+  if (usoHoje() >= limiteDia(env)) return { ok: false, motivo: 'limite', explicacao: explicarMotivo({ motivo: 'limite' }), ...vazio };
+  registrarUso();
+  const descricao = descreverPedido(criterios);
+  const via = [];
+  const erros = [];
+  const todos = [];
+  let fontesSoltas = [];
+  let modelo;
+  let semCuradoria = false;
+  let algumOk = false;
+  let cobertos = [];
+
+  // Camada 3 — Apify
+  if (m.apify) {
+    const r = await buscarApify({ criterios, dominios, env, fetcher });
+    if (r.ok) {
+      algumOk = true;
+      via.push('Apify');
+      cobertos = r.cobertos;
+      todos.push(...finalizarItens(r.itens, { permitidos: null, dominios, criterios, certeza: 'anúncio' }).itens);
+    } else erros.push({ camada: 'apify', ...r });
+  }
+
+  // Camada 2 — busca desacoplada + curadoria
+  if (m.serp.length) {
+    const restantes = dominios.filter(d => !cobertos.includes(d));
+    if (restantes.length) {
+      const r = await serp.buscarAnuncios({ criterios, dominios: restantes, env, fetcher });
+      if (!r.ok) erros.push({ camada: 'busca', ...r });
+      else {
+        algumOk = true;
+        const permitidos = new Set(r.catalogo.map(x => urlChave(x.url))); // urlsPermitidas
+        const porId = new Map(r.catalogo.map(x => [x.id, x]));
+        const chave = require('./gemini-chave').limparChave(env.GEMINI_API_KEY);
+        if (r.catalogo.length && chave) {
+          const cur = await curar({ chave, descricao, catalogo: r.catalogo, env, fetcher });
+          if (cur.ok) {
+            via.push(`${r.provedor} + Gemini`);
+            modelo = cur.modelo;
+            const brutos = [];
+            for (const x of cur.itens) {
+              const cat = porId.get(Number(x && x.id)); // o Gemini devolve o número; o link vem do catálogo
+              if (cat) brutos.push({ ...x, link: cat.url, titulo: cat.titulo, portalDominio: cat.dominio });
+            }
+            const { itens, vistos } = finalizarItens(brutos, { permitidos, dominios, criterios });
+            todos.push(...itens);
+            fontesSoltas.push(...r.catalogo.filter(x => !vistos.has(urlChave(x.url))).slice(0, 6).map(x => ({ url: x.url, titulo: x.titulo })));
+          } else {
+            erros.push({ camada: 'curadoria', ...cur });
+            semCuradoria = true;
+            via.push(`${r.provedor} (sem curadoria)`);
+            fontesSoltas.push(...r.catalogo.slice(0, 8).map(x => ({ url: x.url, titulo: x.titulo })));
+          }
+        } else {
+          if (r.catalogo.length) {
+            semCuradoria = true; // sem chave do Gemini: mostro os anúncios achados, mas sem filtrar
+            fontesSoltas.push(...r.catalogo.slice(0, 8).map(x => ({ url: x.url, titulo: x.titulo })));
+          }
+          via.push(r.catalogo.length ? `${r.provedor} (sem curadoria)` : r.provedor);
+        }
+      }
+    }
+  }
+
+  // Camada 1 — grounding do Gemini (último recurso)
+  if (!algumOk && m.gemini) {
+    const r = await buscarPortaisGemini(criterios, textoOriginal, { env, fetcher, dominios });
+    if (r.ok) {
+      algumOk = true;
+      via.push('Gemini + Google');
+      modelo = r.modelo;
+      todos.push(...r.itens);
+      fontesSoltas.push(...r.fontesSoltas);
+    } else erros.push({ camada: 'gemini', ...r });
+  }
+
+  if (!algumOk) {
+    devolverUso(); // busca que nenhum motor respondeu não conta no limite do dia
+    const e = erros[0] || { motivo: 'erro' };
+    const { camada, ...resto } = e;
+    return { ok: false, ...resto, erros, explicacao: explicarMotivo(e), ...vazio };
+  }
+
+  // junta e tira repetidos (mesmo link, ou mesmo imóvel: preço + área + bairro)
+  const vistos = new Set();
+  const impressoes = new Set();
+  const itens = [];
+  for (const it of todos) {
+    const ch = urlChave(it.link);
+    const fp = [Math.round(it.preco / 10000), Math.round(it.area / 5), normalize(it.bairro)].join('|');
+    if (vistos.has(ch) || (it.preco && it.area && impressoes.has(fp))) continue;
+    vistos.add(ch);
+    impressoes.add(fp);
+    itens.push(it);
+  }
+  fontesSoltas = fontesSoltas.filter(f => !vistos.has(urlChave(f.url))).slice(0, 8);
+  return { ok: true, itens, fontesSoltas, modelo, via, semCuradoria, avisosMotor: erros.map(e => `${e.camada}: ${e.detalhe || e.motivo}`), usadasHoje: usoHoje(), limite: limiteDia(env) };
 }
 
 // ---------------------------------------------------------------------------
@@ -546,19 +678,13 @@ function formatarRelatorio(r) {
   // 2. portais
   const p = r.portais;
   if (!p.ok) {
-    const motivo = {
-      sem_chave: 'falta a chave do Gemini (painel › Busca › Configurações, ou mande *chave gemini SUA_CHAVE*).',
-      desligado: 'todos os portais estão desligados (painel › Busca, ou *portais olx zap vivareal*).',
-      limite: 'limite diário de buscas atingido (protege de cobranças). Volta amanhã.',
-      cota: `o Google respondeu "sem cota" (429)${p.detalhe ? `: ${p.detalhe}` : ''}. Se a mensagem fala em "limit: 0", a busca com Google não vem no plano grátis da chave. Mande *testar gemini fundo* para diagnosticar.`,
-      erro: `o Gemini não respondeu agora${p.detalhe ? ` (${p.detalhe})` : ''}.`
-    }[p.motivo];
+    const motivo = p.explicacao || explicarMotivo(p);
     blocos.push(`🌐 *NOS PORTAIS*\nNão busquei: ${motivo}\nUse os links prontos abaixo.`);
   } else {
     const prof = p.itens.filter(x => x.tipoAnunciante === 'profissional');
     const part = p.itens.filter(x => x.tipoAnunciante === 'particular');
     const outros = p.itens.filter(x => x.tipoAnunciante === 'desconhecido');
-    blocos.push(`🌐 *NOS PORTAIS* (${p.itens.length})\n_só anúncios com link confirmado pela busca do Google · ${p.usadasHoje}/${p.limite} buscas hoje_`);
+    blocos.push(`🌐 *NOS PORTAIS* (${p.itens.length})\n_só anúncios com link confirmado pela busca · via ${(p.via || []).join(' + ') || 'busca'} · ${p.usadasHoje}/${p.limite} buscas hoje_${p.semCuradoria ? '\n⚠️ Sem a chave/resposta do Gemini não consegui filtrar: abaixo, os anúncios achados.' : ''}`);
     if (part.length) {
       blocos.push(`👤 *PARTICULAR* (${part.length})`);
       part.forEach((x, i) => blocos.push(linhaImovelPortal(x, i)));
@@ -591,4 +717,4 @@ function formatarRelatorio(r) {
   return msgs;
 }
 
-module.exports = { getConfig, atualizarConfig, grupoNaBusca, portaisAtivos, resumoHistorico, getBusca, buscar, buscarComFiltros, entenderFiltros, textoDosFiltros, credivel, entenderPedido, buscarNosGrupos, buscarNosPortais, linksProntos, formatarRelatorio, descreverPedido, extrairJson, classificar, _uso: { usoHoje } };
+module.exports = { motoresConfigurados, explicarMotivo, buscarPortaisGemini, finalizarItens, getConfig, atualizarConfig, grupoNaBusca, portaisAtivos, resumoHistorico, getBusca, buscar, buscarComFiltros, entenderFiltros, textoDosFiltros, credivel, entenderPedido, buscarNosGrupos, buscarNosPortais, linksProntos, formatarRelatorio, descreverPedido, extrairJson, classificar, _uso: { usoHoje } };

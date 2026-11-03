@@ -74,9 +74,9 @@ async function testarChaveSalva(fetcher) {
 async function diagnosticar(chave, fetcher = fetch) {
   const M = require('./gemini-modelo');
   const modelo = process.env.GEMINI_BUSCA_MODEL || (await M.escolherModelo(chave, { fetcher }));
-  const chamar = async corpo => {
+  const chamar = async (corpo, mod = modelo) => {
     try {
-      const r = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`, {
+      const r = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(mod)}:generateContent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
         body: JSON.stringify(corpo),
@@ -93,26 +93,67 @@ async function diagnosticar(chave, fetcher = fetch) {
     }
   };
   const simples = await chamar({ contents: [{ role: 'user', parts: [{ text: 'Responda apenas: ok' }] }], generationConfig: { maxOutputTokens: 8 } });
-  const busca = await chamar({ contents: [{ role: 'user', parts: [{ text: 'Qual é a capital de Goiás? Responda em uma palavra.' }] }], tools: [{ google_search: {} }], generationConfig: { maxOutputTokens: 50 } });
-  return { modelo, simples, busca };
+  // a busca com Google é testada em cada modelo da fila (os 2.5 são os únicos com cota grátis documentada)
+  const corpoBusca = { contents: [{ role: 'user', parts: [{ text: 'Qual é a capital de Goiás? Responda em uma palavra.' }] }], tools: [{ google_search: {} }], generationConfig: { maxOutputTokens: 50 } };
+  const buscas = [];
+  for (const m of [...new Set(['gemini-2.5-flash', 'gemini-2.5-flash-lite', modelo])]) buscas.push({ modelo: m, ...(await chamar(corpoBusca, m)) });
+  return { modelo, simples, busca: buscas[0], buscas };
 }
 
-function textoDiagnostico(d) {
+function textoDiagnostico(d, motores) {
   const linha = (nome, x) => (x.ok ? `✅ ${nome}: funcionou${x.fontes !== undefined && nome.includes('Google') ? ` (${x.fontes} fonte(s))` : ''}` : `❌ ${nome}: erro ${x.status || ''} — ${x.mensagem}`);
+  const buscas = d.buscas || [{ modelo: d.modelo, ...d.busca }];
+  const algumaOk = buscas.some(b => b.ok);
+  const todas429 = buscas.every(b => !b.ok && b.status === 429);
+  const indisponiveis = buscas.filter(b => !b.ok && (b.status === 404 || /no longer available|not found/i.test(b.mensagem || '')));
   let conclusao;
-  if (d.simples.ok && d.busca.ok) conclusao = 'Tudo certo: a chave gera texto e a busca com Google está liberada.';
-  else if (d.simples.ok && !d.busca.ok && d.busca.status === 429) conclusao = 'A chave funciona, mas a *busca com Google* está sem cota para ela. No plano grátis isso costuma ser "limite 0": é preciso ativar o faturamento do projeto no Google AI Studio (aistudio.google.com › Settings › Billing). Enquanto isso, use os links prontos.';
-  else if (d.simples.ok && !d.busca.ok) conclusao = 'A chave gera texto, mas a busca com Google foi recusada. Veja a mensagem acima.';
+  if (d.semChave) conclusao = 'Sem chave do Gemini salva: ela só é necessária para a curadoria (escolher, entre os anúncios achados, os que servem ao pedido).';
+  else if (d.simples.ok && algumaOk) conclusao = `A chave gera texto e a busca com Google funciona em: ${buscas.filter(b => b.ok).map(b => b.modelo).join(', ')}.`;
+  else if (d.simples.ok && todas429) conclusao = 'A chave funciona, mas a *busca com Google* está sem cota em todos os modelos testados. No plano grátis isso costuma ser "limit: 0". Pode ser preciso ativar o faturamento do projeto no Google AI Studio (aistudio.google.com › API keys) — não consegui confirmar qual franquia grátis a sua chave tem. Você não precisa disso: com uma chave do Tavily ou do Serper (grátis) a busca nos portais deixa de depender do Google.';
+  else if (d.simples.ok && indisponiveis.length === buscas.length) conclusao = 'A chave gera texto, mas o Google não oferece a busca com Google nesses modelos para a sua chave (modelos aposentados para chaves novas). A BIGA usa o modelo mais novo da sua chave sozinha.';
+  else if (d.simples.ok) conclusao = 'A chave gera texto, mas a busca com Google foi recusada. Veja a mensagem acima.';
   else if (d.simples.status === 429) conclusao = 'A cota geral desta chave está esgotada agora (nem uma resposta simples passou).';
   else conclusao = 'A chave não conseguiu gerar nem uma resposta simples. Veja a mensagem acima.';
-  return [`🔬 *Diagnóstico do Gemini*`, `Modelo: ${d.modelo}`, linha('Resposta simples', d.simples), linha('Busca com Google', d.busca), '', conclusao].join('\n');
+  const partes = [
+    '🔬 *Diagnóstico do Gemini*',
+    `Modelo (texto): ${d.modelo}`,
+    linha('Resposta simples (sem busca)', d.simples),
+    ...buscas.map(b => linha(`Busca com Google em ${b.modelo}`, b)),
+    '',
+    conclusao
+  ];
+  if (motores) {
+    const sn = (ok, extra = '') => (ok ? `✅ configurado${extra}` : '❌ sem chave');
+    const ping = n => (motores.ping && motores.ping[n] ? (motores.ping[n].ok ? ` — respondeu (${motores.ping[n].resultados} resultado(s))` : ` — ❌ erro ${motores.ping[n].status || ''}: ${motores.ping[n].mensagem}`) : '');
+    const ativo = [motores.apify ? 'Apify (ZAP e VivaReal)' : '', motores.busca.length ? `${motores.busca[0]} + Gemini (curadoria sem Google)` : '', !(motores.apify || motores.busca.length) && motores.gemini ? 'Gemini + Google (último recurso)' : ''].filter(Boolean);
+    partes.push(
+      '',
+      '🌐 *Motores da busca nos portais*',
+      `• Tavily: ${sn(motores.busca.includes('Tavily'), ping('Tavily'))}`,
+      `• Serper: ${sn(motores.busca.includes('Serper'), ping('Serper'))}`,
+      `• Brave: ${sn(motores.busca.includes('Brave'), ping('Brave'))}`,
+      `• Apify (ZAP/VivaReal): ${sn(motores.apify)}`,
+      `• Gemini + Google: ${motores.gemini ? '✅ chave salva (usado só se os acima falharem)' : '❌ sem chave'}`,
+      `Motor principal agora: ${ativo.length ? ativo.join(' + ') : '❌ nenhum — mande *chave tavily SUA_CHAVE* (grátis em tavily.com)'}`
+    );
+  }
+  return partes.join('\n');
 }
 
 async function diagnosticarSalva(fetcher) {
   const chave = limparChave(process.env.GEMINI_API_KEY);
-  if (!chave) return { ok: false, texto: 'Nenhuma chave do Gemini salva ainda.' };
+  const serp = require('./busca-serp');
+  const { motoresConfigurados } = require('./busca-inteligente');
+  const m = motoresConfigurados(process.env);
+  const motores = { apify: m.apify, gemini: m.gemini, busca: m.serp.map(x => serp.NOME[x]), ping: {} };
+  // 1 consulta de teste no provedor principal (custa 1 crédito grátis)
+  if (m.serp.length) motores.ping[serp.NOME[m.serp[0]]] = await serp.testarProvedor(m.serp[0], { env: process.env, fetcher: fetcher || fetch });
+  if (!chave) {
+    const t = textoDiagnostico({ modelo: '—', semChave: true, simples: { ok: false, status: 0, mensagem: 'sem chave do Gemini' }, buscas: [] }, motores);
+    return { ok: false, texto: m.serp.length || m.apify ? t : 'Nenhuma chave do Gemini salva ainda.' };
+  }
   const d = await diagnosticar(chave, fetcher);
-  return { ok: d.simples.ok && d.busca.ok, texto: textoDiagnostico(d), diagnostico: d };
+  return { ok: d.simples.ok && (d.buscas || []).some(b => b.ok), texto: textoDiagnostico(d, motores), diagnostico: d };
 }
 
 module.exports = { limparChave, formatoValido, testarChave, validarChave, testarChaveSalva, diagnosticar, textoDiagnostico, diagnosticarSalva };
