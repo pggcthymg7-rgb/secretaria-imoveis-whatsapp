@@ -550,7 +550,7 @@
     if (!r) return '';
     const p = r.portais || { itens: [] };
     const grupoPorTipo = t => (p.itens || []).filter(x => x.tipoAnunciante === t);
-    const motivo = { sem_chave: 'Falta a chave do Gemini (em Configurações, abaixo).', limite: 'Limite diário de buscas atingido. Volta amanhã (ou aumente em Configurações).', cota: `O Google respondeu "sem cota" (429)${p.detalhe ? `: ${p.detalhe}` : ''}. Se fala em "limit: 0", a busca com Google não vem no plano grátis da chave: use "Diagnóstico completo" em Configurações.`, desligado: 'Todos os portais estão desligados em Configurações.', erro: `O Gemini não respondeu agora${p.detalhe ? ` (${p.detalhe})` : ''}.` }[p.motivo];
+    const motivo = String(p.explicacao || 'não consegui buscar nos portais.').replace(/\*/g, '');
     const bloco = (titulo, lista) => (lista.length ? `<span class="label" style="margin-top:16px">${titulo} (${lista.length})</span><div class="list">${lista.map(cardPortal).join('')}</div>` : '');
     return `
       <section class="section"><div class="container">
@@ -565,7 +565,7 @@
       <section class="section"><div class="container">
         <span class="label reveal">🌐 Nos portais (${(p.itens || []).length})</span>
         ${!p.ok ? `<div class="card"><p class="body muted">Não busquei nos portais: ${esc(motivo || '')} Use as buscas prontas abaixo.</p></div>` : `
-          <p class="caption">Só entram anúncios com link confirmado pela busca do Google.</p>
+          <p class="caption">Só entram anúncios com link confirmado pela busca${(p.via || []).length ? ` · via ${esc(p.via.join(' + '))}` : ''}.${p.semCuradoria ? ' ⚠️ Sem a chave/resposta do Gemini não consegui filtrar: veja abaixo os anúncios achados.' : ''}</p>
           ${bloco('👤 Particular', grupoPorTipo('particular'))}${bloco('🏢 Profissional', grupoPorTipo('profissional'))}${bloco('❔ Não identificado', grupoPorTipo('desconhecido'))}
           ${!(p.itens || []).length ? '<div class="card"><p class="body muted">Nenhum anúncio confirmado com esse perfil.</p></div>' : ''}
           ${(p.fontesSoltas || []).length ? `<span class="label" style="margin-top:16px">Outras páginas encontradas</span><div class="linkout">${p.fontesSoltas.map(f => `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer"><span>${esc(f.titulo || f.url)}</span><span>↗</span></a>`).join('')}</div>` : ''}`}
@@ -603,7 +603,11 @@
           ${field('texto', 'Pedido do cliente (texto livre)', fb.texto || '', { area: true, rows: 3, ph: 'Ex.: apartamento de 800 mil a 1 milhão no Setor Marista, mínimo 100 m², 3 quartos' })}
         </details>
         <div class="row">${toggle('whatsapp', false, 'Mandar também pro meu WhatsApp')}<button class="btn-primary" data-action="buscar">${S.buscando ? 'Buscando… (até 2 min)' : 'Buscar'}</button><button class="btn-ghost" data-action="limparFiltros">Limpar</button></div>
-        <p class="caption">Buscas nos portais hoje: ${c.usadasHoje || 0} de ${c.limiteDia ?? 20}${c.temChaveGemini ? '' : ' · sem chave do Gemini: só grupos e buscas prontas'}</p>
+        <p class="caption">Buscas nos portais hoje: ${c.usadasHoje || 0} de ${c.limiteDia ?? 20} · ${(() => {
+          const m = c.motores || {};
+          const partes = [m.apify ? 'Apify (ZAP e VivaReal)' : '', (m.busca || []).length ? `${m.busca[0]} + Gemini` : '', !(m.apify || (m.busca || []).length) && m.gemini ? 'Gemini + Google' : ''].filter(Boolean);
+          return partes.length ? `motor: ${esc(partes.join(' + '))}` : 'sem motor de busca: só grupos e buscas prontas (configure o Tavily ou o Serper em Ajustes)';
+        })()}</p>
       </div></div></section>
       ${resultadoBusca(S.buscaAtual)}
       <section class="section"><div class="container"><div class="stats reveal">
@@ -774,6 +778,10 @@
         </div>
         <div class="fields wide">
           ${field('geminiApiKey', 'Chave do Gemini (grátis em aistudio.google.com)', '', { type: 'password', ph: c.hasGeminiKey ? '•••••••• (manter a atual)' : 'cole aqui', attrs: 'autocomplete="off"' })}
+          ${field('tavilyApiKey', 'Busca nos portais: chave do Tavily', '', { type: 'password', ph: c.hasTavilyKey ? '•••••••• (manter a atual)' : 'cole aqui (grátis)', attrs: 'autocomplete="off"' })}
+          ${field('serperApiKey', 'Busca nos portais: chave do Serper (alternativa)', '', { type: 'password', ph: c.hasSerperKey ? '•••••••• (manter a atual)' : 'cole aqui (grátis)', attrs: 'autocomplete="off"' })}
+          ${field('apifyToken', 'Opcional: token do Apify (ZAP e VivaReal estruturados)', '', { type: 'password', ph: c.hasApifyToken ? '•••••••• (manter o atual)' : 'cole aqui', attrs: 'autocomplete="off"' })}
+          <p class="caption" style="grid-column:1/-1">Para a Busca nos portais funcionar sem depender do Google: crie uma chave grátis em 1 minuto em <a href="https://tavily.com" target="_blank" rel="noopener noreferrer">tavily.com</a> (1.000 buscas por mês) ou <a href="https://serper.dev" target="_blank" rel="noopener noreferrer">serper.dev</a> (2.500 buscas). Cada chave é conferida no serviço antes de salvar.</p>
           ${field('googleSheetsUrl', 'Link CSV do Google Sheets (importar)', c.googleSheetsUrl, { ph: 'https://docs.google.com/…' })}
           ${field('googleSheetsWebhookUrl', 'Webhook do Apps Script (sincronizar)', c.googleSheetsWebhookUrl, { ph: 'https://script.google.com/…/exec' })}
         </div>
@@ -1298,8 +1306,10 @@
       const ids = Object.keys(d).filter(k => k.startsWith('mg:') && d[k]).map(k => k.slice(3));
       for (const k of Object.keys(d)) if (k.startsWith('mg:')) delete d[k];
       d.gruposMonitoradosIds = ids;
-      if (!d.geminiApiKey) delete d.geminiApiKey;
-      await saveConfig(d, 'Ajustes salvos!');
+      for (const k of ['geminiApiKey', 'tavilyApiKey', 'serperApiKey', 'apifyToken']) if (!d[k]) delete d[k];
+      const r = await api('POST', '/api/config', d);
+      if (S.status) S.status.config = r.config;
+      toast(r.chavesMsg ? `Ajustes salvos! ${r.chavesMsg}` : 'Ajustes salvos!');
       await loadStatus();
       render();
     },
