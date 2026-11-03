@@ -379,3 +379,47 @@ test('Portais: modelo aposentado -> escolhe o novo sozinho e refaz (sem gastar o
   await bi.buscarNosPortais(criterios, F.pedidoClienteMarista, { env: { GEMINI_API_KEY: 'k-modelo', BUSCA_LIMITE_DIA: '99' }, fetcher: async (url, o) => (/\/models\?pageSize/.test(url) ? { ok: false, status: 500 } : (usados.push(decodeURIComponent(url.match(/models\/([^:]+):/)[1])), { ok: true, status: 200, json: async () => ({ candidates: [] }) })) });
   assert.deepEqual(usados, ['gemini-flash-latest']);
 });
+
+// ---------------------------------------------------------------------------
+// Caso real do João: "a cota grátis acabou" sem ele ter usado nada (429 da busca com Google)
+test('Diagnóstico do Gemini: separa "chave gera texto" de "busca com Google sem cota" e mostra o motivo exato do Google', async () => {
+  const g = require('../src/gemini-chave');
+  const M = require('../src/gemini-modelo');
+  M.esquecer('k-diag');
+  const msg429 = 'You exceeded your current quota. * Quota exceeded for metric: generate_content_free_tier_grounding_requests, limit: 0';
+  const fetcher = async (url, o = {}) => {
+    if (/\/models\?pageSize/.test(url)) return { ok: true, status: 200, json: async () => ({ models: [{ name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }] }) };
+    const corpo = JSON.parse(o.body);
+    if (corpo.tools) return { ok: false, status: 429, json: async () => ({ error: { message: msg429 } }) };
+    return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }) };
+  };
+  const d = await g.diagnosticar('k-diag', fetcher);
+  assert.equal(d.modelo, 'gemini-3.8-flash');
+  assert.equal(d.simples.ok, true);
+  assert.equal(d.busca.ok, false);
+  const t = g.textoDiagnostico(d);
+  assert.match(t, /✅ Resposta simples/);
+  assert.match(t, /❌ Busca com Google: erro 429 — You exceeded your current quota[\s\S]*limit: 0/);
+  assert.match(t, /busca com Google\* está sem cota[\s\S]*faturamento/);
+  // tudo certo
+  const tudo = await g.diagnosticar('k-diag', async (u, o = {}) => (/\/models\?pageSize/.test(u) ? fetcher(u, o) : { ok: true, status: 200, json: async () => ({ candidates: [{ groundingMetadata: { groundingChunks: [{}, {}] } }] }) }));
+  assert.match(g.textoDiagnostico(tudo), /Tudo certo[\s\S]*/);
+  // cota geral
+  const geral = await g.diagnosticar('k-diag', async (u, o = {}) => (/\/models\?pageSize/.test(u) ? fetcher(u, o) : { ok: false, status: 429, json: async () => ({ error: { message: 'quota' } }) }));
+  assert.match(g.textoDiagnostico(geral), /cota geral desta chave/);
+});
+
+test('Portais com 429: o relatório mostra a mensagem do Google e a busca recusada NÃO conta no limite do dia', async () => {
+  const msg429 = 'Quota exceeded ... limit: 0';
+  const { criterios } = bi.entenderPedido(F.pedidoClienteMarista);
+  const antes = bi._uso.usoHoje();
+  const r = await bi.buscarNosPortais(criterios, F.pedidoClienteMarista, {
+    env: { GEMINI_API_KEY: 'k-429', GEMINI_BUSCA_MODEL: 'gemini-3.8-flash', BUSCA_LIMITE_DIA: '99' },
+    fetcher: async () => ({ ok: false, status: 429, json: async () => ({ error: { message: msg429 } }) })
+  });
+  assert.equal(r.motivo, 'cota');
+  assert.equal(bi._uso.usoHoje(), antes, 'busca recusada pelo Google não gasta uma das buscas do dia');
+  const txt = bi.formatarRelatorio({ ...(await bi.buscar('apto 800 mil a 1 milhão setor marista', { env: {}, guardar: false })), portais: r }).join('\n');
+  assert.match(txt, /sem cota" \(429\): Quota exceeded[\s\S]*limit: 0[\s\S]*testar gemini fundo/);
+  assert.doesNotMatch(txt, /acabou por hoje/);
+});
