@@ -173,6 +173,7 @@
     ['inicio', 'Início', 'Volte para a BIGA'],
     ['hoje', 'Hoje', 'Números do dia, QR Code e atividade'],
     ['radar', 'Radar', 'Pedidos dos grupos e o que eu fiz com cada um'],
+    ['busca', 'Busca', 'Procuro o imóvel do seu cliente nos grupos e nos portais'],
     ['carteira', 'Carteira', 'Seus imóveis, fotos e cadastro'],
     ['garimpo', 'Garimpo', 'Clientes procurando imóvel na internet'],
     ['vitrine', 'Vitrine', 'Divulgação automática nos grupos'],
@@ -523,6 +524,106 @@
       </div></section>` : ''}`);
   }
 
+  // ------------------------------------------------------------------ BUSCA INTELIGENTE
+  const dataCurta = ts => (ts ? new Date(ts).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '—');
+  function cardGrupo(g, i) {
+    const p = g.prop || {};
+    const det = [p.tipo, p.setor || p.edificio, p.tamanho_m2 ? `${p.tamanho_m2} m²` : '', p.quartos ? `${p.quartos} quartos` : '', p.suites ? `${p.suites} suítes` : ''].filter(Boolean).join(' · ');
+    return `<div class="item reveal">
+      <div class="row between"><h3 class="hxs">${i + 1}. ${esc(det || 'Imóvel')}</h3><span class="tag ${g.status === 'MATCH' ? 'enviar' : 'avisar'}">● ${g.status === 'MATCH' ? 'bate com o pedido' : 'conferir'}</span></div>
+      <p class="body" style="margin-top:6px"><b>${p.valor ? brl(p.valor) : 'preço não informado'}</b></p>
+      <p class="body muted" style="margin-top:6px">“${esc(String(g.texto || '').slice(0, 300))}${String(g.texto || '').length > 300 ? '…' : ''}”</p>
+      ${g.status !== 'MATCH' && (g.faltando || []).length ? `<p class="caption">⚠️ ${esc(g.faltando.slice(0, 2).join('; '))}</p>` : ''}
+      <div class="stack-sm" style="margin-top:8px">${(g.fontes || []).map(f => `<div class="row between"><span class="caption">👤 <b>${esc(f.autor)}</b> · ${esc(f.grupo)} · ${dataCurta(f.ts)}</span>${f.telefone ? `<a class="btn-ghost accent" href="https://wa.me/${esc(f.telefone)}" target="_blank" rel="noopener noreferrer">Chamar no WhatsApp ↗</a>` : ''}</div>`).join('')}</div>
+    </div>`;
+  }
+  function cardPortal(x) {
+    const det = [x.preco ? brl(x.preco) : 'preço no link', x.area ? `${x.area} m²` : '', x.quartos ? `${x.quartos} quartos` : '', x.bairro].filter(Boolean).join(' · ');
+    return `<div class="item reveal">
+      <div class="row between"><h3 class="hxs">${esc(x.titulo || x.resumo || 'Imóvel')}</h3><span class="tag">${esc(x.portal)}</span></div>
+      <p class="body" style="margin-top:6px">${esc(det)}</p>
+      ${x.anunciante ? `<p class="caption">${esc(x.anunciante)}${x.certeza === 'estimativa' ? ' · tipo estimado pelo texto' : ''}</p>` : ''}
+      <div class="row tight"><a class="btn-ghost accent" href="${esc(x.link)}" target="_blank" rel="noopener noreferrer">Abrir anúncio ↗</a></div>
+    </div>`;
+  }
+  function resultadoBusca(r) {
+    if (!r) return '';
+    const p = r.portais || { itens: [] };
+    const grupoPorTipo = t => (p.itens || []).filter(x => x.tipoAnunciante === t);
+    const motivo = { sem_chave: 'Falta a chave do Gemini (em Configurações, abaixo).', limite: 'Limite diário de buscas atingido. Volta amanhã (ou aumente em Configurações).', cota: 'A cota grátis do Google acabou por hoje.', desligado: 'Todos os portais estão desligados em Configurações.', erro: `O Gemini não respondeu agora${p.detalhe ? ` (${p.detalhe})` : ''}.` }[p.motivo];
+    const bloco = (titulo, lista) => (lista.length ? `<span class="label" style="margin-top:16px">${titulo} (${lista.length})</span><div class="list">${lista.map(cardPortal).join('')}</div>` : '');
+    return `
+      <section class="section"><div class="container">
+        <div class="row between reveal"><div><span class="label">Busca nº ${esc(r.id)} · ${esc(when(r.ts))}</span><h2 class="heading-sm">${esc(r.descricao)}</h2></div>
+          <button class="btn-ghost accent" data-action="buscaWhats" data-id="${esc(r.id)}">Mandar pro meu WhatsApp</button></div>
+      </div></section>
+      <section class="section"><div class="container">
+        <span class="label reveal">📱 Nos seus grupos (${r.grupos.length})</span>
+        <div class="list">${r.grupos.length ? r.grupos.map(cardGrupo).join('') : `<div class="card"><p class="body muted">Nada anunciado com esse perfil nos seus grupos. Memória: ${r.memoria?.total || 0} anúncios${r.memoria?.desde ? `, desde ${dataCurta(r.memoria.desde)}` : ''}.</p></div>`}</div>
+      </div></section>
+      <section class="section"><div class="container">
+        <span class="label reveal">🌐 Nos portais (${(p.itens || []).length})</span>
+        ${!p.ok ? `<div class="card"><p class="body muted">Não busquei nos portais: ${esc(motivo || '')} Use as buscas prontas abaixo.</p></div>` : `
+          <p class="caption">Só entram anúncios com link confirmado pela busca do Google.</p>
+          ${bloco('👤 Particular', grupoPorTipo('particular'))}${bloco('🏢 Profissional', grupoPorTipo('profissional'))}${bloco('❔ Não identificado', grupoPorTipo('desconhecido'))}
+          ${!(p.itens || []).length ? '<div class="card"><p class="body muted">Nenhum anúncio confirmado com esse perfil.</p></div>' : ''}
+          ${(p.fontesSoltas || []).length ? `<span class="label" style="margin-top:16px">Outras páginas encontradas</span><div class="linkout">${p.fontesSoltas.map(f => `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer"><span>${esc(f.titulo || f.url)}</span><span>↗</span></a>`).join('')}</div>` : ''}`}
+      </div></section>
+      ${Object.keys(r.links || {}).length ? `<section class="section"><div class="container"><span class="label reveal">🔗 Busca pronta nos portais</span>
+        <div class="linkout">${Object.entries(r.links).map(([n, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer"><span>${esc(n)} — com os filtros do pedido</span><span>↗</span></a>`).join('')}</div></div></section>` : ''}`;
+  }
+  function viewBusca() {
+    const b = S.busca || { config: {}, memoria: {}, historico: [] };
+    const c = b.config || {};
+    const m = b.memoria || {};
+    const imp = b.importacao;
+    shell(`
+      ${header('Busca', 'Busca inteligente', 'Escreva o que o seu cliente quer. Eu procuro nos <b>seus grupos</b> (anúncios dos últimos 90 dias: quem anunciou e onde) e na <b>OLX, ZAP e VivaReal</b>, separando particular e profissional. Também dá para fazer tudo pelo “Mensagem para mim”: <b>busca …</b>')}
+      <section class="section"><div class="container"><div class="card reveal stack" id="buscaForm">
+        ${field('texto', 'Pedido do cliente', S.buscaTexto || '', { area: true, rows: 3, ph: 'Ex.: apartamento de 800 mil a 1 milhão no Setor Marista, mínimo 100 m², 3 quartos' })}
+        <div class="row">${toggle('whatsapp', false, 'Mandar também pro meu WhatsApp')}<button class="btn-primary" data-action="buscar">${S.buscando ? 'Buscando… (até 2 min)' : 'Buscar'}</button></div>
+        <p class="caption">Buscas nos portais hoje: ${c.usadasHoje || 0} de ${c.limiteDia ?? 20}${c.temChaveGemini ? '' : ' · sem chave do Gemini: só grupos e buscas prontas'}</p>
+      </div></div></section>
+      ${resultadoBusca(S.buscaAtual)}
+      <section class="section"><div class="container"><div class="stats reveal">
+        <div class="stat"><div class="n" data-count="${m.total || 0}">0</div><div class="l">anúncios guardados</div></div>
+        <div class="stat"><div class="n" data-count="${m.grupos || 0}">0</div><div class="l">grupos</div></div>
+        <div class="stat"><div class="n" style="font-size:22px">${m.desde ? esc(dataCurta(m.desde)) : '—'}</div><div class="l">desde (guardo 90 dias)</div></div>
+        <div class="stat"><div class="n" data-count="${(b.historico || []).length}">0</div><div class="l">buscas salvas</div></div>
+      </div></div></section>
+      <section class="section"><div class="container split top">
+        <div class="card reveal stack-sm"><span class="label">Memória de anúncios dos grupos</span>
+          <p class="body muted">Guardo sozinha todo anúncio que aparece nos seus grupos. Para trazer os <b>anúncios antigos</b>:</p>
+          <p class="body"><b>1.</b> Peça ao seu celular (deixe-o ligado e com internet):</p>
+          <div class="row tight"><button class="btn-ghost accent" data-action="importarHistorico" ${imp && imp.rodando ? 'disabled' : ''}>${imp && imp.rodando ? `Importando… ${imp.anuncios} anúncios` : 'Importar histórico dos grupos'}</button></div>
+          ${imp && !imp.rodando && imp.fim ? `<p class="caption">Última importação: ${imp.anuncios} anúncios de ${imp.comHistorico} de ${imp.grupos} grupos (${esc(when(imp.fim))}).${imp.semAncora.length ? ` Sem mensagem recente para começar: ${esc(imp.semAncora.slice(0, 5).join(', '))}${imp.semAncora.length > 5 ? '…' : ''} — exporte a conversa desses.` : ''}</p>` : ''}
+          <p class="body"><b>2.</b> Ou mande a conversa exportada de um grupo (WhatsApp › grupo › Exportar conversa › Sem mídia):</p>
+          <div class="row tight"><label class="btn-ghost accent" style="cursor:pointer">Escolher arquivo (.txt ou .zip)<input type="file" id="conversaInput" accept=".txt,.zip,text/plain,application/zip" hidden></label></div>
+        </div>
+        <div class="card reveal stack-sm" id="buscaCfg"><span class="label">Configurações</span>
+          ${toggle('olx', c.olx !== false, 'Buscar na OLX')}
+          ${toggle('zap', c.zap !== false, 'Buscar no ZAP Imóveis')}
+          ${toggle('vivareal', c.vivareal !== false, 'Buscar no VivaReal')}
+          ${toggle('memoriaAtiva', c.memoriaAtiva !== false, 'Guardar os anúncios dos grupos', 'Desligado: paro de guardar anúncios novos (os guardados continuam).')}
+          <div class="fields">${field('limiteDia', 'Limite de buscas nos portais por dia', c.limiteDia ?? 20, { type: 'number', attrs: 'min="0" max="500"' })}
+          ${field('geminiApiKey', 'Chave do Gemini (grátis em aistudio.google.com)', '', { type: 'password', ph: c.temChaveGemini ? '•••••••• (manter a atual)' : 'cole aqui', attrs: 'autocomplete="off"' })}</div>
+          <div class="row"><button class="btn-primary" data-action="salvarBuscaCfg">Salvar configurações</button></div>
+        </div>
+      </div></section>
+      <section class="section"><div class="container"><span class="label reveal">Últimas buscas</span>
+        <div class="list">${(b.historico || []).length ? b.historico.map(h => `<div class="item reveal row between"><div><p class="body"><b>nº ${esc(h.id)}</b> · ${esc(h.descricao)}</p><p class="caption">${esc(when(h.ts))} · ${h.grupos} nos grupos · ${h.portaisOk ? `${h.portais} nos portais` : 'portais não consultados'}</p></div><div class="row tight"><button class="btn-ghost accent" data-action="verBusca" data-id="${esc(h.id)}">Ver</button><button class="btn-ghost" data-action="buscaWhats" data-id="${esc(h.id)}">WhatsApp</button></div></div>`).join('') : '<div class="card"><p class="body muted">Nenhuma busca ainda.</p></div>'}</div>
+      </div></section>`);
+    clearTimeout(S._buscaPoll);
+    if (imp && imp.rodando && S.route === 'busca')
+      S._buscaPoll = setTimeout(async () => {
+        if (S.route !== 'busca') return;
+        try {
+          S.busca = await api('GET', '/api/busca');
+          render();
+        } catch {}
+      }, 5000);
+  }
+
   // ------------------------------------------------------------------ GARIMPO
   function viewGarimpo() {
     const g = S.garimpo || { config: {}, chaves: {}, leads: [], execucoes: [], campanhas: [] };
@@ -640,6 +741,7 @@
     hoje: loadStatus,
     geral: loadStatus,
     garimpo: async () => (S.garimpo = await api('GET', '/api/garimpo')),
+    busca: async () => (S.busca = await api('GET', '/api/busca')),
     radar: async () => (S.radar = await api('GET', '/api/radar')),
     carteira: async () => (S.inventory = (await api('GET', '/api/inventory')).inventory),
     vitrine: async () => {
@@ -658,7 +760,7 @@
       S.sistema = await api('GET', '/api/sistema').catch(() => null);
     }
   };
-  const views = { inicio: viewHome, hoje: viewGeral, geral: viewGeral, garimpo: (...a) => viewGarimpo(...a), radar: viewRadar, carteira: viewCarteira, vitrine: viewVitrine, prospeccao: viewProspeccao, atendimento: viewAtendimento, cerebro: viewCerebro, simulador: viewSimulador, ajustes: viewAjustes };
+  const views = { inicio: viewHome, hoje: viewGeral, geral: viewGeral, garimpo: (...a) => viewGarimpo(...a), busca: viewBusca, radar: viewRadar, carteira: viewCarteira, vitrine: viewVitrine, prospeccao: viewProspeccao, atendimento: viewAtendimento, cerebro: viewCerebro, simulador: viewSimulador, ajustes: viewAjustes };
 
   function render() {
     if (!S.authed) return viewLogin();
@@ -769,6 +871,46 @@
   }
 
   const actions = {
+    buscar: async () => {
+      const f = formData($('#buscaForm'));
+      S.buscaTexto = f.texto;
+      if (!String(f.texto || '').trim()) return toast('Escreva o pedido do cliente.', true);
+      S.buscando = true;
+      render();
+      toast('Buscando nos grupos e nos portais…');
+      try {
+        const r = await api('POST', '/api/busca', { texto: f.texto, whatsapp: f.whatsapp });
+        S.buscaAtual = r.busca;
+        S.busca = r.estado;
+        toast(`${r.busca.grupos.length} nos grupos · ${(r.busca.portais.itens || []).length} nos portais${f.whatsapp ? ' · mandei no seu WhatsApp' : ''}`);
+      } finally {
+        S.buscando = false;
+        render();
+      }
+    },
+    verBusca: async el => {
+      S.buscaAtual = await api('GET', `/api/busca/item/${encodeURIComponent(el.dataset.id)}`);
+      render();
+      scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    buscaWhats: async el => {
+      await api('POST', `/api/busca/item/${encodeURIComponent(el.dataset.id)}/whatsapp`);
+      toast('Relatório enviado para o seu WhatsApp.');
+    },
+    importarHistorico: async () => {
+      const r = await api('POST', '/api/busca/importar-historico');
+      S.busca = r.estado;
+      toast('Importando… deixe o celular ligado. Eu aviso no WhatsApp quando terminar.');
+      render();
+    },
+    salvarBuscaCfg: async () => {
+      const f = formData($('#buscaCfg'));
+      if (!f.geminiApiKey) delete f.geminiApiKey;
+      const r = await api('POST', '/api/busca/config', f);
+      S.busca = r.estado;
+      toast('Configurações da busca salvas.');
+      render();
+    },
     atualizarAgora: async () => {
       const r = await api('POST', '/api/sistema/atualizar');
       toast(r.message);
@@ -1160,6 +1302,16 @@
         const r = await api('POST', '/api/restore', fd, true);
         toast(`Restaurado: ${r.arquivos.length} arquivos e ${r.fotos} fotos. Reiniciando…`);
         setTimeout(() => location.reload(), 9000);
+        return;
+      }
+      if (e.target.id === 'conversaInput' && e.target.files.length) {
+        const fd = new FormData();
+        fd.append('arquivo', e.target.files[0]);
+        toast('Lendo a conversa…');
+        const r = await api('POST', '/api/busca/importar-conversa', fd, true);
+        S.busca = r.estado;
+        toast(`"${r.grupo}": ${r.anuncios} anúncios guardados de ${r.lidas} mensagens.`);
+        render();
         return;
       }
       if (e.target.id === 'campImg' && e.target.files.length) {

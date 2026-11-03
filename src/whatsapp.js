@@ -485,6 +485,7 @@ function anotarAncora(msg) {
 /** Se a mensagem do grupo é anúncio de imóvel, guarda na memória (90 dias) */
 async function guardarAnuncioDoGrupo(msg, origem = 'ao vivo') {
   if (msg.key.fromMe) return null;
+  if (origem === 'ao vivo' && loadSettings().buscaMemoriaAtiva === false) return null; // desligado em Busca › Configurações
   const texto = extractText(msg);
   if (!texto || texto.trim().length < 20 || !anuncios.pareceAnuncio(texto)) return null;
   const g = msg.key.remoteJid;
