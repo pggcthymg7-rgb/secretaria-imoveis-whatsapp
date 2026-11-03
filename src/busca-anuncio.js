@@ -19,6 +19,7 @@ const UA = 'BIGA-secretaria-imoveis/1.0 (leitura de anuncio publico; contato do 
 const MAX_BYTES = 4 * 1024 * 1024;
 const MAX_PAGINAS = 15;
 const SIMULTANEAS = 4;
+const TETO_TOTAL_MS = 25000; // tempo máximo para ler TODAS as páginas de uma busca
 
 const num = v => {
   const n = Number(String(v == null ? '' : v).replace(/[^\d.]/g, ''));
@@ -51,36 +52,52 @@ function lerEndereco(url) {
   const venda = /\bvenda\b/.test(s);
   const aluguel = /\balugue?l\b/.test(s);
   if (venda || aluguel) d.transacao = venda && aluguel ? 'AMBOS' : venda ? 'VENDA' : 'ALUGUEL';
-  d.tipo = tipoDoTexto(s);
+  // o tipo vem do INÍCIO do slug ("venda-apartamento-…", "casa-4-quartos-…"): nome de edifício/empreendimento vem depois
+  d.tipo = tipoDoTexto(s.split(' ').filter(w => w !== 'venda' && w !== 'aluguel' && w !== 'para' && w !== 'a').slice(0, 4).join(' '));
   const q = primeiro(s, /\b(\d{1,2}) quartos?\b/);
   if (q) d.quartos = Number(q);
   const a = primeiro(s, /\b(\d{2,4}) ?m2\b/);
   if (a) d.area = Number(a);
-  const p = primeiro(u.pathname, /RS(\d{5,9})(?=[-/]|$)/i);
+  const p = primeiro(u.pathname, /(?:^|[-/])RS(\d{5,9})(?=[-/]|$)/);
   if (p) d.preco = Number(p);
   return d;
 }
 
-/** Dados estruturados da PÁGINA do anúncio na OLX (campos do JSON da própria página) */
-function lerPaginaOlx(html) {
+/** Número do anúncio na OLX = últimos dígitos do endereço */
+const idDoLink = url => primeiro(String(url || '').split('?')[0].replace(/\/+$/, ''), /-(\d{6,})$/);
+
+/**
+ * Dados estruturados da PÁGINA do anúncio na OLX (campos do JSON da própria página).
+ * Âncora: o número do anúncio (do endereço). Página que não cita esse número (captcha, lista, redirecionada)
+ * não vira dado; preço, profissional/particular e anunciante são lidos do bloco desse anúncio, não de "relacionados".
+ */
+function lerPaginaOlx(html, idAnuncio) {
   const h = String(html || '');
   if (!/"price":"\d+"/.test(h) && !/"professionalAd":/.test(h)) return null;
-  const prof = primeiro(h, /"professionalAd":(true|false)/);
+  let bloco = h;
+  if (idAnuncio) {
+    const m = h.match(new RegExp(`"listId":${idAnuncio}(?!\\d)`)); // (?!\d): "1" não casa com "1509799842"
+    if (!m) return null;
+    bloco = h.slice(m.index, m.index + 1500);
+  }
+  const prof = primeiro(bloco, /"professionalAd":(true|false)/);
+  const preco = (idAnuncio && primeiro(h, new RegExp(`"list_id":${idAnuncio}(?!\\d)[^}]{0,400}?"price":"(\\d+)"`))) || primeiro(bloco, /"price":"(\d+)"/) || primeiro(h, /"price":"(\d+)"/);
   const titulo = primeiro(h, /<title>([^<]{5,200})<\/title>/).replace(/\s*\|\s*OLX.*$/i, '');
   const desc = primeiro(h, /"@type":"Product","name":"[^"]*","url":"[^"]*","description":"((?:[^"\\]|\\.){0,1500})"/);
   const texto = `${titulo} ${desc}`.replace(/<br\s*\/?>/gi, ' ');
   const suites = primeiro(normalize(texto), /\b(\d{1,2}) suites?\b/);
   const tipoOlx = primeiro(h, /"real_estate_type":"([^"]*)"/);
+  const vagas = primeiro(h, /"garage_spaces":"(\d+)"/);
   return {
-    preco: num(primeiro(h, /"price":"(\d+)"/)),
+    preco: num(preco),
     area: num(primeiro(h, /"size":(\d+)/)),
     quartos: num(primeiro(h, /"rooms":"(\d+)"/)),
     banheiros: num(primeiro(h, /"bathrooms":"(\d+)"/)),
-    vagas: num(primeiro(h, /"garage_spaces":"(\d+)"/)),
-    suites: suites ? Number(suites) : 0,
+    vagas: vagas === '' ? null : Number(vagas), // null = a página não informa (0 = informa que não tem)
+    suites: suites ? Number(suites) : 0, // inferido do texto livre: só serve para "conferir", nunca para reprovar
     bairro: primeiro(h, /"neighbourhood":"([^"]*)"/),
     cidade: primeiro(h, /"municipality":"([^"]*)"/),
-    anunciante: primeiro(h, /"sellerName":"([^"]*)"/).slice(0, 80),
+    anunciante: primeiro(bloco, /"sellerName":"([^"]*)"/).slice(0, 80),
     profissional: prof === '' ? null : prof === 'true',
     tipo: tipoDoTexto(tipoOlx || titulo),
     transacao: /^venda/i.test(tipoOlx) ? 'VENDA' : /^alugu/i.test(tipoOlx) ? 'ALUGUEL' : '',
@@ -116,12 +133,12 @@ function avaliar(d, c) {
     if (!d.quartos) conferir.push('quartos');
   }
   if (c.suites_min) {
-    if (d.suites && d.suites < c.suites_min) return { ok: false, motivo: 'poucas suítes' };
-    if (!d.suites) conferir.push('suítes');
+    // suíte vem de texto livre ("2 quartos sendo 1 suíte master"): não reprova, só pede conferência
+    if (!d.suites || d.suites < c.suites_min) conferir.push('suítes');
   }
   if (c.vagas_min) {
-    if (d.vagas && d.vagas < c.vagas_min) return { ok: false, motivo: 'poucas vagas' };
-    if (d.vagas == null || d.vagas === 0) conferir.push('vagas');
+    if (d.vagas != null && d.vagas < c.vagas_min) return { ok: false, motivo: 'poucas vagas' };
+    if (d.vagas == null) conferir.push('vagas');
   }
   return { ok: true, conferir };
 }
@@ -136,13 +153,30 @@ function urlLegivel(url, { portalDaUrl, ehPaginaDeAnuncio }) {
   }
 }
 
-async function baixarPagina(url, fetcher) {
-  const r = await fetcher(url, { headers: { 'User-Agent': UA, Accept: 'text/html', 'Accept-Language': 'pt-BR,pt;q=0.9' }, redirect: 'manual', signal: AbortSignal.timeout(12000) });
+async function baixarPagina(url, fetcher, timeoutMs = 12000) {
+  const r = await fetcher(url, { headers: { 'User-Agent': UA, Accept: 'text/html', 'Accept-Language': 'pt-BR,pt;q=0.9' }, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });
   if (!r.ok) return { erro: `HTTP ${r.status}` };
   const len = Number(r.headers && r.headers.get && r.headers.get('content-length'));
   if (len > MAX_BYTES) return { erro: 'página grande demais' };
+  if (r.body && typeof r.body.getReader === 'function') {
+    // lê aos pedaços e para no teto (resposta sem Content-Length não enche a memória)
+    const reader = r.body.getReader();
+    const partes = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > MAX_BYTES) {
+        await reader.cancel().catch(() => {});
+        return { erro: 'página grande demais' };
+      }
+      partes.push(Buffer.from(value));
+    }
+    return { html: Buffer.concat(partes).toString('utf8') };
+  }
   const html = await r.text();
-  return { html: html.length > MAX_BYTES ? html.slice(0, MAX_BYTES) : html };
+  return html.length > MAX_BYTES ? { erro: 'página grande demais' } : { html };
 }
 
 /**
@@ -156,14 +190,15 @@ async function lerAnuncios({ catalogo, criterios, fetcher = fetch, portalDaUrl, 
   const out = { decididos: [], aCurar: [], descartados: new Set(), lidas: 0, falhas: 0 };
   const paraLer = abrirPaginas ? catalogo.filter(x => urlLegivel(x.url, { portalDaUrl, ehPaginaDeAnuncio })).slice(0, MAX_PAGINAS) : [];
   const paginas = new Map();
+  const fim = Date.now() + TETO_TOTAL_MS;
   let i = 0;
   await Promise.all(
     Array.from({ length: Math.min(SIMULTANEAS, paraLer.length) }, async () => {
-      while (i < paraLer.length) {
+      while (i < paraLer.length && Date.now() < fim) {
         const cat = paraLer[i++];
         try {
-          const b = await baixarPagina(cat.url, fetcher);
-          const d = b.html ? lerPaginaOlx(b.html) : null;
+          const b = await baixarPagina(cat.url, fetcher, Math.max(1000, Math.min(12000, fim - Date.now())));
+          const d = b.html ? lerPaginaOlx(b.html, idDoLink(cat.url)) : null;
           if (d) {
             paginas.set(cat.id, d);
             out.lidas++;
@@ -192,4 +227,4 @@ async function lerAnuncios({ catalogo, criterios, fetcher = fetch, portalDaUrl, 
   return out;
 }
 
-module.exports = { lerEndereco, lerPaginaOlx, avaliar, lerAnuncios, urlLegivel, tipoDoTexto };
+module.exports = { idDoLink, lerEndereco, lerPaginaOlx, avaliar, lerAnuncios, urlLegivel, tipoDoTexto };

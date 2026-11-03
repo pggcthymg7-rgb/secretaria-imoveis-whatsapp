@@ -46,9 +46,11 @@ function entenderPedido(texto) {
   const index = getIndex();
   const c = parseRequest(texto, { index });
   c.intent = 'BUSCA';
-  // o cérebro erra uma letra ("Goiânia" -> Goianira): na busca só vale a cidade que está escrita no texto
-  const escrito = ` ${normalize(texto)} `;
-  c.local.cidades = c.local.cidades.filter(x => escrito.includes(` ${normalize(x)} `));
+  // o cérebro erra uma letra ("Goiânia" -> Goianira): só vale a cidade cujo nome (ou parte distintiva, ex.: "Canedo" de
+  // "Senador Canedo") está escrito no texto como palavra inteira
+  const palavras = new Set(normalize(texto).split(' ').filter(Boolean));
+  const soltas = new Set(['de', 'do', 'da', 'dos', 'das', 'e']);
+  c.local.cidades = c.local.cidades.filter(x => normalize(x).split(' ').some(w => w.length >= 4 && !soltas.has(w) && palavras.has(w)));
   return { criterios: c, index };
 }
 
