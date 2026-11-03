@@ -522,6 +522,7 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
   let modelo;
   let semCuradoria = false;
   let curadoriaErro = '';
+  let diagBusca = '';
   let algumOk = false;
   let cobertos = [];
 
@@ -544,6 +545,7 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
       if (!r.ok) erros.push({ camada: 'busca', ...r });
       else {
         algumOk = true;
+        diagBusca = Object.entries(r.diag || {}).map(([d, v]) => `${(serp.PORTAIS[d] || d)}: ${v.brutos} páginas, ${v.anuncios} anúncios`).join(' · ');
         const permitidos = new Set(r.catalogo.map(x => urlChave(x.url))); // urlsPermitidas
         const porId = new Map(r.catalogo.map(x => [x.id, x]));
         const chave = require('./gemini-chave').limparChave(env.GEMINI_API_KEY);
@@ -610,7 +612,7 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
     itens.push(it);
   }
   fontesSoltas = fontesSoltas.filter(f => !vistos.has(urlChave(f.url))).slice(0, 8);
-  return { ok: true, itens, fontesSoltas, modelo, via, semCuradoria, curadoriaErro, avisosMotor: erros.map(e => `${e.camada}: ${e.detalhe || e.motivo}`), usadasHoje: usoHoje(), limite: limiteDia(env) };
+  return { ok: true, itens, fontesSoltas, modelo, via, semCuradoria, curadoriaErro, diagBusca, avisosMotor: erros.map(e => `${e.camada}: ${e.detalhe || e.motivo}`), usadasHoje: usoHoje(), limite: limiteDia(env) };
 }
 
 // ---------------------------------------------------------------------------
@@ -700,7 +702,7 @@ function formatarRelatorio(r) {
       blocos.push(`❔ *NÃO IDENTIFICADO* (${outros.length})`);
       outros.forEach((x, i) => blocos.push(linhaImovelPortal(x, i)));
     }
-    if (!p.itens.length) blocos.push('Nenhum anúncio confirmado com esse perfil.');
+    if (!p.itens.length) blocos.push(`Nenhum anúncio confirmado com esse perfil.${p.diagBusca ? `\n_O buscador devolveu — ${p.diagBusca}._` : ''}`);
     if (p.fontesSoltas.length) blocos.push(`🔗 Outras páginas encontradas:\n${p.fontesSoltas.map(f => `• ${f.titulo ? f.titulo.slice(0, 60) + ' — ' : ''}${f.url}`).join('\n')}`);
     if (p.itens.some(x => x.certeza === 'estimativa')) blocos.push('_Profissional/particular no ZAP e VivaReal é estimativa (pelo texto do anúncio)._');
   }
