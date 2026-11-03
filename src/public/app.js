@@ -550,7 +550,7 @@
     if (!r) return '';
     const p = r.portais || { itens: [] };
     const grupoPorTipo = t => (p.itens || []).filter(x => x.tipoAnunciante === t);
-    const motivo = { sem_chave: 'Falta a chave do Gemini (em Configurações, abaixo).', limite: 'Limite diário de buscas atingido. Volta amanhã (ou aumente em Configurações).', cota: 'A cota grátis do Google acabou por hoje.', desligado: 'Todos os portais estão desligados em Configurações.', erro: `O Gemini não respondeu agora${p.detalhe ? ` (${p.detalhe})` : ''}.` }[p.motivo];
+    const motivo = { sem_chave: 'Falta a chave do Gemini (em Configurações, abaixo).', limite: 'Limite diário de buscas atingido. Volta amanhã (ou aumente em Configurações).', cota: `O Google respondeu "sem cota" (429)${p.detalhe ? `: ${p.detalhe}` : ''}. Se fala em "limit: 0", a busca com Google não vem no plano grátis da chave: use "Diagnóstico completo" em Configurações.`, desligado: 'Todos os portais estão desligados em Configurações.', erro: `O Gemini não respondeu agora${p.detalhe ? ` (${p.detalhe})` : ''}.` }[p.motivo];
     const bloco = (titulo, lista) => (lista.length ? `<span class="label" style="margin-top:16px">${titulo} (${lista.length})</span><div class="list">${lista.map(cardPortal).join('')}</div>` : '');
     return `
       <section class="section"><div class="container">
@@ -608,7 +608,8 @@
           ${toggle('memoriaAtiva', c.memoriaAtiva !== false, 'Guardar os anúncios dos grupos', 'Desligado: paro de guardar anúncios novos (os guardados continuam).')}
           <div class="fields">${field('limiteDia', 'Limite de buscas nos portais por dia', c.limiteDia ?? 20, { type: 'number', attrs: 'min="0" max="500"' })}
           ${field('geminiApiKey', 'Chave do Gemini (grátis em aistudio.google.com)', '', { type: 'password', ph: c.temChaveGemini ? '•••••••• (manter a atual)' : 'cole aqui', attrs: 'autocomplete="off"' })}</div>
-          <div class="row"><button class="btn-primary" data-action="salvarBuscaCfg">Salvar configurações</button>${c.temChaveGemini ? '<button class="btn-ghost accent" data-action="testarChave">Testar chave salva</button>' : ''}</div>
+          <div class="row"><button class="btn-primary" data-action="salvarBuscaCfg">Salvar configurações</button>${c.temChaveGemini ? '<button class="btn-ghost accent" data-action="testarChave">Testar chave salva</button><button class="btn-ghost" data-action="diagnosticoGemini">Diagnóstico completo</button>' : ''}</div>
+          ${S.diagnostico ? `<p class="caption" style="white-space:pre-wrap">${esc(S.diagnostico)}</p>` : ''}
         </div>
       </div></section>
       <section class="section"><div class="container stack reveal" id="buscaGrupos">
@@ -974,6 +975,12 @@
       }
       if (r.estado.importacao && $('#impAndamento')) $('#impAndamento').textContent = textoAndamento(r.estado.importacao);
       acompanharImportacao();
+    },
+    diagnosticoGemini: async () => {
+      toast('Testando a chave no Google… (até 1 minuto)');
+      const r = await api('POST', '/api/busca/diagnostico');
+      S.diagnostico = String(r.texto || '').replace(/\*/g, '');
+      render({ manterCampos: true });
     },
     testarChave: async () => {
       toast('Perguntando ao Google…');

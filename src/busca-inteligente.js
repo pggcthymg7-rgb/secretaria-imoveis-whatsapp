@@ -111,6 +111,10 @@ function usoHoje() {
 function registrarUso() {
   writeJson(USO_FILE, { dia: hoje(), usadas: usoHoje() + 1 });
 }
+/** Chamada que o Google recusou não conta como busca do dia */
+function devolverUso() {
+  writeJson(USO_FILE, { dia: hoje(), usadas: Math.max(0, usoHoje() - 1) });
+}
 function limiteDia(env) {
   const bruto = env.BUSCA_LIMITE_DIA !== undefined && env.BUSCA_LIMITE_DIA !== '' ? env.BUSCA_LIMITE_DIA : loadSettings().buscaLimiteDia;
   const n = parseInt(bruto ?? '20', 10);
@@ -336,8 +340,10 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
       }
     }
     data = d;
+    if (!r.ok) devolverUso();
     if (!r.ok) return { ok: false, motivo: r.status === 429 ? 'cota' : 'erro', detalhe: String(data?.error?.message || r.status).slice(0, 200), modelo: usado, itens: [], fontesSoltas: [] };
   } catch (err) {
+    devolverUso();
     return { ok: false, motivo: 'erro', detalhe: String(err.message).slice(0, 200), modelo: usado, itens: [], fontesSoltas: [] };
   }
   const cand = data?.candidates?.[0] || {};
@@ -434,7 +440,7 @@ function formatarRelatorio(r) {
       sem_chave: 'falta a chave do Gemini (painel › Busca › Configurações, ou mande *chave gemini SUA_CHAVE*).',
       desligado: 'todos os portais estão desligados (painel › Busca, ou *portais olx zap vivareal*).',
       limite: 'limite diário de buscas atingido (protege de cobranças). Volta amanhã.',
-      cota: 'a cota grátis do Google acabou por hoje.',
+      cota: `o Google respondeu "sem cota" (429)${p.detalhe ? `: ${p.detalhe}` : ''}. Se a mensagem fala em "limit: 0", a busca com Google não vem no plano grátis da chave. Mande *testar gemini fundo* para diagnosticar.`,
       erro: `o Gemini não respondeu agora${p.detalhe ? ` (${p.detalhe})` : ''}.`
     }[p.motivo];
     blocos.push(`🌐 *NOS PORTAIS*\nNão busquei: ${motivo}\nUse os links prontos abaixo.`);
