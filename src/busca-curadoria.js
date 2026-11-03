@@ -7,11 +7,11 @@
  */
 const M = require('./gemini-modelo');
 
-/** Ordem: os modelos baratos/leves primeiro; o descoberto na lista da chave por último */
+/** Ordem: GEMINI_*_MODEL fixo, depois os "lite" (mais leves e menos sobrecarregados), depois os demais da chave */
 async function ordemDeModelos(chave, env, fetcher) {
   const fixo = String(env.GEMINI_CURADORIA_MODEL || env.GEMINI_BUSCA_MODEL || '').trim();
-  const lista = [fixo, 'gemini-2.5-flash-lite', 'gemini-2.5-flash', await M.escolherModelo(chave, { fetcher })].filter(Boolean);
-  return [...new Set(lista)];
+  const lista = [fixo, 'gemini-2.5-flash-lite', 'gemini-2.5-flash', ...(await M.escolherModelos(chave, { fetcher, preferirLite: true, max: 4 }))].filter(Boolean);
+  return [...new Set(lista)].filter(m => !M.ehIndisponivel(chave, m));
 }
 
 function promptCuradoria(descricao, catalogo) {
@@ -46,24 +46,34 @@ function lerLista(texto) {
 }
 
 /**
- * Chama o Gemini (sem tools). Tenta o próximo modelo se este estiver indisponível ou sem cota.
+ * Chama o Gemini (sem tools).
+ *  - modelo que o Google não oferece a esta chave (404): lembra e passa ao próximo
+ *  - sem cota (429): passa ao próximo
+ *  - sobrecarga (503 "alta demanda"): tenta de novo (2x, com espera) e depois passa ao próximo
  * Retorna { ok, itens (brutos do modelo), modelo, tentativas } | { ok:false, motivo, detalhe, tentativas }
  */
 async function curar({ chave, descricao, catalogo, env = process.env, fetcher = fetch }) {
   const prompt = promptCuradoria(descricao, catalogo);
   const tentativas = [];
+  const espera = M.esperaMs(env);
   for (const modelo of await ordemDeModelos(chave, env, fetcher)) {
-    try {
-      const r = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, responseMimeType: 'application/json' } }),
-        signal: AbortSignal.timeout(90000)
-      });
+    for (let vez = 0; vez < 3; vez++) {
+      let r;
       let j = {};
       try {
-        j = await r.json();
-      } catch {}
+        r = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
+          body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, responseMimeType: 'application/json' } }),
+          signal: AbortSignal.timeout(90000)
+        });
+        try {
+          j = await r.json();
+        } catch {}
+      } catch (err) {
+        tentativas.push({ modelo, status: 0, mensagem: String(err.message).slice(0, 160) });
+        break; // erro de rede: tenta o próximo modelo
+      }
       if (r.ok) {
         const texto = ((j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || []).map(p => p.text || '').join('');
         tentativas.push({ modelo, status: r.status });
@@ -71,15 +81,22 @@ async function curar({ chave, descricao, catalogo, env = process.env, fetcher = 
       }
       const msg = String((j && j.error && j.error.message) || r.status).slice(0, 240);
       tentativas.push({ modelo, status: r.status, mensagem: msg });
-      if (M.modeloIndisponivel(r.status, msg) || r.status === 429) continue; // tenta o próximo modelo
-      return { ok: false, motivo: 'erro', detalhe: msg, tentativas };
-    } catch (err) {
-      tentativas.push({ modelo, status: 0, mensagem: String(err.message).slice(0, 160) });
-      return { ok: false, motivo: 'erro', detalhe: String(err.message).slice(0, 240), tentativas };
+      if (M.modeloIndisponivel(r.status, msg)) {
+        M.marcarIndisponivel(chave, modelo);
+        break;
+      }
+      if (r.status === 429) break;
+      if (M.erroTransitorio(r.status, msg) && vez < 2) {
+        if (espera) await new Promise(res => setTimeout(res, espera * (vez + 1)));
+        continue; // sobrecarga: tenta o mesmo modelo de novo
+      }
+      break; // outro erro: próximo modelo
     }
   }
   const ult = tentativas[tentativas.length - 1] || {};
-  return { ok: false, motivo: ult.status === 429 ? 'cota' : 'erro', detalhe: ult.mensagem || 'nenhum modelo do Gemini aceitou o pedido', tentativas };
+  const algum429 = tentativas.some(t => t.status === 429);
+  const motivo = algum429 ? 'cota' : tentativas.some(t => M.erroTransitorio(t.status, t.mensagem)) ? 'sobrecarga' : 'erro';
+  return { ok: false, motivo, detalhe: ult.mensagem || 'nenhum modelo do Gemini aceitou o pedido', tentativas };
 }
 
 module.exports = { promptCuradoria, lerLista, ordemDeModelos, curar };

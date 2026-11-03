@@ -565,9 +565,9 @@
       <section class="section"><div class="container">
         <span class="label reveal">🌐 Nos portais (${(p.itens || []).length})</span>
         ${!p.ok ? `<div class="card"><p class="body muted">Não busquei nos portais: ${esc(motivo || '')} Use as buscas prontas abaixo.</p></div>` : `
-          <p class="caption">Só entram anúncios com link confirmado pela busca${(p.via || []).length ? ` · via ${esc(p.via.join(' + '))}` : ''}.${p.semCuradoria ? ' ⚠️ Sem a chave/resposta do Gemini não consegui filtrar: veja abaixo os anúncios achados.' : ''}</p>
+          <p class="caption">Só entram anúncios com link confirmado pela busca${(p.via || []).length ? ` · via ${esc(p.via.join(' + '))}` : ''}.${p.semCuradoria ? ` ⚠️ Não consegui filtrar${p.curadoriaErro ? `: ${esc(p.curadoriaErro)}` : ' (sem chave/resposta do Gemini)'}. Veja abaixo os anúncios achados; tente de novo em alguns minutos.` : ''}</p>
           ${bloco('👤 Particular', grupoPorTipo('particular'))}${bloco('🏢 Profissional', grupoPorTipo('profissional'))}${bloco('❔ Não identificado', grupoPorTipo('desconhecido'))}
-          ${!(p.itens || []).length ? '<div class="card"><p class="body muted">Nenhum anúncio confirmado com esse perfil.</p></div>' : ''}
+          ${!(p.itens || []).length ? `<div class="card"><p class="body muted">Nenhum anúncio confirmado com esse perfil.${p.diagBusca ? ` O buscador devolveu — ${esc(p.diagBusca)}.` : ''}</p></div>` : ''}
           ${(p.fontesSoltas || []).length ? `<span class="label" style="margin-top:16px">Outras páginas encontradas</span><div class="linkout">${p.fontesSoltas.map(f => `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer"><span>${esc(f.titulo || f.url)}</span><span>↗</span></a>`).join('')}</div>` : ''}`}
       </div></section>
       ${Object.keys(r.links || {}).length ? `<section class="section"><div class="container"><span class="label reveal">🔗 Busca pronta nos portais</span>
