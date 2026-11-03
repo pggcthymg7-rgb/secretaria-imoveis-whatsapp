@@ -24,6 +24,10 @@ test('Leitor de preços: "R$ 950 mil", "R$ 2,8 mi" e faixas com valor completo',
   assert.deepEqual([p.valor_min, p.valor_max], [900000, 1200000]);
   p = preco('de 1,2 a 1,5 milhão');
   assert.deepEqual([p.valor_min, p.valor_max], [1200000, 1500000], '"milhão" não é "mil"');
+  p = preco('de 400 mil a 1 milhão');
+  assert.deepEqual([p.valor_min, p.valor_max], [400000, 1000000], 'antes virava 400 milhões');
+  p = preco('de 900 mil a 1,2 mi');
+  assert.deepEqual([p.valor_min, p.valor_max], [900000, 1200000]);
   // o que já funcionava continua igual
   assert.equal(preco('até R$1.2').valor_max, 1200000);
   assert.deepEqual([preco('de 400 a 500 mil').valor_min, preco('de 400 a 500 mil').valor_max], [400000, 500000]);
@@ -180,4 +184,20 @@ test('Segurança: só abre redirecionamento do Google (nada de endereço interno
   const { criterios } = bi.entenderPedido(F.pedidoClienteMarista);
   await bi.buscarNosPortais(criterios, 'x', { env: { GEMINI_API_KEY: 'k', BUSCA_LIMITE_DIA: '99' }, fetcher });
   assert.ok(!chamadas.some(c => c.opts.method === 'HEAD'), 'não fez HEAD no endereço interno');
+});
+
+test('Conversa exportada: hora "PM" em inglês e mensagens diferentes no mesmo minuto', () => {
+  anuncios._reset();
+  const hoje = new Date();
+  const d = `${String(hoje.getDate()).padStart(2, '0')}/${String(hoje.getMonth() + 1).padStart(2, '0')}/${hoje.getFullYear()}`;
+  const [m1] = anuncios.lerExportacao(`[${d}, 1:05:00 PM] Ana: oi`);
+  assert.equal(new Date(m1.ts).getHours(), 13);
+  const [m2] = anuncios.lerExportacao(`[${d}, 12:10:00 AM] Ana: oi`);
+  assert.equal(new Date(m2.ts).getHours(), 0);
+  // mesmo autor, mesmo minuto, mesmo tamanho de texto: são 2 anúncios
+  const a1 = 'Vendo apto Setor Marista 120m² R$ 950 mil';
+  const a2 = 'Vendo apto Setor Bueno 120m² R$ 900 mil..';
+  assert.equal(a1.length, a2.length);
+  const r = anuncios.importarExportacao(Buffer.from(`${d} 09:15 - Ana: ${a1}\n${d} 09:15 - Ana: ${a2}`), 'Conversa do WhatsApp com G.txt');
+  assert.equal(r.anuncios, 2);
 });

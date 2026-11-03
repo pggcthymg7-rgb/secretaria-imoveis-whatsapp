@@ -251,13 +251,14 @@ function detectPrice(textNoArea, isAgio) {
   if (!cands.length) return out;
 
   // "entre 400 e 500 mil" / "de 400 a 500 mil"
-  const rangeRx = /\b(?:entre|de)\s*(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(?:mil|k)?\s*(?:e|a|ate)\s*(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(mil|k|milhao|milhoes|mi)\b/;
+  const rangeRx = /\b(?:entre|de)\s*(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(mil|k)?\s*(?:e|a|ate)\s*(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(mil|k|milhao|milhoes|mi)\b/;
   const rm = text.match(rangeRx);
   // "entre R$ 900.000 e R$ 1,2 mi": o 1º número já é valor completo; quem resolve é a faixa por candidatos abaixo
   if (rm && !/^\d{1,3}(?:\.\d{3})+/.test(rm[1])) {
-    const mult = /^(?:mil|k)$/.test(rm[3]) ? 1e3 : 1e6; // "milhao" também começa com "mil"
-    const a = parseBrazilianNumber(rm[1]) * (parseBrazilianNumber(rm[1]) < 10 && mult === 1e3 ? 1e3 : mult);
-    const b = parseBrazilianNumber(rm[2]) * mult;
+    const mult = /^(?:mil|k)$/.test(rm[4]) ? 1e3 : 1e6; // "milhao" também começa com "mil"
+    // "de 400 mil a 1 milhão": cada lado com a sua unidade (antes virava 400 milhões)
+    const a = parseBrazilianNumber(rm[1]) * (rm[2] ? 1e3 : parseBrazilianNumber(rm[1]) < 10 && mult === 1e3 ? 1e3 : mult);
+    const b = parseBrazilianNumber(rm[3]) * mult;
     out.valor_min = Math.min(a, b);
     out.valor_max = Math.max(a, b);
     out.preco_texto = `entre ${fmt(out.valor_min)} e ${fmt(out.valor_max)}`;
