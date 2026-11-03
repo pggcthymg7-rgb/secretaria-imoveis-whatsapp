@@ -232,6 +232,9 @@ test('Painel › Busca: exige login, busca, guarda no histórico, valida configu
     assert.equal(r.status, 400);
     r = await fetch(`${base}/api/busca/config`, { method: 'POST', headers: J, body: JSON.stringify({ geminiApiKey: 'chave com espaço e ; rm -rf' }) });
     assert.equal(r.status, 400, 'chave inválida não é gravada');
+    r = await fetch(`${base}/api/config`, { method: 'POST', headers: J, body: JSON.stringify({ geminiApiKey: 'chave com espaço e ; rm -rf', resumoDiarioHorario: '07:00' }) });
+    assert.equal(r.status, 400, 'Ajustes também confere a chave');
+    assert.notEqual(require('../src/settings').loadSettings().resumoDiarioHorario, '07:00', 'nada é salvo se a chave for recusada');
     r = await fetch(`${base}/api/busca/config`, { method: 'POST', headers: J, body: JSON.stringify({ limiteDia: 5, olx: false, zap: true, vivareal: false }) });
     const cfg = (await r.json()).config;
     assert.deepEqual([cfg.limiteDia, cfg.olx, cfg.zap, cfg.vivareal], [5, false, true, false]);
@@ -256,4 +259,25 @@ test('Painel › Busca: exige login, busca, guarda no histórico, valida configu
   } finally {
     server.close();
   }
+});
+
+test('Chave do Gemini: limpa o que vem colado e confere no Google (caso João: chave nova recusada)', async () => {
+  const g = require('../src/gemini-chave');
+  const k = 'AIzaSyD-abc_123XYZabc123XYZabc123XYZab1';
+  for (const colado of [k, ` ${k}\n`, `"${k}"`, `GEMINI_API_KEY=${k}`, k.slice(0, 7) + '​' + k.slice(7)]) assert.equal(g.limparChave(colado), k);
+  assert.ok(g.formatoValido('AQ.Ab8RN6Kx-formato.novo_com_ponto_123'), 'formato novo com ponto');
+  assert.ok(!g.formatoValido(g.limparChave('chave com espaço ; rm -rf')));
+  const ok = async () => ({ ok: true, status: 200, json: async () => ({}) });
+  const recusa = async () => ({ ok: false, status: 400, json: async () => ({ error: { message: 'API key not valid.' } }) });
+  const semInternet = async () => {
+    throw new Error('ENOTFOUND');
+  };
+  assert.deepEqual(await g.validarChave(` ${k} `, ok), { ok: true, chave: k, mensagem: 'Chave do Gemini funcionando ✅' });
+  assert.match((await g.validarChave(k, recusa)).mensagem, /O Google recusou a chave \(400: API key not valid/);
+  const off = await g.validarChave(k, semInternet);
+  assert.equal(off.ok, true, 'sem internet salva mesmo assim');
+  assert.match(off.mensagem, /não consegui falar com o Google/);
+  let header;
+  await g.testarChave(k, async (url, o) => ((header = o.headers['x-goog-api-key']), ok()));
+  assert.equal(header, k, 'chave vai no cabeçalho, nunca na URL');
 });
