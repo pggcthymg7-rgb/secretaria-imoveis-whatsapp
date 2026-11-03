@@ -247,10 +247,15 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
     await reply(wa, chatJid, on ? '🧠 Volto a guardar os anúncios dos grupos.' : '🧠 Parei de guardar anúncios novos dos grupos (os já guardados continuam na busca).');
     return true;
   }
-  const chaveCmd = text.match(/^\s*chave\s+(?:do\s+)?gemini\s+([\w-]{20,200})\s*$/i);
+  const chaveCmd = text.match(/^\s*chave\s+(?:do\s+)?gemini\s*:?\s+([\s\S]{10,400})$/i);
   if (chaveCmd) {
-    require('./envfile').updateEnvFile({ GEMINI_API_KEY: chaveCmd[1] });
-    await reply(wa, chatJid, '🔑 Chave do Gemini salva. Por segurança, *apague esta mensagem com a chave* (toque e segure › Apagar para mim).');
+    const v = await require('./gemini-chave').validarChave(chaveCmd[1]);
+    if (!v.ok) {
+      await reply(wa, chatJid, `🔑 Não salvei: ${v.mensagem}`);
+      return true;
+    }
+    require('./envfile').updateEnvFile({ GEMINI_API_KEY: v.chave });
+    await reply(wa, chatJid, `🔑 ${v.mensagem}\nPor segurança, *apague esta mensagem com a chave* (toque e segure › Apagar para mim).`);
     return true;
   }
 
