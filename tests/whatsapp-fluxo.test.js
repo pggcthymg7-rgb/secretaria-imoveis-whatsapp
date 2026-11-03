@@ -37,7 +37,7 @@ require.cache[baileysPath] = {
   exports: {
     default: () => (fakeSock = makeFakeSock()),
     useMultiFileAuthState: async () => ({ state: {}, saveCreds: () => {} }),
-    DisconnectReason: { loggedOut: 401 },
+    DisconnectReason: { loggedOut: 401, timedOut: 408, restartRequired: 515 },
     fetchLatestBaileysVersion: async () => ({ version: [2, 3000, 0] }),
     downloadMediaMessage: async () => Buffer.from([0xff, 0xd8, 0xff])
   }
@@ -146,4 +146,14 @@ test('1ª mensagem: novo recebe; quem já conversou comigo pelo LID+telefone nã
 
 test.after(() => {
   require('../src/contacts').flush();
+});
+
+test('Pareamento: depois de ler o QR (515) reconecta quase na hora; QR vencido (408) volta rápido', () => {
+  const { reconnectDelay } = wa._test;
+  // caso real da Laura: várias tentativas 408 antes e, ao ler o QR, 515 esperava até 60 s e o celular desistia
+  assert.ok(reconnectDelay(515, 6) <= 1000);
+  assert.equal(reconnectDelay(408, 6), 3000);
+  assert.equal(reconnectDelay(undefined, 6, true), 3000, 'sem aparelho pareado: QR novo logo');
+  assert.equal(reconnectDelay(428, 1), 6000);
+  assert.equal(reconnectDelay(428, 9), 60000, 'quedas normais continuam com espera crescente');
 });
