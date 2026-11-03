@@ -53,6 +53,9 @@ Fomos por ciclos `/resolver-tudo`: bug real → caso no fixture → correção �
 - 408 = QR venceu; 515 = QR lido, WhatsApp pede reconexão para terminar. A BIGA esperava até 60 s (espera crescente após vários 408) e o celular desistia → voltava a pedir QR.
 - Correção `reconnectDelay()` em `src/whatsapp.js`: 515 → 1 s; 408 ou sem aparelho pareado → 3 s; demais quedas seguem crescentes até 60 s. Teste em `tests/whatsapp-fluxo.test.js`.
 
+## 03/11/2026 — BIGA da Laura conectada mas não respondia `ajuda`
+- Causa não confirmada (sem acesso aos logs dela). Reforços em `src/whatsapp.js`: `isOwnerChatAsync` (reconhece "Mensagem para mim" que vem só por LID, resolvendo o LID → número); comando recente (≤ 2 min) que chega como `append` é atendido; registros `ASSISTENTE` explicam por que um comando foi ignorado (chat não reconhecido, mensagem antiga, assistente desligada, mensagem ilegível de aparelho novo). Ver "Atividade" na página inicial do painel.
+
 ## Próximos passos (BACKLOG_TAREFAS.md)
 1. ~~Confirmar atualização pelo celular~~ — feito em 01/11 (df28ac1).
 2. Revisar os imóveis da carteira: edifício, suítes, vagas, condomínio, permuta.
