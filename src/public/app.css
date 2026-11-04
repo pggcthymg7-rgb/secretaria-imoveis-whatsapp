@@ -401,3 +401,13 @@ details summary::-webkit-details-marker { display: none; }
 .cp-lote-item figcaption { font-size: var(--text-caption); color: var(--color-ash-text); display: grid; gap: 4px; }
 .cp-lote-todas { grid-column: 1 / -1; }
 @media (max-width: 960px) { .cp-main { grid-template-columns: minmax(0, 1fr); } .cp-palco { position: static; } }
+
+/* ---------- Fichas PDF ---------- */
+.pdf-fotos { display: flex; flex-wrap: wrap; gap: 8px; }
+.pdf-foto { position: relative; cursor: pointer; border-radius: 10px; border: 2px solid transparent; overflow: hidden; }
+.pdf-foto.sel { border-color: var(--color-cobalt); }
+.pdf-foto input { position: absolute; opacity: 0; pointer-events: none; }
+.pdf-foto img { width: 120px; height: 84px; object-fit: cover; display: block; }
+.pdf-n { position: absolute; top: 6px; left: 6px; min-width: 22px; height: 22px; border-radius: 11px; background: var(--color-cobalt); color: #fff; font-size: 12px; display: grid; place-items: center; }
+.pdf-n:empty { display: none; }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -1px; margin-right: 4px; }

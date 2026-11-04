@@ -20,6 +20,7 @@ const radar = require('./src/radar');
 const metrics = require('./src/metrics');
 const vitrine = require('./src/vitrine');
 const capas = require('./src/capas');
+const fichaPdf = require('./src/pdf-ficha');
 const prospeccao = require('./src/prospeccao');
 const scheduler = require('./src/scheduler');
 const auth = require('./src/auth');
@@ -351,6 +352,42 @@ app.post('/api/radar/:code/enviar', ah(async (req, res) => {
 // ---------------------------------------------------------------------------
 // Vitrine
 // ---------------------------------------------------------------------------
+// Ficha em PDF (moderna e editável): ver, salvar edições, baixar e enviar pelo WhatsApp
+async function imovelOu404(req, res) {
+  const p = await sheets.getPropertyById(req.params.id);
+  if (!p) res.status(404).json({ error: 'Imóvel não encontrado.' });
+  return p;
+}
+app.get('/api/pdf/:id', ah(async (req, res) => {
+  const p = await imovelOu404(req, res);
+  if (p) res.json({ ficha: fichaPdf.ficha(p), cores: fichaPdf.CORES, fotos: (p.fotos || []).filter(f => !/^https?:/i.test(f)) });
+}));
+app.post('/api/pdf/:id', ah(async (req, res) => {
+  const p = await imovelOu404(req, res);
+  if (p) res.json({ ok: true, ficha: req.body?.restaurar ? fichaPdf.restaurar(p) : fichaPdf.salvar(p, req.body || {}) });
+}));
+app.post('/api/pdf/:id/arquivo', ah(async (req, res) => {
+  const p = await imovelOu404(req, res);
+  if (!p) return;
+  const f = fichaPdf.salvar(p, req.body || {});
+  const buf = await fichaPdf.gerar(p, f);
+  res.set('Content-Disposition', `attachment; filename="${fichaPdf.nomeArquivo(p, f)}"`).type('application/pdf').send(buf);
+}));
+app.post('/api/pdf/:id/enviar', ah(async (req, res) => {
+  const p = await imovelOu404(req, res);
+  if (!p) return;
+  const tel = prospeccao.normalizePhone(req.body?.telefone);
+  if (!tel) return res.status(400).json({ error: 'Telefone inválido. Use DDD + número, ex.: 62 99999-9999.' });
+  if (!wa.api.isConnected()) return res.status(400).json({ error: 'WhatsApp desconectado.' });
+  const jid = await wa.api.checkNumber(tel);
+  if (!jid) return res.status(400).json({ error: 'Esse número não tem WhatsApp.' });
+  const f = fichaPdf.salvar(p, req.body?.ficha || {});
+  const buf = await fichaPdf.gerar(p, f);
+  await wa.api.sendDocument(jid, buf, fichaPdf.nomeArquivo(p, f), str(req.body?.mensagem, 1000));
+  wa.addLog('PDF', `📄 Ficha do imóvel #${p.id} enviada para ${tel.slice(0, 4)}…${tel.slice(-2)}.`);
+  res.json({ ok: true });
+}));
+
 // Capas (beta): modelos do editor de capas para o Instagram (o desenho é feito no navegador)
 app.get('/api/capas', (req, res) => res.json(capas.listar()));
 app.post('/api/capas/modelos', ah(async (req, res) => res.json({ ok: true, modelo: capas.salvar(req.body || {}), ...capas.listar() })));

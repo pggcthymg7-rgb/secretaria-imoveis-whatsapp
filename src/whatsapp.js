@@ -102,12 +102,17 @@ async function sendImage(jid, ref, caption) {
   return rawSend(jid, { image: img, caption });
 }
 
+/** Ficha em PDF (modelo novo, com as edições salvas no painel › Fichas PDF) */
 async function sendPdf(jid, property) {
-  const { buildPropertyPdf } = require('./pdf');
-  const s = loadSettings();
-  const buf = await buildPropertyPdf(property, { telefone: s.meuWhatsappAlerta || selfPhone() });
-  return rawSend(jid, { document: buf, mimetype: 'application/pdf', fileName: `Imovel_${property.id}_${String(property.setor || '').replace(/\W+/g, '_')}.pdf` });
+  const fichaPdf = require('./pdf-ficha');
+  const f = fichaPdf.ficha(property);
+  if (!f.telefone) f.telefone = loadSettings().meuWhatsappAlerta || selfPhone();
+  const buf = await fichaPdf.gerar(property, f);
+  return rawSend(jid, { document: buf, mimetype: 'application/pdf', fileName: fichaPdf.nomeArquivo(property, f) });
 }
+
+/** Documento qualquer (ex.: ficha em PDF montada no painel) para um contato */
+const sendDocument = (jid, buffer, fileName, caption = '', mimetype = 'application/pdf') => rawSend(jid, { document: buffer, mimetype, fileName, caption });
 
 async function typing(jid, ms = 2500) {
   try {
@@ -824,7 +829,7 @@ function getAgentState() {
   };
 }
 
-const api = { isConnected, sendText, sendImage, sendPdf, checkNumber, sendOwnerWhatsAppAlert, sendOwnerDocument, sendBackup };
+const api = { isConnected, sendText, sendImage, sendPdf, sendDocument, checkNumber, sendOwnerWhatsAppAlert, sendOwnerDocument, sendBackup };
 
 module.exports = {
   startWhatsAppAgent,

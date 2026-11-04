@@ -62,4 +62,4 @@
 - [x] Navegação do painel mais clara e intuitiva (4 grupos: Meu dia, Imóveis, Clientes, Configurar)
 - [x] Editor de capa (beta): canvas imobiliário com modelos editáveis
 - [ ] Funcionalidade surpresa do dia a dia do corretor
-- [ ] Gerador de PDF minimalista e editável dos imóveis (baixar ou enviar)
+- [x] Gerador de PDF minimalista e editável dos imóveis (baixar ou enviar pelo WhatsApp)
