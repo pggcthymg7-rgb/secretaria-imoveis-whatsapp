@@ -379,6 +379,28 @@ test('"testar gemini fundo" no WhatsApp mostra o diagnóstico (resposta simples 
 });
 
 
+test('"testar olx" no WhatsApp abre a OLX a partir da máquina e conta o resultado', async () => {
+  const fetchReal = global.fetch;
+  const Fx = require('./fixtures-olx-anuncio');
+  global.fetch = async () => ({ ok: true, status: 200, headers: { get: () => null }, text: async () => Fx.talkMarista });
+  try {
+    sent.length = 0;
+    fakeSock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: `${SELF}@s.whatsapp.net`, id: 'OLXD1', fromMe: true }, messageTimestamp: nowTs(), message: { conversation: 'testar olx' } }] });
+    await wait(600);
+    const txt = sent.map(s => s.content.text).join('\n');
+    assert.match(txt, /Abrindo uma página da OLX/);
+    assert.match(txt, /✅ A OLX respondeu.*R\$ 1\.450\.000/);
+    global.fetch = async () => ({ ok: false, status: 403, headers: { get: () => 'AkamaiGHost' }, text: async () => '<title>Access Denied</title>' });
+    sent.length = 0;
+    fakeSock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: `${SELF}@s.whatsapp.net`, id: 'OLXD2', fromMe: true }, messageTimestamp: nowTs(), message: { conversation: 'testar olx' } }] });
+    await wait(600);
+    assert.match(sent.map(s => s.content.text).join('\n'), /A OLX recusou esta máquina \(HTTP 403/);
+  } finally {
+    global.fetch = fetchReal;
+  }
+});
+
+
 test('Chaves da busca nos portais pelo "Mensagem para mim": chave tavily/serper/apify (conferida antes de salvar) e config busca mostra os motores', async () => {
   const fetchReal = global.fetch;
   const guarda = process.env.TAVILY_API_KEY;
