@@ -100,7 +100,8 @@ test('Ágio no Lyon "em torno de 200mil"', async () => {
 
 test('Apto 1 quarto até 50 m² na região da Praça Tamandaré', async () => {
   const c = parseRequest(F.aptoTamandare);
-  assert.equal(c.area_max, 50);
+  // regra de 04/11: "até 50 m²" = perto de 50 → 80% a 105% (40 a 53 m²), não "qualquer coisa menor"
+  assert.deepEqual([c.area_min, c.area_max, c.area_alvo], [40, 53, 50]);
   assert.equal(c.quartos_min, 1);
   assert.ok(c.local.perto.includes('Setor Oeste'));
   const oeste = prop({ id: '80', tipo: 'Apartamento', setor: 'Setor Oeste', quartos: 1, tamanho_m2: 45, valor: 300000 });
@@ -200,4 +201,37 @@ test('Cérebro continua rápido com o mapa completo (< 60 ms por mensagem)', () 
   const t = Date.now();
   for (let i = 0; i < 10; i++) parseRequest('Busco apto 3 quartos sendo 1 suíte na região da Praça Tamandaré ou Setor Bueno até 700 mil, aceita financiamento');
   assert.ok((Date.now() - t) / 10 < 60, `levou ${(Date.now() - t) / 10} ms`);
+});
+
+
+test('Caso real 04/11: "apt decorado com piscina, varanda gourmet, até 200 m²" — perto de 200, piscina NO apto, decorado = mobiliado', async () => {
+  const c = parseRequest(F.aptoDecoradoPiscina);
+  assert.deepEqual([c.area_min, c.area_max], [160, 210], 'até 200 = 80% a 105%');
+  assert.equal(c.mobilia, 'MOBILIADO', 'decorado = mobiliado');
+  assert.deepEqual(c.features_required.map(f => f.key).sort(), ['gourmet', 'piscina_privativa']);
+  const base = { tipo: 'Apartamento', setor: 'Setor Marista', quartos: 3, valor: 2500000 };
+  const certo = prop({ ...base, id: 'a1', tamanho_m2: 190, mobiliado: 'SIM', descricao: 'Apartamento decorado, varanda gourmet com piscina privativa e churrasqueira' });
+  const pequeno = prop({ ...base, id: 'a2', tamanho_m2: 110, mobiliado: 'SIM', descricao: 'Decorado, varanda gourmet com piscina privativa' });
+  const piscinaDoPredio = prop({ ...base, id: 'a3', tamanho_m2: 195, mobiliado: 'SIM', descricao: 'Varanda gourmet. Condomínio com piscina adulto e infantil, academia' });
+  const vazio = prop({ ...base, id: 'a4', tamanho_m2: 185, descricao: 'Varanda gourmet com piscina privativa, sem mobília' });
+  const grande = prop({ ...base, id: 'a5', tamanho_m2: 260, mobiliado: 'SIM', descricao: 'Decorado, varanda gourmet com piscina privativa' });
+  const decoradoNoTexto = prop({ ...base, id: 'a6', tamanho_m2: 205, descricao: 'Apartamento todo decorado pelo arquiteto, sacada com piscina e espaço gourmet' });
+  const r = await run(F.aptoDecoradoPiscina, [certo, pequeno, piscinaDoPredio, vazio, grande, decoradoNoTexto]);
+  assert.deepEqual(r.matches.map(m => m.id).sort(), ['a1', 'a6'], '110 m² é pequeno demais; 260 m² passa; piscina do condomínio não serve; sem mobília não serve');
+});
+
+test('Vocabulário: piscina privativa x do condomínio, casa com piscina, sinônimos de mobiliado e de apartamento', () => {
+  const k = t => parseRequest(t).features_required.map(f => f.key);
+  assert.deepEqual(k('apto num condomínio com piscina'), ['piscina_condominio']);
+  assert.deepEqual(k('apartamento com área de lazer com piscina'), ['piscina_condominio']);
+  assert.deepEqual(k('cobertura com piscina privativa'), ['piscina_privativa']);
+  assert.deepEqual(k('casa com piscina'), ['piscina']);
+  for (const t of ['apto decorado', 'apê mobiliado', 'apartamento porteira fechada', 'apto com móveis', 'apto todo equipado']) assert.equal(parseRequest(t).mobilia, 'MOBILIADO', t);
+  assert.deepEqual(parseRequest('ape 3 dorms 2 vagas').tipos, ['Apartamento']);
+  assert.ok(k('apto com varanda com churrasqueira').includes('gourmet'));
+  assert.ok(k('apto com lavabo e banheira').includes('hidromassagem'));
+  // "em torno de 150" = 135 a 165; "até 20 mil m² ou menos" = qualquer tamanho abaixo
+  const t = parseRequest('apto em torno de 150 m2');
+  assert.deepEqual([t.area_min, t.area_max], [135, 165]);
+  assert.equal(parseRequest('chácara até 20 mil m² ou menos').area_min, null);
 });
