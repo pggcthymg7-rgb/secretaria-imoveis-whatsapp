@@ -8,10 +8,10 @@
  *
  * Robôs (entrada conferida no esquema público de cada um, api.apify.com/v2/acts/<robô>/builds/default):
  *  - ZAP/VivaReal: haketa~zapimoveis-scraper (APIFY_ACTOR) — portal ZAP|VIVA_REAL, filtros nativos.
- *  - OLX: solidcode~olx-brazil-scraper (APIFY_ACTOR_OLX) — recebe o endereço de busca da OLX com os filtros.
+ *  - OLX: solidcode~olx-brazil-scraper (APIFY_ACTOR_OLX) — busca por texto + estado GO + preço; o resto o BIGA filtra.
  * Cobrança: por anúncio devolvido (por isso os filtros vão no pedido ao robô: só pagamos o que serve).
  */
-const { slug, localDoPedido, linksProntos } = require('./busca-links');
+const { slug, localDoPedido } = require('./busca-links');
 const { lerEndereco, tipoDoTexto } = require('./busca-anuncio');
 const { normalize } = require('./brain/text');
 
@@ -77,13 +77,35 @@ function corpoDaConsulta(c, portal, env = {}) {
   return corpo;
 }
 
-/** Entrada do robô da OLX: o MESMO endereço de "Busca pronta" (texto + preço + quartos + área) */
+/**
+ * Entrada do robô da OLX: busca por TEXTO (tipo + bairro/condomínio + cidade) com o filtro nativo de estado (GO)
+ * e de preço. O link com região (searchUrls) foi IGNORADO pelo robô na VM (testar apify de 04/11 devolveu um
+ * anúncio de Caraguatatuba-SP), por isso a região vai pelo `state` e o resultado ainda passa por `naCidade`.
+ */
 function corpoOlx(c, env = {}) {
-  const url = linksProntos(c, ['olx.com.br']).OLX;
-  const corpo = { searchUrls: [url], maxResults: maxPorPortal(env), sortBy: 'relevance', enrichDetails: false };
+  const loc = localDoPedido(c);
+  const fl = c.filtros || {};
+  const cidade = c.local.cidades.find(x => x !== 'Goiânia') || 'Goiânia';
+  const tipo = (c.tipos && c.tipos[0]) || 'Apartamento';
+  const termo = [tipo, fl.local || (loc && loc.nome) || '', cidade].filter(Boolean).join(' ').toLowerCase();
+  const corpo = { searchQueries: [termo], state: 'GO', maxResults: maxPorPortal(env), sortBy: 'relevance', enrichDetails: false };
   if (c.valor_min) corpo.minPrice = c.valor_min;
   if (c.valor_max) corpo.maxPrice = c.valor_max;
   return corpo;
+}
+
+/** Anúncio da OLX é do estado (subdomínio go.olx.com.br ou campo state) e da cidade do pedido (campo city, quando vem)? */
+function naCidade(reg, c) {
+  let host = '';
+  try {
+    host = new URL(String(pega(reg, 'url', 'link') || '')).hostname;
+  } catch {
+    return false;
+  }
+  const uf = (host.match(/^([a-z]{2})\.olx\.com\.br$/) || [])[1] || String(reg.state || '').toLowerCase();
+  if (uf !== 'go') return false;
+  const cidade = normalize(c.local.cidades.find(x => x !== 'Goiânia') || 'Goiânia');
+  return !reg.city || normalize(reg.city).replace(/\s*-\s*go$/, '') === cidade;
 }
 
 const pega = (o, ...nomes) => {
@@ -203,6 +225,7 @@ async function buscarApify({ criterios, dominios, env = process.env, fetcher = f
         cobertos.push(DOMINIO_DO_PORTAL[portal]);
         for (const reg of r.registros) {
           if (olx) {
+            if (!naCidade(reg, criterios)) continue; // anúncio de outro estado/cidade (o robô busca por texto)
             const it = normalizarOlx(reg);
             if (tipoCombina(it, criterios)) itens.push(it);
           } else itens.push(normalizar(reg, portal));
@@ -245,7 +268,8 @@ async function testarApify({ env = process.env, fetcher = fetch } = {}) {
         const s = Math.round((Date.now() - inicio) / 1000);
         if (!r.ok) return { portal, ok: false, status: r.status, mensagem: r.mensagem, s };
         const it = r.registros[0] ? (portal === 'OLX' ? normalizarOlx(r.registros[0]) : normalizar(r.registros[0], portal)) : null;
-        return { portal, ok: Boolean(it && it.link && numeroDe(it.preco) > 0), vazio: !it, item: it, campos: r.registros[0] ? Object.keys(r.registros[0]).slice(0, 40) : [], s };
+        const foraDeGoiania = Boolean(it && portal === 'OLX' && !naCidade(r.registros[0], c));
+        return { portal, ok: Boolean(it && it.link && numeroDe(it.preco) > 0) && !foraDeGoiania, foraDeGoiania, vazio: !it, item: it, campos: r.registros[0] ? Object.keys(r.registros[0]).slice(0, 40) : [], s };
       } catch (err) {
         return { portal, ok: false, status: 0, mensagem: String(err.message).slice(0, 200), s: Math.round((Date.now() - inicio) / 1000) };
       }
@@ -263,6 +287,7 @@ function textoTesteApify(r) {
   for (const p of r.portais) {
     const nome = NOME_PORTAL[p.portal];
     if (p.ok) linhas.push(`✅ ${nome} (${p.s}s): ${brl(p.item.preco)} · ${p.item.area_m2 || '?'} m² · ${p.item.quartos || '?'} quartos · ${p.item.tipo_anunciante}\n   ${p.item.link}`);
+    else if (p.foraDeGoiania) linhas.push(`⚠️ ${nome} (${p.s}s): o robô devolveu anúncio FORA de Goiânia (${p.item.link}). Na busca ele é descartado; mande o print para o Claude.`);
     else if (p.vazio) linhas.push(`⚠️ ${nome} (${p.s}s): o robô rodou mas não devolveu anúncio.`);
     else if (p.item) linhas.push(`⚠️ ${nome} (${p.s}s): veio anúncio sem preço/link. Campos: ${p.campos.join(', ').slice(0, 300)}`);
     else linhas.push(`❌ ${nome}: ${p.status ? `HTTP ${p.status} — ` : ''}${p.mensagem}`);
@@ -272,4 +297,4 @@ function textoTesteApify(r) {
   return linhas.join('\n');
 }
 
-module.exports = { ACTOR_PADRAO, ACTOR_OLX_PADRAO, apifyConfigurado, dominiosApify, unidadesDoPedido, corpoDaConsulta, corpoOlx, normalizar, normalizarOlx, tipoCombina, buscarApify, testarApify, textoTesteApify };
+module.exports = { ACTOR_PADRAO, ACTOR_OLX_PADRAO, apifyConfigurado, dominiosApify, unidadesDoPedido, corpoDaConsulta, corpoOlx, naCidade, normalizar, normalizarOlx, tipoCombina, buscarApify, testarApify, textoTesteApify };
