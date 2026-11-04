@@ -511,7 +511,7 @@ function explicarMotivo(p) {
 
 /**
  * BUSCA NOS PORTAIS — cascata:
- *  3. Apify (opcional; ZAP e VivaReal estruturados, filtros do próprio portal)
+ *  3. Apify (opcional; OLX, ZAP e VivaReal estruturados por IP residencial, filtros do próprio portal)
  *  2. Tavily/Serper/Brave (anúncios individuais reais) + Gemini SEM google_search (curadoria)
  *  1. Gemini com google_search — só se nenhuma camada acima respondeu
  * Em todas: link só vale se veio de uma fonte real (trava anti-invenção).
@@ -542,7 +542,8 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
     if (r.ok) {
       algumOk = true;
       via.push('Apify');
-      cobertos = r.cobertos;
+      // portal que o Apify cobriu mas voltou vazio continua no Serper/Tavily (nunca fica sem resultado)
+      cobertos = r.cobertos.filter(d => r.itens.some(it => it.portalDominio === d));
       todos.push(...finalizarItens(r.itens, { permitidos: null, dominios, criterios, certeza: 'anúncio' }).itens);
     } else erros.push({ camada: 'apify', ...r });
   }

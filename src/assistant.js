@@ -164,7 +164,7 @@ const HELP = `${BOT} *Oi, eu sou a BIGA!* Seus comandos:
 • *memória* (quantos anúncios estão guardados) · *memória ligar/desligar*
 • *minhas buscas* · *ver busca 3* · *config busca*
 • *grupos da busca* · *busca grupos 1,4,7* · *busca grupos todos*
-• *limite busca 30* · *portais olx zap vivareal* · *chave gemini SUA_CHAVE* · *testar gemini* · *testar gemini fundo* · *testar olx*
+• *limite busca 30* · *portais olx zap vivareal* · *chave gemini SUA_CHAVE* · *testar gemini* · *testar gemini fundo* · *testar olx* · *testar apify*
 • busca nos portais sem depender do Google: *chave tavily SUA_CHAVE* ou *chave serper SUA_CHAVE* (grátis: tavily.com · serper.dev) · opcional: *chave apify SEU_TOKEN*
 ⚙️ *status* · *pausar* · *retomar* · *ajuda*`;
 
@@ -329,6 +329,12 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
     await reply(wa, chatJid, `📂 Busca em ${nomes.length} grupo(s): ${nomes.slice(0, 15).join(', ')}${nomes.length > 15 ? '…' : ''}`);
     return true;
   }
+  if (/^(testar|teste|diagnosticar) apify$/.test(norm)) {
+    await reply(wa, chatJid, '🔬 Rodando os robôs do Apify de verdade (1 anúncio por portal, leva até 3 min)…');
+    const A = require('./busca-apify');
+    await reply(wa, chatJid, A.textoTesteApify(await A.testarApify()));
+    return true;
+  }
   const olxTeste = text.match(/^\s*(?:testar|diagnosticar|teste)\s+olx(?:\s+(\S{10,400}))?\s*$/i);
   if (olxTeste) {
     await reply(wa, chatJid, '🔬 Abrindo uma página da OLX a partir desta máquina…');
@@ -357,7 +363,7 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
       return true;
     }
     require('./envfile').updateEnvFile({ [B.PROVEDORES[prov].env]: v.chave });
-    await reply(wa, chatJid, `🔑 ${v.mensagem}\nPor segurança, *apague esta mensagem com a chave* (toque e segure › Apagar para mim).`);
+    await reply(wa, chatJid, `🔑 ${v.mensagem}\nPor segurança, *apague esta mensagem com a chave* (toque e segure › Apagar para mim).${prov === 'apify' ? '\nAgora mande *testar apify* para provar que OLX, ZAP e VivaReal respondem nesta máquina.' : ''}`);
     return true;
   }
   const chaveCmd = text.match(/^\s*chave\s+(?:do\s+)?gemini\s*:?\s+([\s\S]{10,400})$/i);
