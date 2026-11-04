@@ -117,8 +117,9 @@ function entenderFiltros(f) {
   const c = parseRequest(f.extras ? String(f.extras) : 'busco imovel', { index }); // "extras": piscina, mobiliado, aceita permuta…
   c.intent = 'BUSCA';
   if (f.tipo) {
-    c.tipos = [f.tipo];
-    c.subtipo_casa = null;
+    // "Casa de condomínio" é categoria própria no painel; para o cérebro é Casa + condomínio fechado
+    c.tipos = [f.tipo === 'Casa de condomínio' ? 'Casa' : f.tipo];
+    c.subtipo_casa = f.tipo === 'Casa de condomínio' ? 'CONDOMINIO' : null;
   }
   c.transacao = f.negocio === 'ALUGUEL' ? 'ALUGUEL' : 'VENDA';
   c.agio = false;

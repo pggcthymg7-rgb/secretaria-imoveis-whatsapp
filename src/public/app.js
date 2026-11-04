@@ -175,20 +175,32 @@
   }
 
   // ------------------------------------------------------------------ SHELL
-  const ROUTES = [
-    ['inicio', 'Início', 'Volte para a BIGA'],
-    ['hoje', 'Hoje', 'Números do dia, QR Code e atividade'],
-    ['radar', 'Radar', 'Pedidos dos grupos e o que eu fiz com cada um'],
-    ['busca', 'Busca', 'Procuro o imóvel do seu cliente nos grupos e nos portais'],
-    ['carteira', 'Carteira', 'Seus imóveis, fotos e cadastro'],
-    ['garimpo', 'Garimpo', 'Clientes procurando imóvel na internet'],
-    ['vitrine', 'Vitrine', 'Divulgação automática nos grupos'],
-    ['prospeccao', 'Prospecção', 'Mensagens para contatos escolhidos'],
-    ['atendimento', 'Atendimento', '1ª mensagem, ligações e respostas rápidas'],
-    ['cerebro', 'Cérebro', 'Mapa de Goiânia e meu jeito de falar'],
-    ['simulador', 'Simulador', 'Teste um pedido antes de valer'],
-    ['ajustes', 'Ajustes', 'Grupos, alertas, backup e segurança']
+  // Páginas agrupadas por assunto (navegação de 04/11: 4 grupos em vez de 12 abas soltas)
+  const GRUPOS = [
+    ['dia', '☀️', 'Meu dia', 'O que aconteceu hoje e quem falou comigo'],
+    ['imoveis', '🏠', 'Imóveis', 'Carteira, divulgação e capas para o Instagram'],
+    ['clientes', '🤝', 'Clientes', 'Achar imóvel para cliente e achar cliente para imóvel'],
+    ['config', '⚙️', 'Configurar', 'Como eu penso, testes e ajustes']
   ];
+  const ROUTES = [
+    ['inicio', 'Início', 'Volte para a BIGA', '', '✨'],
+    ['hoje', 'Hoje', 'Números do dia, QR Code e atividade', 'dia', '📊'],
+    ['radar', 'Radar', 'Pedidos dos grupos e o que eu fiz com cada um', 'dia', '📡'],
+    ['atendimento', 'Atendimento', '1ª mensagem, ligações e respostas rápidas', 'dia', '💬'],
+    ['carteira', 'Carteira', 'Seus imóveis, fotos e cadastro', 'imoveis', '🗂️'],
+    ['vitrine', 'Vitrine', 'Divulgação automática nos grupos', 'imoveis', '🪟'],
+    ['capas', 'Capas', 'Editor de capas para o Instagram (beta)', 'imoveis', '🎨'],
+    ['pdf', 'Fichas PDF', 'Apresentação do imóvel em PDF para baixar ou enviar', 'imoveis', '📄'],
+    ['busca', 'Busca', 'Procuro o imóvel do seu cliente nos grupos e nos portais', 'clientes', '🔎'],
+    ['garimpo', 'Garimpo', 'Clientes procurando imóvel na internet', 'clientes', '⛏️'],
+    ['prospeccao', 'Prospecção', 'Mensagens para contatos escolhidos', 'clientes', '📣'],
+    ['cerebro', 'Cérebro', 'Mapa de Goiânia e meu jeito de falar', 'config', '🧠'],
+    ['simulador', 'Simulador', 'Teste um pedido antes de valer', 'config', '🧪'],
+    ['ajustes', 'Ajustes', 'Grupos, alertas, backup e segurança', 'config', '🔧']
+  ];
+  const rotaDe = k => ROUTES.find(r => r[0] === k) || ROUTES[1];
+  const grupoDe = k => rotaDe(k === 'geral' ? 'hoje' : k)[3];
+  const paginasDo = g => ROUTES.filter(r => r[3] === g);
 
   let sayTimer = null;
   function say(text) {
@@ -209,6 +221,8 @@
   }
 
   function shell(inner) {
+    const rotaAtual = S.route === 'geral' ? 'hoje' : S.route;
+    const grupoAtual = grupoDe(rotaAtual);
     const st = S.status || {};
     const conn = st.connectionStatus === 'CONECTADO';
     const paused = st.config && st.config.pausado;
@@ -216,10 +230,13 @@
     root.innerHTML = `
       <nav class="nav"><div class="bar">
         <a class="logo" href="#inicio">${LOGO}</a>
-        <div class="links">${ROUTES.filter(r => r[0] !== 'inicio').map(([k, l]) => `<a href="#${k}" class="${S.route === k ? 'active' : ''}">${l}</a>`).join('')}</div>
+        <div class="links groups">${GRUPOS.map(([g, ic, nome]) => `<a href="#${paginasDo(g)[0][0]}" class="${grupoAtual === g ? 'active' : ''}"><span aria-hidden="true">${ic}</span> ${nome}</a>`).join('')}</div>
         <span class="status-dot"><span class="dot ${paused ? 'warn' : conn ? 'on' : ''}"></span>${paused ? 'Pausada' : conn ? 'Online' : st.connectionStatus === 'AGUARDANDO_QR_CODE' ? 'Ler QR' : 'Offline'}</span>
-      </div></nav>
-      <main class="page-enter">${inner}</main>
+      </div>
+      ${grupoAtual ? `<div class="subnav">${paginasDo(grupoAtual).map(([k, l, d, , ic]) => `<a href="#${k}" title="${esc(d)}" class="${rotaAtual === k ? 'active' : ''}"><span aria-hidden="true">${ic}</span> ${l}</a>`).join('')}</div>` : ''}</nav>
+      <main class="page-enter">
+        <div class="container crumbs"><a href="#inicio">Início</a> › ${esc((GRUPOS.find(x => x[0] === grupoAtual) || [])[2] || '')} › <b>${esc(rotaDe(rotaAtual)[1])}</b></div>
+        ${inner}</main>
       <div class="space-60"></div>`;
   }
 
@@ -244,7 +261,7 @@
             <h1 class="display">Eu sou a BIGA.</h1>
             <p class="sub">${conn ? (paused ? 'Estou pausada. Toque em Hoje para me retomar.' : 'Estou de olho nos grupos, nas ligações e nas conversas novas. Para onde vamos?') : 'Preciso que você conecte o WhatsApp para eu começar.'}</p>
             ${!conn && st.qrSvg ? `<div class="card" style="display:flex;gap:20px;align-items:center;margin-bottom:20px;flex-wrap:wrap"><div class="qr" style="width:180px">${st.qrSvg}</div><p class="body muted" style="flex:1;min-width:180px">WhatsApp › Configurações › Aparelhos conectados › <b>Conectar aparelho</b> e aponte para o código.</p></div>` : ''}
-            <ul class="menu-list">${ROUTES.filter(r => r[0] !== 'inicio').map(([k, l, d], i) => `<li style="animation-delay:${0.08 + i * 0.05}s"><a href="#${k}" data-say="${esc(d)}"><span><span class="t">${l}</span><span class="d">${d}</span></span><span class="arrow">→</span></a></li>`).join('')}</ul>
+            <div class="home-groups">${GRUPOS.map(([g, ic, nome, desc], gi) => `<div class="hg" style="animation-delay:${0.08 + gi * 0.08}s"><div class="hg-head"><span class="hg-ic" aria-hidden="true">${ic}</span><div><b>${nome}</b><span>${desc}</span></div></div><div class="hg-links">${paginasDo(g).map(([k, l, d, , pic]) => `<a href="#${k}" data-say="${esc(d)}"><span aria-hidden="true">${pic}</span>${l}</a>`).join('')}</div></div>`).join('')}</div>
             <div class="kpis"><div><b>${st.radarHoje || 0}</b>pedidos hoje</div><div><b>${h.ofertas_enviadas || 0}</b>imóveis enviados</div><div><b>${h.novas_conversas || 0}</b>conversas novas</div><div><b>${st.inventoryCount || 0}</b>imóveis ativos</div></div>
           </div>
         </div>
@@ -307,7 +324,7 @@
   }
 
   // ------------------------------------------------------------------ CARTEIRA
-  const TIPOS = ['Apartamento', 'Casa', 'Sobrado', 'Flat', 'Cobertura', 'Studio', 'Terreno', 'Chácara', 'Fazenda', 'Comercial'];
+  const TIPOS = ['Apartamento', 'Casa', 'Casa de condomínio', 'Sobrado', 'Flat', 'Cobertura', 'Studio', 'Terreno', 'Chácara', 'Fazenda', 'Comercial'];
   function propTitle(p) {
     return `${p.tipo}${p.edificio ? ' · ' + p.edificio : ''} — ${p.setor || 'sem bairro'}${p.cidade && p.cidade !== 'Goiânia' ? ' (' + p.cidade + ')' : ''}`;
   }
@@ -327,7 +344,8 @@
               <div class="row tight"><span class="tag iris">#${esc(p.id)}</span>${p.ativo ? '<span class="tag enviar">● ativo</span>' : '<span class="tag">● inativo</span>'}${p.negociacao === 'AGIO' ? '<span class="tag avisar">ágio</span>' : ''}${p.negociacao === 'ALUGUEL' ? '<span class="tag">aluguel</span>' : ''}${p.aceita_permuta === 'SIM' ? '<span class="tag">aceita permuta</span>' : ''}</div>
               <h3 class="h2xs">${esc(propTitle(p))}</h3>
               <div class="body muted">${[p.quartos ? p.quartos + ' qts' : '', p.suites !== '' && p.suites !== undefined ? p.suites + ' suítes' : '', p.vagas ? p.vagas + ' vagas' : '', p.tamanho_m2 ? p.tamanho_m2 + ' m²' : '', { SIM: 'mobiliado', SEMI: 'com armários' }[p.mobiliado] || ''].filter(Boolean).join(' · ')} · <span class="saffron">${p.negociacao === 'AGIO' && p.valor_agio ? 'ágio ' + brl(p.valor_agio) : brl(p.valor)}</span></div>
-              <div class="row tight"><button class="btn-ghost accent" data-action="editar" data-id="${esc(p.id)}">Editar</button><button class="btn-ghost" data-action="ativo" data-id="${esc(p.id)}">${p.ativo ? 'Desativar' : 'Ativar'}</button><button class="btn-ghost" data-action="aVitrine" data-id="${esc(p.id)}">Vitrine</button><button class="btn-ghost danger" data-action="excluir" data-id="${esc(p.id)}">Excluir</button></div>
+              <div class="row tight"><button class="btn-ghost accent" data-action="editar" data-id="${esc(p.id)}">Editar</button><button class="btn-ghost" data-action="ativo" data-id="${esc(p.id)}">${p.ativo ? 'Desativar' : 'Ativar'}</button><button class="btn-ghost" data-action="aVitrine" data-id="${esc(p.id)}">Vitrine</button><button class="btn-ghost accent" data-action="quemProcura" data-id="${esc(p.id)}" title="Pedidos dos grupos que batem com este imóvel">🎯 Quem procura</button><button class="btn-ghost" data-action="irPdf" data-id="${esc(p.id)}">Ficha PDF</button><button class="btn-ghost danger" data-action="excluir" data-id="${esc(p.id)}">Excluir</button></div>
+              ${S.qp && String(S.qp.id) === String(p.id) ? blocoQuemProcura(S.qp) : ''}
             </div>
           </div>`).join('') : '<p class="body ash">Nenhum imóvel encontrado.</p>'}</div>
       </div></section>`);
@@ -367,6 +385,99 @@
     </div></section>`;
   }
 
+  // ------------------------------------------------------------------ 🎯 QUEM PROCURA (match reverso)
+  function blocoQuemProcura(q) {
+    if (q.carregando) return '<div class="qp card-in"><p class="caption">Relendo os pedidos dos grupos…</p></div>';
+    if (!q.lista.length) return `<div class="qp card-in"><p class="body muted">Ninguém pediu algo assim nos grupos nos últimos ${q.dias} dias. Que tal divulgar na Vitrine ou fazer uma capa?</p></div>`;
+    return `<div class="qp card-in" data-qp="${esc(q.id)}">
+      <p class="body"><b>${q.lista.length}</b> corretor(es) pediram algo assim nos últimos ${q.dias} dias:</p>
+      ${q.lista.map(l => `<label class="qp-item"><input type="checkbox" name="qpCode" value="${esc(l.code)}" ${l.nivel === 'MATCH' && !l.jaRecebeu ? 'checked' : ''}>
+        <span><span class="tag ${l.nivel === 'MATCH' ? 'enviar' : 'avisar'}">${l.nivel === 'MATCH' ? '🎯 bate em tudo' : '🤔 quase'}</span>${l.jaRecebeu ? ' <span class="tag">já recebeu</span>' : ''}
+        <b>${esc(l.sender)}</b> <span class="caption">${esc(when(l.ts))} · ${esc(l.grupo)}${l.phone ? ` · <a href="https://wa.me/${esc(l.phone)}" target="_blank" rel="noopener">wa.me/${esc(l.phone)}</a>` : ''}</span><br>
+        <span class="caption">“${esc(l.texto)}”${l.falta && l.falta.length ? `<br>Falta confirmar: ${esc(l.falta.join('; '))}` : ''}</span></span></label>`).join('')}
+      <div class="row tight"><button class="btn-primary" data-action="oferecer" data-id="${esc(q.id)}">Oferecer para os marcados</button><span class="caption">Um por vez, com pausa de 25–45 s, no privado de cada um.</span></div>
+    </div>`;
+  }
+
+  // ------------------------------------------------------------------ FICHAS EM PDF
+  function viewPdf() {
+    const ativos = S.inventory.filter(p => p.ativo !== false);
+    const aprovados = new Set(Object.entries((S.vitrine && S.vitrine.posts) || {}).filter(([, v]) => v.status === 'APROVADO').map(([k]) => k));
+    const ord = [...ativos].sort((a, b) => Number(aprovados.has(String(b.id))) - Number(aprovados.has(String(a.id))));
+    const d = S.pdf;
+    const f = d && d.ficha;
+    shell(`
+      ${header('Fichas PDF', 'Apresentação do imóvel', 'Um PDF moderno e limpo com foto grande, preço, números, diferenciais e a descrição completa. Edite o que quiser, baixe ou mande direto para o WhatsApp de alguém.')}
+      <section class="section"><div class="container stack" id="pdfForm">
+        ${!ativos.length ? '<div class="card"><p class="body muted">Cadastre um imóvel na Carteira primeiro.</p></div>' : `
+        <div class="card stack-sm">
+          <label class="field"><span>Imóvel</span><select name="pdfImovel">${ord.map(p => `<option value="${esc(p.id)}" ${String(p.id) === String(S.pdfSel) ? 'selected' : ''}>${aprovados.has(String(p.id)) ? '🪟 ' : ''}#${esc(p.id)} · ${esc(p.tipo)} · ${esc(p.setor || '')} · ${esc(brl(p.valor))}</option>`).join('')}</select></label>
+          <p class="caption">🪟 = está na Vitrine (aprovado).</p>
+        </div>
+        ${f ? `
+        <div class="card stack-sm">
+          <span class="label">Textos da ficha</span>
+          <div class="row">${field('titulo', 'Título', f.titulo)}${field('subtitulo', 'Linha de baixo', f.subtitulo)}${field('preco', 'Preço', f.preco)}</div>
+          ${field('destaques', 'Diferenciais (um por linha)', f.destaques, { area: true, rows: 4, ph: 'Piscina privativa' })}
+          ${field('descricao', 'Descrição (vai inteira)', f.descricao, { area: true, rows: 8 })}
+        </div>
+        <div class="card stack-sm">
+          <span class="label">Fotos (marque na ordem: a 1ª é a capa · até 7)</span>
+          <div class="pdf-fotos">${(d.fotos || []).map(ft => `<label class="pdf-foto ${f.fotos.includes(ft) ? 'sel' : ''}"><input type="checkbox" name="pdfFoto" value="${esc(ft)}" ${f.fotos.includes(ft) ? 'checked' : ''}><img src="${esc(fotoUrl(ft))}" alt=""><span class="pdf-n">${f.fotos.includes(ft) ? f.fotos.indexOf(ft) + 1 : ''}</span></label>`).join('') || '<p class="caption">Este imóvel não tem foto enviada pelo painel.</p>'}</div>
+          <span class="label">Cor de destaque</span>
+          <div class="chips">${Object.entries(d.cores).map(([k, c]) => `<button type="button" class="toggle" data-action="pdfCor" data-cor="${esc(k)}" aria-pressed="${f.cor === k}"><span><i class="swatch" style="background:${esc(c)}"></i> ${esc(k)}</span></button>`).join('')}</div>
+          ${toggle('mostrarCodigo', f.mostrarCodigo !== false, 'Mostrar o código do imóvel')}
+        </div>
+        <div class="card stack-sm">
+          <span class="label">Seu contato (vale para todas as fichas)</span>
+          <div class="row">${field('corretor', 'Nome', f.corretor || '')}${field('creci', 'CRECI', f.creci || '')}${field('telefone', 'Telefone', f.telefone || '')}${field('email', 'E-mail', f.email || '')}</div>
+          ${field('rodape', 'Observação no rodapé (opcional)', f.rodape || '', { ph: 'Valores sujeitos a alteração.' })}
+        </div>
+        <div class="card stack-sm">
+          <div class="row"><button class="btn-primary" data-action="pdfBaixar">Baixar PDF</button><button class="btn-ghost" data-action="pdfVer">Ver antes</button><button class="btn-ghost" data-action="pdfSalvar">Salvar edições</button><button class="btn-ghost danger" data-action="pdfRestaurar">Voltar ao texto da carteira</button></div>
+          <span class="label">Enviar pelo WhatsApp</span>
+          <div class="row">${field('pdfTel', 'Telefone de quem recebe', (S.pdfEnvio || {}).tel || '', { ph: '62 99999-9999' })}${field('pdfMsg', 'Mensagem junto', (S.pdfEnvio || {}).msg || `Olá! Segue a apresentação do imóvel ${f.titulo}.`)}</div>
+          <button class="btn-ghost accent" data-action="pdfEnviar">Enviar PDF</button>
+        </div>` : ''}`}
+      </div></section>`);
+  }
+  // telefone/mensagem do envio não fazem parte da ficha: guardo antes de redesenhar a tela
+  function guardarEnvioPdf() {
+    const d = formData($('#pdfForm'));
+    S.pdfEnvio = { tel: d.pdfTel || '', msg: d.pdfMsg || '' };
+  }
+  function coletarPdf() {
+    const box = $('#pdfForm');
+    const d = formData(box);
+    const marcadas = $$('input[name=pdfFoto]', box).filter(i => i.checked).map(i => i.value);
+    const antes = (S.pdf && S.pdf.ficha.fotos) || [];
+    // mantém a ordem em que foram marcadas (as já escolhidas primeiro, as novas no fim)
+    const fotos = [...antes.filter(x => marcadas.includes(x)), ...marcadas.filter(x => !antes.includes(x))];
+    return { titulo: d.titulo, subtitulo: d.subtitulo, preco: d.preco, destaques: d.destaques, descricao: d.descricao, fotos, cor: (S.pdf && S.pdf.ficha.cor) || 'cobalto', mostrarCodigo: d.mostrarCodigo, corretor: d.corretor, creci: d.creci, telefone: d.telefone, email: d.email, rodape: d.rodape };
+  }
+  async function pdfArquivo() {
+    const r = await fetch(`/api/pdf/${encodeURIComponent(S.pdfSel)}/arquivo`, { method: 'POST', credentials: 'same-origin', headers: { 'x-secretaria': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(coletarPdf()) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Erro ${r.status}`);
+    const nome = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || 'Imovel.pdf';
+    return { blob: await r.blob(), nome };
+  }
+
+  // ------------------------------------------------------------------ CAPAS (beta)
+  function viewCapas() {
+    shell(`
+      ${header('Capas', 'Beta · canvas imobiliário', 'A BIGA monta a capa do post do Instagram com a foto, o nome e o preço do imóvel. Mude o que quiser (fontes do Google, cores, escala, camadas), salve como seu modelo e aplique em todos os imóveis de uma vez.')}
+      <section class="section"><div class="container" id="capasApp"></div></section>`);
+    if (!window.BIGA_CAPAS) return toast('O editor de capas não carregou. Recarregue a página.', true);
+    window.BIGA_CAPAS.montar($('#capasApp'), {
+      api,
+      toast,
+      fotoUrl,
+      inventario: () => S.inventory,
+      modelos: () => S.capas || { modelos: [] },
+      setModelos: r => (S.capas = { modelos: r.modelos, padrao: r.padrao, tamanhos: r.tamanhos })
+    });
+  }
+
   // ------------------------------------------------------------------ VITRINE
   function viewVitrine() {
     const v = S.vitrine || { config: { horarios: [], grupos: [] }, posts: {}, historico: [] };
@@ -378,7 +489,8 @@
       ${header('Vitrine', 'Divulgação automática', 'Em até 4 horários por dia a BIGA publica sua carteira nos grupos de divulgação que você escolher (diferentes dos grupos de busca). Só vão posts que você aprovou, em rodízio.')}
       <section class="section"><div class="container stack" id="vitrineCfg">
         ${toggle('ativo', v.config.ativo, v.config.ativo ? 'Vitrine ligada' : 'Vitrine desligada')}
-        <div class="row">${horarios.map((h, i) => field(`h${i}`, `Horário ${i + 1}`, h, { type: 'time' })).join('')}${field('porHorario', 'Imóveis por horário', v.config.porHorario, { type: 'number', attrs: 'min="1" max="5"' })}</div>
+        <div class="row">${horarios.map((h, i) => field(`h${i}`, `Horário ${i + 1}`, h, { type: 'time' })).join('')}${field('porHorario', 'Imóveis COM foto por horário (até 10)', v.config.porHorario, { type: 'number', attrs: 'min="0" max="10"' })}${field('porHorarioTexto', 'Imóveis SÓ TEXTO por horário (até 20)', v.config.porHorarioTexto ?? v.config.porHorario, { type: 'number', attrs: 'min="0" max="20"' })}</div>
+        <p class="caption">Entre um imóvel e outro a BIGA espera 20 a 40 s, e entre grupos 25 a 70 s: assim o WhatsApp não trata como spam.</p>
         <div><span class="field"><span>Dias</span></span><div class="chips">${dias.map((d, i) => toggle(`d${i}`, v.config.diasSemana.includes(i), d)).join('')}</div></div>
         <div><span class="field"><span>Grupos de divulgação (${v.config.grupos.length})</span></span>
           ${groupSearch('vit', groups.length)}
@@ -394,7 +506,7 @@
               <div class="row tight"><span class="tag iris">#${esc(id)}</span><span class="tag ${post.status === 'APROVADO' ? 'enviar' : post.status === 'PENDENTE' ? 'avisar' : ''}">● ${esc(post.status.toLowerCase())}</span><span class="caption">${post.envios || 0} envio(s)${post.ultimoEnvio ? ' · último ' + esc(when(post.ultimoEnvio)) : ''}</span></div>
               <textarea name="texto" rows="6">${esc(post.texto)}</textarea>
               ${(prop.fotos || []).length > 1 ? `<div class="photos">${prop.fotos.map(f => `<div class="ph-item ${f === post.foto ? 'sel' : ''}"><img src="${esc(fotoUrl(f))}" alt="" data-action="fotoPost" data-id="${esc(id)}" data-f="${esc(f)}"></div>`).join('')}</div>` : ''}
-              <div class="row tight"><button class="btn-ghost accent" data-action="aprovarPost" data-id="${esc(id)}">${post.status === 'APROVADO' ? 'Aprovado ✓' : 'Salvar e aprovar'}</button><button class="btn-ghost" data-action="salvarPost" data-id="${esc(id)}">Salvar texto</button><button class="btn-ghost danger" data-action="reprovarPost" data-id="${esc(id)}">Reprovar</button></div>
+              <div class="row tight"><button class="btn-ghost accent" data-action="aprovarPost" data-id="${esc(id)}">${post.status === 'APROVADO' ? 'Aprovado ✓' : 'Salvar e aprovar'}</button><button class="btn-ghost" data-action="salvarPost" data-id="${esc(id)}">Salvar texto</button><button class="btn-ghost" data-action="regerarPost" data-id="${esc(id)}" title="Refaz o texto com a descrição completa do imóvel">Texto completo da carteira</button><button class="btn-ghost" data-action="irPdf" data-id="${esc(id)}">Ficha PDF</button><button class="btn-ghost danger" data-action="reprovarPost" data-id="${esc(id)}">Reprovar</button></div>
             </div>
           </div>`).join('') : '<p class="body ash">Nenhum post ainda. Clique em “Gerar rascunhos da carteira”.</p>'}</div>
       </div></section>`);
@@ -590,7 +702,7 @@
       <section class="section"><div class="container"><div class="card reveal stack" id="buscaForm">
         <span class="label">Filtros — como nos portais (o que ficar em branco fica aberto)</span>
         <div class="fields">
-          ${field('tipo', 'Tipo', fb.tipo || '', { options: [['', 'Qualquer'], ['Apartamento', 'Apartamento'], ['Casa', 'Casa'], ['Sobrado', 'Sobrado'], ['Cobertura', 'Cobertura'], ['Flat', 'Flat'], ['Studio', 'Studio'], ['Terreno', 'Terreno / lote'], ['Chácara', 'Chácara'], ['Comercial', 'Comercial']] })}
+          ${field('tipo', 'Tipo', fb.tipo || '', { options: [['', 'Qualquer'], ['Apartamento', 'Apartamento'], ['Casa', 'Casa'], ['Casa de condomínio', 'Casa de condomínio'], ['Sobrado', 'Sobrado'], ['Cobertura', 'Cobertura'], ['Flat', 'Flat'], ['Studio', 'Studio'], ['Terreno', 'Terreno / lote'], ['Chácara', 'Chácara'], ['Comercial', 'Comercial']] })}
           ${field('negocio', 'Negócio', fb.negocio || 'VENDA', { options: [['VENDA', 'Venda'], ['ALUGUEL', 'Aluguel']] })}
           ${field('cidade', 'Cidade', fb.cidade || '', { ph: 'Ex.: Goiânia' })}
           ${field('bairro', 'Bairro', fb.bairro || '', { ph: 'Ex.: Setor Marista' })}
@@ -828,13 +940,24 @@
     atendimento: loadStatus,
     cerebro: async () => (S.cerebro = await api('GET', '/api/cerebro')),
     simulador: async () => {},
+    pdf: async () => {
+      S.inventory = (await api('GET', '/api/inventory')).inventory;
+      if (!S.vitrine) S.vitrine = await api('GET', '/api/vitrine').catch(() => null);
+      const ativos = S.inventory.filter(p => p.ativo !== false);
+      if (!S.pdfSel || !ativos.some(p => String(p.id) === String(S.pdfSel))) S.pdfSel = (ativos[0] || {}).id;
+      S.pdf = S.pdfSel ? await api('GET', `/api/pdf/${encodeURIComponent(S.pdfSel)}`) : null;
+    },
+    capas: async () => {
+      S.capas = await api('GET', '/api/capas');
+      S.inventory = (await api('GET', '/api/inventory')).inventory;
+    },
     ajustes: async () => {
       await loadStatus();
       S.sistema = await api('GET', '/api/sistema').catch(() => null);
     }
   };
   // Map (e não objeto): a rota vem da URL (#constructor, #__proto__…) e só pode virar página se estiver na lista
-  const views = new Map(Object.entries({ inicio: viewHome, hoje: viewGeral, geral: viewGeral, garimpo: (...a) => viewGarimpo(...a), busca: viewBusca, radar: viewRadar, carteira: viewCarteira, vitrine: viewVitrine, prospeccao: viewProspeccao, atendimento: viewAtendimento, cerebro: viewCerebro, simulador: viewSimulador, ajustes: viewAjustes }));
+  const views = new Map(Object.entries({ inicio: viewHome, hoje: viewGeral, geral: viewGeral, garimpo: (...a) => viewGarimpo(...a), busca: viewBusca, radar: viewRadar, carteira: viewCarteira, vitrine: viewVitrine, capas: viewCapas, pdf: viewPdf, prospeccao: viewProspeccao, atendimento: viewAtendimento, cerebro: viewCerebro, simulador: viewSimulador, ajustes: viewAjustes }));
 
   // Desenha a página atual. Ao TROCAR de página (go) anima a entrada; nas atualizações da mesma
   // página não anima, mantém a rolagem e (manterCampos) o que estava sendo digitado.
@@ -957,7 +1080,7 @@
     const d = formData(box);
     const grupos = Object.keys(d).filter(k => k.startsWith('g:') && d[k]).map(k => k.slice(2));
     const diasSemana = [0, 1, 2, 3, 4, 5, 6].filter(i => d[`d${i}`]);
-    return { ativo: d.ativo, horarios: [d.h0, d.h1, d.h2, d.h3].filter(Boolean), porHorario: d.porHorario, grupos, diasSemana };
+    return { ativo: d.ativo, horarios: [d.h0, d.h1, d.h2, d.h3].filter(Boolean), porHorario: d.porHorario, porHorarioTexto: d.porHorarioTexto, grupos, diasSemana };
   }
 
   function collectRules() {
@@ -1192,6 +1315,84 @@
       const r = await api('POST', `/api/vitrine/post/${el.dataset.id}`, { texto });
       S.vitrine.posts[el.dataset.id] = r.post;
       toast('Texto salvo (aguardando aprovação).');
+      render();
+    },
+    quemProcura: async el => {
+      const id = el.dataset.id;
+      if (S.qp && String(S.qp.id) === String(id) && !S.qp.carregando) {
+        S.qp = null;
+        return render({ manterCampos: true });
+      }
+      S.qp = { id, carregando: true, lista: [] };
+      render({ manterCampos: true });
+      const r = await api('GET', `/api/property/${encodeURIComponent(id)}/quem-procura`);
+      S.qp = { id, dias: r.dias, lista: r.lista };
+      render({ manterCampos: true });
+    },
+    oferecer: async el => {
+      const box = $(`[data-qp="${CSS.escape(el.dataset.id)}"]`);
+      const codes = $$('input[name=qpCode]', box).filter(i => i.checked).map(i => i.value);
+      if (!codes.length) return toast('Marque pelo menos um corretor.', true);
+      const r = await api('POST', `/api/property/${encodeURIComponent(el.dataset.id)}/oferecer`, { codes });
+      toast(`🎯 ${r.message} Eu aviso no WhatsApp quando terminar.`);
+    },
+    irPdf: async el => {
+      S.pdfSel = el.dataset.id;
+      location.hash = '#pdf';
+    },
+    pdfCor: async el => {
+      guardarEnvioPdf();
+      S.pdf.ficha = { ...S.pdf.ficha, ...coletarPdf(), cor: el.dataset.cor };
+      render();
+    },
+    pdfSalvar: async () => {
+      const r = await api('POST', `/api/pdf/${encodeURIComponent(S.pdfSel)}`, coletarPdf());
+      S.pdf.ficha = r.ficha;
+      toast('Ficha salva.');
+      render();
+    },
+    pdfRestaurar: async () => {
+      if (!confirm('Voltar título, descrição, diferenciais e fotos ao que está na Carteira?')) return;
+      const r = await api('POST', `/api/pdf/${encodeURIComponent(S.pdfSel)}`, { restaurar: true });
+      S.pdf.ficha = r.ficha;
+      render();
+    },
+    pdfBaixar: async () => {
+      toast('Gerando o PDF…');
+      const { blob, nome } = await pdfArquivo();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = nome;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    },
+    pdfVer: async () => {
+      const aba = window.open('', '_blank');
+      toast('Gerando o PDF…');
+      try {
+        const { blob } = await pdfArquivo();
+        const url = URL.createObjectURL(blob);
+        if (aba) aba.location.href = url;
+        else location.href = url;
+      } catch (err) {
+        if (aba) aba.close();
+        throw err;
+      }
+    },
+    pdfEnviar: async () => {
+      const box = $('#pdfForm');
+      const d = formData(box);
+      if (!String(d.pdfTel || '').replace(/\D/g, '')) return toast('Digite o telefone de quem vai receber.', true);
+      toast('Enviando o PDF pelo WhatsApp…');
+      await api('POST', `/api/pdf/${encodeURIComponent(S.pdfSel)}/enviar`, { telefone: d.pdfTel, mensagem: d.pdfMsg, ficha: coletarPdf() });
+      toast('PDF enviado! ✅');
+    },
+    regerarPost: async el => {
+      const r = await api('POST', `/api/vitrine/post/${el.dataset.id}`, { regerar: true });
+      S.vitrine.posts[el.dataset.id] = r.post;
+      toast('Texto refeito com a descrição completa (aguardando aprovação).');
       render();
     },
     aprovarPost: async el => {
@@ -1439,6 +1640,16 @@
   });
   root.addEventListener('change', async e => {
     try {
+      if (e.target.name === 'pdfImovel') {
+        S.pdfSel = e.target.value;
+        await loaders.pdf();
+        return render();
+      }
+      if (e.target.name === 'pdfFoto') {
+        guardarEnvioPdf();
+        S.pdf.ficha = { ...S.pdf.ficha, ...coletarPdf() };
+        return render();
+      }
       if (e.target.id === 'fotoInput' && e.target.files.length) {
         const p = syncEditing();
         toast('Enviando fotos…');

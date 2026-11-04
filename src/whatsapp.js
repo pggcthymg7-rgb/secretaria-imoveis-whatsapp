@@ -102,12 +102,17 @@ async function sendImage(jid, ref, caption) {
   return rawSend(jid, { image: img, caption });
 }
 
+/** Ficha em PDF (modelo novo, com as edições salvas no painel › Fichas PDF) */
 async function sendPdf(jid, property) {
-  const { buildPropertyPdf } = require('./pdf');
-  const s = loadSettings();
-  const buf = await buildPropertyPdf(property, { telefone: s.meuWhatsappAlerta || selfPhone() });
-  return rawSend(jid, { document: buf, mimetype: 'application/pdf', fileName: `Imovel_${property.id}_${String(property.setor || '').replace(/\W+/g, '_')}.pdf` });
+  const fichaPdf = require('./pdf-ficha');
+  const f = fichaPdf.ficha(property);
+  if (!f.telefone) f.telefone = loadSettings().meuWhatsappAlerta || selfPhone();
+  const buf = await fichaPdf.gerar(property, f);
+  return rawSend(jid, { document: buf, mimetype: 'application/pdf', fileName: fichaPdf.nomeArquivo(property, f) });
 }
+
+/** Documento qualquer (ex.: ficha em PDF montada no painel) para um contato */
+const sendDocument = (jid, buffer, fileName, caption = '', mimetype = 'application/pdf') => rawSend(jid, { document: buffer, mimetype, fileName, caption });
 
 async function typing(jid, ms = 2500) {
   try {
@@ -403,6 +408,54 @@ async function approveAlert(chatJid, code, propId) {
   radar.update(code, { decision: 'ENVIAR', aprovadoManual: true, enviados: [...(it.enviados || []), ...sent] });
   if (sent.length) addLog('OPORTUNIDADE_ENVIADA', `✅ #${prop.id} enviado para ${it.sender} (aprovado por você, ${code}).`);
   return done(Boolean(sent.length), sent.length ? `Pronto! Enviei o #${prop.id} para ${it.sender}.` : 'Não consegui enviar agora (limite por hora). Tente em alguns minutos.');
+}
+
+/**
+ * 🎯 Oferece um imóvel para quem pediu algo assim nos grupos (match reverso).
+ * Só para quem bate em TUDO e ainda não recebeu; um por vez, com pausa de 25–45 s
+ * e as mesmas travas de envio dos grupos (limite por hora, não repetir oferta).
+ * `codes` (opcional) restringe aos pedidos escolhidos no painel.
+ */
+let oferecendo = false;
+async function oferecerImovel(chatJid, propId, codes = null) {
+  const avisar = async m => (chatJid ? sendText(chatJid, `${assistant.BOT} ${m}`) : sendOwnerWhatsAppAlert(`${assistant.BOT} ${m}`)).catch(() => {});
+  if (!isConnected()) return { ok: false, message: 'WhatsApp desconectado.' };
+  if (oferecendo) return { ok: false, message: 'Já estou oferecendo um imóvel agora. Espere terminar.' };
+  const inventory = await loadInventory();
+  const prop = inventory.find(p => String(p.id) === String(propId));
+  if (!prop) return { ok: false, message: `Imóvel #${propId} não está ativo.` };
+  const lista = await require('./quem-procura').quemProcura(prop);
+  const alvos = lista.filter(l => l.jid && !l.jaRecebeu && (codes ? codes.includes(l.code) : l.nivel === 'MATCH'));
+  if (!alvos.length) {
+    const m = lista.length ? `Ninguém novo para receber o #${prop.id} (quem bate em tudo já recebeu; os "quase" eu só mando se você escolher no painel).` : `Ninguém pediu algo como o #${prop.id} nos últimos 60 dias.`;
+    await avisar(m);
+    return { ok: false, message: m };
+  }
+  oferecendo = true;
+  await avisar(`🎯 Vou oferecer o #${prop.id} para ${alvos.length} corretor(es), um por vez (leva uns ${Math.ceil((alvos.length * 35) / 60)} min).`);
+  (async () => {
+    const enviados = [];
+    try {
+      for (let i = 0; i < alvos.length; i++) {
+        const l = alvos[i];
+        const analysis = await analyzeMessageAndMatch(l.texto, l.sender, inventory, { useAi: false });
+        const phoneKey = l.phone || contacts.keyOf(l.jid);
+        const sent = await sendOffers(l.jid, phoneKey, l.sender, l.texto, [prop], { ...analysis, wantsPdf: false });
+        if (sent.length) {
+          enviados.push(l.sender);
+          radar.update(l.code, { enviados: [...new Set([...(radar.list({ limit: 800 }).find(x => x.code === l.code)?.enviados || []), String(prop.id)])] });
+          addLog('OPORTUNIDADE_ENVIADA', `🎯 #${prop.id} oferecido para ${l.sender} (pedido ${l.code}, match reverso).`);
+        }
+        if (i < alvos.length - 1) await new Promise(r => setTimeout(r, 25000 + Math.random() * 20000));
+      }
+    } catch (err) {
+      addLog('AVISO', `Oferta do #${prop.id} interrompida: ${err.message}`);
+    } finally {
+      oferecendo = false;
+      await avisar(enviados.length ? `✅ #${prop.id} oferecido para: ${enviados.join(', ')}.` : `Não consegui enviar o #${prop.id} agora (limite por hora ou já ofertado). Tente mais tarde.`);
+    }
+  })();
+  return { ok: true, message: `Oferecendo para ${alvos.length} corretor(es).`, alvos: alvos.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -761,12 +814,12 @@ async function startWhatsAppAgent() {
             }
           }
           const text = extractText(msg);
-          if (text.startsWith(assistant.BOT) || /^(🚨|✅ \*ENVIEI|🤔 \*CONFIRA|📊 \*RESUMO|🔔|💾|⛏️)/.test(text)) continue;
+          if (text.startsWith(assistant.BOT) || /^(🚨|✅ \*ENVIEI|🤔 \*CONFIRA|📊 \*RESUMO|🔔|💾|⛏️|🎯 \*QUEM PROCURA)/.test(text)) continue;
           const hasImage = Boolean(msg.message.imageMessage || msg.message.ephemeralMessage?.message?.imageMessage);
           await assistant.handleOwnerMessage(
             { sendText, sendImage, sendPdf },
             { chatJid: remoteJid, text, hasImage, downloadImage: () => downloadImageToFotos(msg) },
-            { approveAlert, log: addLog, sendBackup, importarHistorico: onFim => importarHistoricoGrupos({ onFim }), estadoImportacao, listarGrupos: () => connectedGroups }
+            { approveAlert, oferecerImovel, log: addLog, sendBackup, importarHistorico: onFim => importarHistoricoGrupos({ onFim }), estadoImportacao, listarGrupos: () => connectedGroups }
           );
           continue;
         }
@@ -824,7 +877,7 @@ function getAgentState() {
   };
 }
 
-const api = { isConnected, sendText, sendImage, sendPdf, checkNumber, sendOwnerWhatsAppAlert, sendOwnerDocument, sendBackup };
+const api = { isConnected, sendText, sendImage, sendPdf, sendDocument, checkNumber, sendOwnerWhatsAppAlert, sendOwnerDocument, sendBackup };
 
 module.exports = {
   startWhatsAppAgent,
@@ -835,6 +888,7 @@ module.exports = {
   refreshGroups,
   resetSession,
   approveAlert,
+  oferecerImovel,
   api,
   importarHistoricoGrupos,
   estadoImportacao,

@@ -88,15 +88,43 @@ test('Vitrine: só posts aprovados entram, em rodízio', async () => {
   vitrine.setStatus('1', 'APROVADO');
   vitrine.setStatus('2', 'APROVADO');
   assert.match(vitrine.getState().posts['1'].texto, /Setor Bueno/);
-  vitrine.updateConfig({ grupos: ['123@g.us'], porHorario: 1 });
+  vitrine.updateConfig({ grupos: ['123@g.us'], porHorario: 1, porHorarioTexto: 1 });
   const sent = [];
   const wa = { isConnected: () => true, sendImage: async (g, f, t) => sent.push(['img', g, t]), sendText: async (g, t) => sent.push(['txt', g, t]) };
-  await vitrine.runSlot(wa, [a, b, c], '08:30', () => {});
-  await vitrine.runSlot(wa, [a, b, c], '11:30', () => {});
-  await vitrine.runSlot(wa, [a, b, c], '15:00', () => {});
+  const semPausa = { pausa: async () => {} };
+  await vitrine.runSlot(wa, [a, b, c], '08:30', () => {}, semPausa);
+  await vitrine.runSlot(wa, [a, b, c], '11:30', () => {}, semPausa);
+  await vitrine.runSlot(wa, [a, b, c], '15:00', () => {}, semPausa);
   const ids = sent.map(s => (/Bueno/.test(s[2]) ? '1' : /América/.test(s[2]) ? '2' : '3'));
-  assert.deepEqual(ids, ['1', '2', '1'], 'rodízio entre os aprovados; o #3 (pendente) nunca sai');
+  assert.deepEqual(ids, ['1', '2', '1', '2', '1', '2'], '1 com foto (#1) + 1 só texto (#2) por horário; o #3 (pendente) nunca sai');
   // editar texto de um post aprovado volta para pendente
   vitrine.upsertPost(a, { texto: 'Novo texto' });
   assert.equal(vitrine.getState().posts['1'].status, 'PENDENTE');
+});
+
+test('Vitrine: sem o teto antigo de 5 — até 10 com foto e 20 só texto por horário, com pausa entre imóveis; descrição completa', async () => {
+  const longa = 'Apartamento decorado pelo arquiteto. ' + 'Varanda gourmet com churrasqueira e vista livre. '.repeat(30) + 'FIM-DA-DESCRICAO.';
+  const props = [];
+  for (let i = 1; i <= 30; i++) props.push(prop({ id: `v${i}`, tipo: 'Apartamento', setor: 'Setor Marista', quartos: 3, valor: 900000 + i, fotos: i <= 12 ? `f${i}.jpg` : '', descricao: i === 1 ? longa : 'Bom.' }));
+  for (const p of props) {
+    vitrine.upsertPost(p);
+    vitrine.setStatus(p.id, 'APROVADO');
+  }
+  // descrição inteira, sem corte (antes: 1ª frase e 220 caracteres)
+  assert.ok(vitrine.getState().posts.v1.texto.includes('FIM-DA-DESCRICAO.'));
+  assert.ok(vitrine.getState().posts.v1.texto.length > 1500);
+  // tetos: 10 com foto, 20 só texto
+  let cfg = vitrine.updateConfig({ porHorario: 50, porHorarioTexto: 99 });
+  assert.deepEqual([cfg.porHorario, cfg.porHorarioTexto], [10, 20]);
+  cfg = vitrine.updateConfig({ grupos: ['123@g.us'], porHorario: 8, porHorarioTexto: 15 });
+  const enviados = [];
+  const pausas = [];
+  const wa = { isConnected: () => true, sendImage: async (g, f, t) => enviados.push('img'), sendText: async (g, t) => enviados.push('txt') };
+  const r = await vitrine.runSlot(wa, props, 'teste', () => {}, { pausa: async ms => pausas.push(ms) });
+  assert.equal(r.ok, true);
+  assert.equal(enviados.filter(x => x === 'img').length, 8);
+  assert.equal(enviados.filter(x => x === 'txt').length, 15);
+  assert.equal(pausas.length, 22, 'uma pausa entre cada imóvel');
+  assert.ok(pausas.every(ms => ms >= 20000 && ms <= 40000), 'pausa de 20 a 40 s');
+  vitrine.updateConfig({ porHorario: 1, porHorarioTexto: 1 });
 });
