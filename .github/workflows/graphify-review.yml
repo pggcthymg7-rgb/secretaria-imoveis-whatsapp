@@ -48,7 +48,7 @@ jobs:
       # PR de fork: o GITHUB_TOKEN é só leitura, então o relatório fica no "Summary" da execução
       - name: Comentar na PR (atualiza o mesmo comentário)
         if: github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
