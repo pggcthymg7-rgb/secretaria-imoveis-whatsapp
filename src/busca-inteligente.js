@@ -742,7 +742,7 @@ function formatarRelatorio(r) {
   }
 
   // 3. links prontos
-  if (Object.keys(r.links).length) blocos.push(`🔗 *BUSCA PRONTA NOS PORTAIS*\n${Object.entries(r.links).map(([n, u]) => `• ${n}: ${u}`).join('\n')}`);
+  if (Object.keys(r.links).length) blocos.push(`🔗 *BUSCA PRONTA NOS PORTAIS*\n_O Google só conhece parte dos anúncios do ZAP e do VivaReal. A lista COMPLETA, com os seus filtros, abre nestes links:_\n${Object.entries(r.links).map(([n, u]) => `• ${n}: ${u}`).join('\n')}`);
 
   const msgs = [];
   let atual = '';

@@ -174,3 +174,63 @@ test('"testar olx": diz se a leitura funciona nesta máquina, por que não funci
   assert.equal(abriu, false, 'endereço que não é anúncio da OLX nunca é aberto');
   assert.match(L.textoDiagnosticoOlx(ruim), /Mande o link de UM anúncio da OLX/);
 });
+
+
+// ---- Mais anúncios do ZAP/VivaReal: a busca solta e a página 2 rodam enquanto o portal tem POUCOS anúncios
+const zapN = i => `https://www.zapimoveis.com.br/imovel/venda-apartamento-3-quartos-setor-marista-goiania-go-${100 + i}m2-id-${2800000000 + i}/`;
+function serperFalso(porConsulta) {
+  const corpos = [];
+  const fetcher = async (url, opts) => {
+    const corpo = JSON.parse(opts.body);
+    corpos.push(corpo);
+    const rodada = /"/.test(corpo.q) ? 1 : corpo.page === 2 ? 3 : /\d quartos/.test(corpo.q) ? 4 : 2;
+    return { ok: true, status: 200, json: async () => ({ organic: (porConsulta[rodada] || []).map(link => ({ link, title: 'Apartamento', snippet: '' })) }) };
+  };
+  return { fetcher, corpos };
+}
+
+test('ZAP com 1 anúncio na consulta precisa: a solta e a página 2 completam (sem repetir) — antes ficava em 1', async () => {
+  const Serp = require('../src/busca-serp');
+  const w = serperFalso({ 1: [zapN(0)], 2: [zapN(0), zapN(1), zapN(2), zapN(3), zapN(4)], 3: [zapN(5), zapN(6), zapN(7), zapN(8)] });
+  const r = await Serp.buscarAnuncios({ criterios: bi.entenderPedido(PEDIDO).criterios, dominios: ['zapimoveis.com.br'], env: { SERPER_API_KEY: 'x'.repeat(20) }, fetcher: w.fetcher });
+  assert.equal(r.catalogo.length, 9, '1 + 4 novos + 4 da página 2, sem repetir o zapN(0)');
+  assert.equal(w.corpos.length, 3);
+  assert.equal(w.corpos[2].page, 2);
+  assert.equal(w.corpos[0].page, undefined, 'a 1ª consulta não manda page');
+  assert.equal(r.diag['zapimoveis.com.br'].anuncios, 9);
+});
+
+test('Portal que já tem 8+ anúncios na 1ª rodada não gasta mais consultas', async () => {
+  const Serp = require('../src/busca-serp');
+  const w = serperFalso({ 1: Array.from({ length: 10 }, (_, i) => zapN(i)) });
+  const r = await Serp.buscarAnuncios({ criterios: bi.entenderPedido(PEDIDO).criterios, dominios: ['zapimoveis.com.br'], env: { SERPER_API_KEY: 'x'.repeat(20) }, fetcher: w.fetcher });
+  assert.equal(r.catalogo.length, 10);
+  assert.equal(w.corpos.length, 1);
+});
+
+test('BUSCA_RODADAS controla o custo: 1 = só a precisa; 4 = inclui a consulta por número de quartos', async () => {
+  const Serp = require('../src/busca-serp');
+  const c = bi.entenderPedido(PEDIDO).criterios;
+  let w = serperFalso({});
+  await Serp.buscarAnuncios({ criterios: c, dominios: ['zapimoveis.com.br'], env: { SERPER_API_KEY: 'x'.repeat(20), BUSCA_RODADAS: '1' }, fetcher: w.fetcher });
+  assert.equal(w.corpos.length, 1);
+  w = serperFalso({ 4: [zapN(50)] });
+  const r = await Serp.buscarAnuncios({ criterios: c, dominios: ['zapimoveis.com.br'], env: { SERPER_API_KEY: 'x'.repeat(20), BUSCA_RODADAS: '4' }, fetcher: w.fetcher });
+  assert.equal(w.corpos.length, 4);
+  assert.match(w.corpos[3].q, /^site:zapimoveis\.com\.br\/imovel apartamento 3 quartos /i);
+  assert.equal(r.catalogo.length, 1);
+  assert.equal(Serp.VARIANTES.length, 4);
+});
+
+test('Brave: a página 2 usa offset=1; Tavily continua com uma rodada só (já é semântico)', async () => {
+  const Serp = require('../src/busca-serp');
+  const c = bi.entenderPedido(PEDIDO).criterios;
+  const urls = [];
+  await Serp.buscarAnuncios({ criterios: c, dominios: ['zapimoveis.com.br'], env: { BRAVE_SEARCH_API_KEY: 'b'.repeat(20) }, fetcher: async url => { urls.push(String(url)); return { ok: true, status: 200, json: async () => ({ web: { results: [] } }) }; } });
+  assert.equal(urls.length, 3);
+  assert.ok(urls[2].includes('offset=1'));
+  const t = [];
+  await Serp.buscarAnuncios({ criterios: c, dominios: ['zapimoveis.com.br'], env: { TAVILY_API_KEY: 'tvly-' + 't'.repeat(20) }, fetcher: async (url, o) => { t.push(JSON.parse(o.body)); return { ok: true, status: 200, json: async () => ({ results: [] }) }; } });
+  assert.equal(t.length, 1);
+  assert.equal(t[0].max_results, 20);
+});
