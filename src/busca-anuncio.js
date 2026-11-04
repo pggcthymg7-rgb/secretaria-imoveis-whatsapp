@@ -21,6 +21,8 @@ const MAX_PAGINAS = 15;
 const SIMULTANEAS = 4;
 const TETO_TOTAL_MS = 25000; // tempo máximo para ler TODAS as páginas de uma busca
 
+const CABECALHOS = { 'User-Agent': UA, Accept: 'text/html', 'Accept-Language': 'pt-BR,pt;q=0.9' };
+
 const num = v => {
   const n = Number(String(v == null ? '' : v).replace(/[^\d.]/g, ''));
   return Number.isFinite(n) ? n : 0;
@@ -154,7 +156,7 @@ function urlLegivel(url, { portalDaUrl, ehPaginaDeAnuncio }) {
 }
 
 async function baixarPagina(url, fetcher, timeoutMs = 12000) {
-  const r = await fetcher(url, { headers: { 'User-Agent': UA, Accept: 'text/html', 'Accept-Language': 'pt-BR,pt;q=0.9' }, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });
+  const r = await fetcher(url, { headers: CABECALHOS, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });
   if (!r.ok) return { erro: `HTTP ${r.status}` };
   const len = Number(r.headers && r.headers.get && r.headers.get('content-length'));
   if (len > MAX_BYTES) return { erro: 'página grande demais' };
@@ -187,7 +189,11 @@ async function baixarPagina(url, fetcher, timeoutMs = 12000) {
  *  - descartados: reprovados com dado lido (não aparecem nem em "outras páginas")
  */
 async function lerAnuncios({ catalogo, criterios, fetcher = fetch, portalDaUrl, ehPaginaDeAnuncio, abrirPaginas = true }) {
-  const out = { decididos: [], aCurar: [], descartados: new Set(), lidas: 0, falhas: 0 };
+  const out = { decididos: [], aCurar: [], descartados: new Set(), lidas: 0, falhas: 0, motivos: {} };
+  const falhou = m => {
+    out.falhas++;
+    out.motivos[m] = (out.motivos[m] || 0) + 1;
+  };
   const paraLer = abrirPaginas ? catalogo.filter(x => urlLegivel(x.url, { portalDaUrl, ehPaginaDeAnuncio })).slice(0, MAX_PAGINAS) : [];
   const paginas = new Map();
   const fim = Date.now() + TETO_TOTAL_MS;
@@ -202,13 +208,15 @@ async function lerAnuncios({ catalogo, criterios, fetcher = fetch, portalDaUrl, 
           if (d) {
             paginas.set(cat.id, d);
             out.lidas++;
-          } else out.falhas++;
-        } catch {
-          out.falhas++;
+          } else falhou(b.erro || 'página sem dados do anúncio');
+        } catch (err) {
+          falhou(err && err.name === 'TimeoutError' ? 'tempo esgotado' : String((err && ((err.cause && err.cause.code) || err.message)) || 'erro').slice(0, 40));
         }
       }
     })
   );
+  const naoTentadas = paraLer.length - out.lidas - out.falhas;
+  for (let k = 0; k < naoTentadas; k++) falhou('sem tempo (teto de 25 s)');
   for (const cat of catalogo) {
     const doEndereco = lerEndereco(cat.url);
     const pagina = paginas.get(cat.id);
@@ -227,4 +235,36 @@ async function lerAnuncios({ catalogo, criterios, fetcher = fetch, portalDaUrl, 
   return out;
 }
 
-module.exports = { idDoLink, lerEndereco, lerPaginaOlx, avaliar, lerAnuncios, urlLegivel, tipoDoTexto };
+const URL_TESTE_OLX = 'https://go.olx.com.br/grande-goiania-e-anapolis/imoveis/talk-marista-apartamento-com-3-quarto-s-e-4-banheiro-s-a-venda-140-00-por-r-1450000-00-1509799842';
+
+/** Abre UMA página de anúncio da OLX a partir desta máquina e diz o que aconteceu (comando "testar olx") */
+async function diagnosticarOlx({ fetcher = fetch, url = URL_TESTE_OLX } = {}) {
+  const serp = require('./busca-serp');
+  if (!urlLegivel(url, { portalDaUrl: serp.portalDaUrl, ehPaginaDeAnuncio: serp.ehPaginaDeAnuncio })) return { ok: false, invalida: true };
+  const ini = Date.now();
+  try {
+    const r = await fetcher(url, { headers: CABECALHOS, redirect: 'manual', signal: AbortSignal.timeout(15000) });
+    const html = await r.text().catch(() => '');
+    const titulo = String((html.match(/<title>([^<]{1,100})<\/title>/i) || [])[1] || '').trim();
+    const dados = r.ok ? lerPaginaOlx(html, idDoLink(url)) : null;
+    return { ok: Boolean(dados), status: r.status, ms: Date.now() - ini, kb: Math.round(html.length / 1024), servidor: String((r.headers && r.headers.get && r.headers.get('server')) || ''), titulo, dados };
+  } catch (err) {
+    return { ok: false, status: 0, ms: Date.now() - ini, erro: err && err.name === 'TimeoutError' ? 'tempo esgotado (15 s)' : String((err && ((err.cause && err.cause.code) || err.message)) || 'erro').slice(0, 80) };
+  }
+}
+
+function textoDiagnosticoOlx(r) {
+  if (r.invalida) return '❌ Mande o link de UM anúncio da OLX (https://go.olx.com.br/…/imoveis/…-número), ou só *testar olx* para usar um de exemplo.';
+  const seg = r.ms ? ` em ${(r.ms / 1000).toFixed(1).replace('.', ',')} s` : '';
+  if (r.ok) {
+    const d = r.dados;
+    return `✅ A OLX respondeu${seg} (HTTP ${r.status}, ${r.kb} KB) e eu li o anúncio: R$ ${Number(d.preco).toLocaleString('pt-BR')} · ${d.area} m² · ${d.quartos}q${d.vagas != null ? ` · ${d.vagas} vagas` : ''} · ${d.profissional === null ? 'anunciante?' : d.profissional ? 'Profissional' : 'Particular'}${d.anunciante ? ` (${d.anunciante})` : ''}.\nA leitura das páginas funciona nesta máquina.`;
+  }
+  if (r.erro) return `❌ Não consegui nem falar com a OLX${seg}: ${r.erro}.\nSem a leitura, a busca usa só o Gemini (sem preço exato).`;
+  if (r.status === 403 || r.status === 429 || r.status === 503) return `❌ A OLX recusou esta máquina (HTTP ${r.status}${r.servidor ? `, servidor: ${r.servidor}` : ''}${r.titulo ? `, página: "${r.titulo}"` : ''}).\nProvavelmente ela bloqueia IP de servidor. Sem a leitura, a busca usa só o Gemini (sem preço exato).`;
+  if (r.status >= 300 && r.status < 400) return `❌ A OLX mandou redirecionar (HTTP ${r.status}). Me avise para eu ajustar.`;
+  if (r.status === 200) return `⚠️ A OLX respondeu (HTTP 200, ${r.kb} KB) mas a página não trouxe os dados do anúncio${r.titulo ? ` (título: "${r.titulo}")` : ''}. Pode ser um desafio anti-robô ou um anúncio que saiu do ar. Tente com outro link: *testar olx <link do anúncio>*.`;
+  return `❌ A OLX respondeu HTTP ${r.status}${seg}. Me avise para eu ajustar.`;
+}
+
+module.exports = { diagnosticarOlx, textoDiagnosticoOlx, idDoLink, lerEndereco, lerPaginaOlx, avaliar, lerAnuncios, urlLegivel, tipoDoTexto };
