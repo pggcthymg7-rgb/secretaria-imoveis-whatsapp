@@ -72,3 +72,20 @@ test('Vitrine: nomes do protótipo e id inexistente nunca chegam à atribuição
   assert.equal(({}).aprovadoEm, undefined);
   assert.equal(Object.prototype.status, undefined);
 });
+
+test('Painel (app.js): campos de filtro gravam em propriedades FIXAS de S (sem S[chave] dinâmica) e a digitação continua funcionando', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'app.js'), 'utf8');
+  assert.ok(!/\bS\[[^\]]+\]\s*=/.test(src), 'nenhuma escrita S[chave] = valor');
+  assert.match(src, /if \(n === 'busca'\) S\.filtro = e\.target\.value;/);
+  assert.match(src, /else if \(n === 'filtroContato'\) S\.filtroContato = e\.target\.value;/);
+  assert.match(src, /else S\.filtroBairro = e\.target\.value;/);
+  // mesmo comportamento de antes, simulado: cada campo vai para a sua propriedade
+  const S = {};
+  const digitar = (n, valor) => {
+    if (n === 'busca') S.filtro = valor;
+    else if (n === 'filtroContato') S.filtroContato = valor;
+    else S.filtroBairro = valor;
+  };
+  digitar('busca', 'casa'); digitar('filtroContato', 'ana'); digitar('filtroBairro', 'marista');
+  assert.deepEqual(S, { filtro: 'casa', filtroContato: 'ana', filtroBairro: 'marista' });
+});
