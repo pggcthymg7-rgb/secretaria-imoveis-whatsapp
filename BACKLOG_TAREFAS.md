@@ -53,3 +53,12 @@
 - [x] Página Busca no painel + todas as configurações da busca também pelo "Mensagem para mim"
 - [ ] Colocar a chave do Gemini (AI Studio) e conferir a cota grátis da busca com Google — **precisa de você**
 - [ ] Rodar `importar histórico` com o celular ligado; exportar os grupos que vierem com pouco histórico — **precisa de você**
+
+## 7. Noite de 04/11/2026 (pedido do João)
+- [x] Vitrine sem o teto de 5: até 10 imóveis COM foto e 20 SÓ TEXTO por horário, pausa de 20–40 s entre imóveis
+- [x] Descrição completa na vitrine (sem cortar na 1ª frase/220 caracteres) + botão "Texto completo da carteira"
+- [ ] Busca: "até 200 m²" = 160 a 210 m² (80%–105%); "apto com piscina" = piscina privativa; decorado = mobiliado; vocabulário ampliado
+- [ ] Casa de condomínio como categoria de imóvel
+- [ ] Navegação do painel mais clara e intuitiva
+- [ ] Editor de capa (beta): canvas imobiliário com modelos editáveis
+- [ ] Funcionalidade surpresa do dia a dia do corretor

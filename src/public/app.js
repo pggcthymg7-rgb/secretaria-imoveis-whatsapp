@@ -378,7 +378,8 @@
       ${header('Vitrine', 'Divulgação automática', 'Em até 4 horários por dia a BIGA publica sua carteira nos grupos de divulgação que você escolher (diferentes dos grupos de busca). Só vão posts que você aprovou, em rodízio.')}
       <section class="section"><div class="container stack" id="vitrineCfg">
         ${toggle('ativo', v.config.ativo, v.config.ativo ? 'Vitrine ligada' : 'Vitrine desligada')}
-        <div class="row">${horarios.map((h, i) => field(`h${i}`, `Horário ${i + 1}`, h, { type: 'time' })).join('')}${field('porHorario', 'Imóveis por horário', v.config.porHorario, { type: 'number', attrs: 'min="1" max="5"' })}</div>
+        <div class="row">${horarios.map((h, i) => field(`h${i}`, `Horário ${i + 1}`, h, { type: 'time' })).join('')}${field('porHorario', 'Imóveis COM foto por horário (até 10)', v.config.porHorario, { type: 'number', attrs: 'min="0" max="10"' })}${field('porHorarioTexto', 'Imóveis SÓ TEXTO por horário (até 20)', v.config.porHorarioTexto ?? v.config.porHorario, { type: 'number', attrs: 'min="0" max="20"' })}</div>
+        <p class="caption">Entre um imóvel e outro a BIGA espera 20 a 40 s, e entre grupos 25 a 70 s: assim o WhatsApp não trata como spam.</p>
         <div><span class="field"><span>Dias</span></span><div class="chips">${dias.map((d, i) => toggle(`d${i}`, v.config.diasSemana.includes(i), d)).join('')}</div></div>
         <div><span class="field"><span>Grupos de divulgação (${v.config.grupos.length})</span></span>
           ${groupSearch('vit', groups.length)}
@@ -394,7 +395,7 @@
               <div class="row tight"><span class="tag iris">#${esc(id)}</span><span class="tag ${post.status === 'APROVADO' ? 'enviar' : post.status === 'PENDENTE' ? 'avisar' : ''}">● ${esc(post.status.toLowerCase())}</span><span class="caption">${post.envios || 0} envio(s)${post.ultimoEnvio ? ' · último ' + esc(when(post.ultimoEnvio)) : ''}</span></div>
               <textarea name="texto" rows="6">${esc(post.texto)}</textarea>
               ${(prop.fotos || []).length > 1 ? `<div class="photos">${prop.fotos.map(f => `<div class="ph-item ${f === post.foto ? 'sel' : ''}"><img src="${esc(fotoUrl(f))}" alt="" data-action="fotoPost" data-id="${esc(id)}" data-f="${esc(f)}"></div>`).join('')}</div>` : ''}
-              <div class="row tight"><button class="btn-ghost accent" data-action="aprovarPost" data-id="${esc(id)}">${post.status === 'APROVADO' ? 'Aprovado ✓' : 'Salvar e aprovar'}</button><button class="btn-ghost" data-action="salvarPost" data-id="${esc(id)}">Salvar texto</button><button class="btn-ghost danger" data-action="reprovarPost" data-id="${esc(id)}">Reprovar</button></div>
+              <div class="row tight"><button class="btn-ghost accent" data-action="aprovarPost" data-id="${esc(id)}">${post.status === 'APROVADO' ? 'Aprovado ✓' : 'Salvar e aprovar'}</button><button class="btn-ghost" data-action="salvarPost" data-id="${esc(id)}">Salvar texto</button><button class="btn-ghost" data-action="regerarPost" data-id="${esc(id)}" title="Refaz o texto com a descrição completa do imóvel">Texto completo da carteira</button><button class="btn-ghost danger" data-action="reprovarPost" data-id="${esc(id)}">Reprovar</button></div>
             </div>
           </div>`).join('') : '<p class="body ash">Nenhum post ainda. Clique em “Gerar rascunhos da carteira”.</p>'}</div>
       </div></section>`);
@@ -957,7 +958,7 @@
     const d = formData(box);
     const grupos = Object.keys(d).filter(k => k.startsWith('g:') && d[k]).map(k => k.slice(2));
     const diasSemana = [0, 1, 2, 3, 4, 5, 6].filter(i => d[`d${i}`]);
-    return { ativo: d.ativo, horarios: [d.h0, d.h1, d.h2, d.h3].filter(Boolean), porHorario: d.porHorario, grupos, diasSemana };
+    return { ativo: d.ativo, horarios: [d.h0, d.h1, d.h2, d.h3].filter(Boolean), porHorario: d.porHorario, porHorarioTexto: d.porHorarioTexto, grupos, diasSemana };
   }
 
   function collectRules() {
@@ -1192,6 +1193,12 @@
       const r = await api('POST', `/api/vitrine/post/${el.dataset.id}`, { texto });
       S.vitrine.posts[el.dataset.id] = r.post;
       toast('Texto salvo (aguardando aprovação).');
+      render();
+    },
+    regerarPost: async el => {
+      const r = await api('POST', `/api/vitrine/post/${el.dataset.id}`, { regerar: true });
+      S.vitrine.posts[el.dataset.id] = r.post;
+      toast('Texto refeito com a descrição completa (aguardando aprovação).');
       render();
     },
     aprovarPost: async el => {
