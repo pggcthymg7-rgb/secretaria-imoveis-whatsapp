@@ -643,7 +643,7 @@ function mundoFalso({ gemini = 'ok', provedor = 'tavily', erroProvedor = 0 } = {
       corpos.apify.push({ url: u, corpo, auth: o.headers.Authorization });
       const portal = corpo.portal;
       // robô da OLX (solidcode): registro no formato do dataset dele (price, isBusiness, seller…); a 2ª é casa fora do pedido? não: é apartamento (tipo errado)
-      if (corpo.searchUrls) return { ok: true, status: 200, json: async () => [{ url: OLX_AD, title: 'Casa 4 suítes 400 m² no condomínio Jardins Itália', price: 4500000, priceDisplay: 'R$ 4.500.000', neighborhood: 'Jardins Itália', isBusiness: false, seller: { name: 'Fulano Dono' } }, { url: 'https://go.olx.com.br/grande-goiania-e-anapolis/imoveis/apartamento-3-quartos-jardins-italia-1234567899', title: 'Apartamento 3 quartos', price: 4400000, isBusiness: true, seller: { name: 'Imob X' } }] };
+      if (corpo.searchQueries) return { ok: true, status: 200, json: async () => [{ url: 'https://sp.olx.com.br/vale-do-paraiba-e-litoral-norte/imoveis/casa-4-suites-400-m-caraguatatuba-1490408868', title: 'Casa 4 suítes 400 m²', price: 4500000, state: 'SP', city: 'Caraguatatuba', isBusiness: true }, { url: OLX_AD, city: 'Goiânia', state: 'GO', title: 'Casa 4 suítes 400 m² no condomínio Jardins Itália', price: 4500000, priceDisplay: 'R$ 4.500.000', neighborhood: 'Jardins Itália', isBusiness: false, seller: { name: 'Fulano Dono' } }, { url: 'https://go.olx.com.br/grande-goiania-e-anapolis/imoveis/apartamento-3-quartos-jardins-italia-1234567899', title: 'Apartamento 3 quartos', price: 4400000, isBusiness: true, seller: { name: 'Imob X' } }] };
       return { ok: true, status: 200, json: async () => [portal === 'ZAP' ? { url: ZAP_AD, title: 'Casa 4 suítes', priceBRL: 4900000, usableArea: 369, bedrooms: 4, suites: 4, parkingSpaces: 6, neighborhood: 'Jardins Itália', agencyName: 'Lopes', publisherType: 'AGENCY' } : { url: VIVA_AD, title: 'Casa condomínio', priceBRL: 4520000, usableArea: 355, bedrooms: 4, suites: 4, neighborhood: 'Jardins Itália', publisherType: 'OWNER' }] };
     }
     throw new Error(`url inesperada no teste: ${u}`);
@@ -743,10 +743,11 @@ test('Apify (opcional): OLX, ZAP e VivaReal estruturados, filtros enviados, toke
   // filtros que evitam pagar por casa/sala comercial que o BIGA descartaria
   assert.deepEqual(zap, { mode: 'listings', portal: 'ZAP', business: ['SALE'], listingType: [], usageTypes: ['RESIDENTIAL'], unitTypes: ['HOME', 'CONDOMINIUM'], states: ['GO'], cities: ['goiania'], maxListings: 15, maxPages: 2, neighborhoods: ['jardins-italia'], minPrice: 4000000, maxPrice: 5000000, minBedrooms: 3, minParkingSpaces: 2, minArea: 300 });
   assert.ok(w.corpos.apify.some(x => x.corpo.portal === 'VIVA_REAL'));
-  const olx = w.corpos.apify.find(x => x.corpo.searchUrls);
+  const olx = w.corpos.apify.find(x => x.corpo.searchQueries);
   assert.match(olx.url, /solidcode~olx-brazil-scraper/);
-  assert.match(olx.corpo.searchUrls[0], /^https:\/\/www\.olx\.com\.br\/imoveis\/venda\/estado-go\/grande-goiania-e-anapolis\/goiania\?q=casa\+jardins\+it/);
-  assert.equal(olx.corpo.minPrice, 4000000);
+  // o robô ignorou a região do link na VM (anúncio de SP): agora vai texto + estado nativo
+  assert.deepEqual([olx.corpo.searchQueries, olx.corpo.state, olx.corpo.minPrice, olx.corpo.maxPrice, olx.corpo.searchUrls], [['casa jardins itália goiânia'], 'GO', 4000000, 5000000, undefined]);
+  assert.ok(!r.itens.some(i => /caraguatatuba/.test(i.link)), 'anúncio de outro estado descartado');
   assert.equal(w.corpos.gemini.length, 0, 'sem Gemini');
   assert.deepEqual(r.itens.map(i => [i.portal, i.tipoAnunciante, i.certeza]).sort(), [['OLX', 'particular', 'anúncio'], ['VivaReal', 'particular', 'anúncio'], ['ZAP Imóveis', 'profissional', 'anúncio']].sort());
   const o = r.itens.find(i => i.portal === 'OLX');
@@ -800,7 +801,7 @@ test('"testar apify": roda cada robô com 1 anúncio, mostra preço/link e o gas
     chamadas.push({ url, corpo: o.body ? JSON.parse(o.body) : null, auth: o.headers && o.headers.Authorization });
     if (/users\/me\/limits/.test(url)) return { ok: true, status: 200, json: async () => ({ data: { current: { monthlyUsageUsd: 0.31 }, limits: { maxMonthlyUsageUsd: 5 } } }) };
     const corpo = JSON.parse(o.body);
-    if (corpo.searchUrls) return { ok: true, status: 200, json: async () => [{ url: OLX_AD, title: 'Apartamento 3 quartos 90 m²', price: 650000, isBusiness: false }] };
+    if (corpo.searchQueries) return { ok: true, status: 200, json: async () => [{ url: OLX_AD, city: 'Goiânia', state: 'GO', title: 'Apartamento 3 quartos 90 m²', price: 650000, isBusiness: false }] };
     if (corpo.portal === 'VIVA_REAL') return { ok: false, status: 402, json: async () => ({ error: { message: 'Not enough usage credits' } }) };
     return { ok: true, status: 200, json: async () => [{ url: ZAP_AD, title: 'Apto', priceBRL: 700000, usableArea: 80, bedrooms: 3, publisherType: 'AGENCY', agencyName: 'Lopes' }] };
   };
@@ -812,6 +813,14 @@ test('"testar apify": roda cada robô com 1 anúncio, mostra preço/link e o gas
   assert.match(t, /✅ OLX \(\d+s\): R\$ 650\.000 · 90 m² · 3 quartos · particular/);
   assert.match(t, /❌ VivaReal: HTTP 402 — Not enough usage credits/);
   assert.match(t, /Gasto no mês: US\$ 0\.31 de US\$ 5\.00/);
+  // caso REAL (testar apify na VM, 04/11): o robô da OLX devolveu anúncio de Caraguatatuba-SP
+  const sp = async (u, o = {}) => (o.body && JSON.parse(o.body).searchQueries ? { ok: true, status: 200, json: async () => [{ url: 'https://sp.olx.com.br/vale-do-paraiba-e-litoral-norte/imoveis/apartamento-com-3-quartos-e-piscina-a-venda-85-m-martim-de-sa-caraguatatuba-1490408868', title: 'Apartamento com 3 quartos e piscina à venda, 85 m²', price: 650000, isBusiness: true }] } : fetcher(u, o));
+  const rsp = await A.testarApify({ env: { APIFY_API_TOKEN: 'apify_api_teste123' }, fetcher: sp });
+  assert.match(A.textoTesteApify(rsp), /⚠️ OLX \(\d+s\): o robô devolveu anúncio FORA de Goiânia/);
+  assert.equal(A.naCidade({ url: OLX_AD, city: 'Goiânia' }, { local: { cidades: ['Goiânia'] } }), true);
+  assert.equal(A.naCidade({ url: OLX_AD, city: 'Aparecida de Goiânia' }, { local: { cidades: ['Goiânia'] } }), false);
+  assert.equal(A.naCidade({ url: 'https://www.olx.com.br/x-123', state: 'GO' }, { local: { cidades: ['Goiânia'] } }), true);
+  assert.equal(A.naCidade({ url: 'nao é link' }, { local: { cidades: ['Goiânia'] } }), false);
   assert.match(A.textoTesteApify(await A.testarApify({ env: {}, fetcher })), /Falta o token do Apify/);
   assert.match(A.textoTesteApify(await A.testarApify({ env: { APIFY_API_TOKEN: 'x_ruim_123' }, fetcher: async () => ({ ok: false, status: 401, json: async () => ({}) }) })), /recusou o token/);
 });
