@@ -95,8 +95,10 @@ function upsertPost(prop, { texto, foto, status } = {}) {
 }
 
 function setStatus(propId, status) {
-  if (!temPost(propId)) return null;
-  const p = state.posts[propId];
+  const id = String(propId);
+  // guarda inline (é o formato que o CodeQL reconhece): nunca nomes do protótipo e só post PRÓPRIO do objeto
+  if (id === '__proto__' || id === 'constructor' || id === 'prototype' || !Object.prototype.hasOwnProperty.call(state.posts, id)) return null;
+  const p = state.posts[id];
   if (!p) return null;
   p.status = status;
   if (status === 'APROVADO') p.aprovadoEm = new Date().toISOString();
