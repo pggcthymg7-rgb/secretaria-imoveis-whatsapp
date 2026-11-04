@@ -4,13 +4,23 @@
  * invisível ou em formato novo do Google.
  */
 
+const ASPAS = new Set(['"', "'", '`']);
+/** Tira aspas do começo e do fim em tempo linear (a regex `["'`]+$` era lenta em texto grande) */
+function tirarAspas(s) {
+  let a = 0;
+  let b = s.length;
+  while (a < b && ASPAS.has(s[a])) a++;
+  while (b > a && ASPAS.has(s[b - 1])) b--;
+  return s.slice(a, b);
+}
+
 /** Tira espaços, quebras de linha, caracteres invisíveis, aspas e "GEMINI_API_KEY=" */
 function limparChave(bruto) {
-  return String(bruto || '')
+  const limpo = String(bruto || '')
     .replace(/[​-‍⁠﻿ ]/g, '')
     .replace(/\s+/g, '')
-    .replace(/^(?:GEMINI_API_KEY|GOOGLE_API_KEY|API_KEY)=/i, '')
-    .replace(/^["'`]+|["'`]+$/g, '');
+    .replace(/^(?:GEMINI_API_KEY|GOOGLE_API_KEY|API_KEY)=/i, '');
+  return tirarAspas(limpo);
 }
 
 /** Formato aceito: sem espaço nem caractere de controle; só os usados em chaves do Google */

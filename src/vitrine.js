@@ -73,8 +73,11 @@ function defaultPostText(prop) {
   ].filter((l, i) => l !== '' || i > 2).join('\n').trim();
 }
 
+// só vale post PRÓPRIO do objeto: com id "__proto__" ou "constructor" o código antigo mexia em Object.prototype
+const temPost = id => Object.prototype.hasOwnProperty.call(state.posts, id);
+
 function upsertPost(prop, { texto, foto, status } = {}) {
-  const prev = state.posts[prop.id] || {};
+  const prev = (temPost(prop.id) && state.posts[prop.id]) || {};
   const fotoFinal = foto !== undefined ? foto : prev.foto || (prop.fotos || [])[0] || '';
   const changedContent = (texto !== undefined && texto !== prev.texto) || (foto !== undefined && foto !== prev.foto);
   state.posts[prop.id] = {
@@ -92,6 +95,7 @@ function upsertPost(prop, { texto, foto, status } = {}) {
 }
 
 function setStatus(propId, status) {
+  if (!temPost(propId)) return null;
   const p = state.posts[propId];
   if (!p) return null;
   p.status = status;
@@ -101,7 +105,7 @@ function setStatus(propId, status) {
 }
 
 function removePost(propId) {
-  delete state.posts[propId];
+  if (temPost(propId)) delete state.posts[propId];
   save();
 }
 

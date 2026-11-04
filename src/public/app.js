@@ -5,7 +5,13 @@
   // ------------------------------------------------------------------ utilidades
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const esc = s =>
+    String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   const brl = v => (Number(v) ? Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }) : '—');
   const fotoUrl = f => (/^https?:\/\//i.test(f) ? f : `/fotos/${encodeURIComponent(f)}`);
   const when = ts => (ts ? new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
@@ -827,7 +833,8 @@
       S.sistema = await api('GET', '/api/sistema').catch(() => null);
     }
   };
-  const views = { inicio: viewHome, hoje: viewGeral, geral: viewGeral, garimpo: (...a) => viewGarimpo(...a), busca: viewBusca, radar: viewRadar, carteira: viewCarteira, vitrine: viewVitrine, prospeccao: viewProspeccao, atendimento: viewAtendimento, cerebro: viewCerebro, simulador: viewSimulador, ajustes: viewAjustes };
+  // Map (e não objeto): a rota vem da URL (#constructor, #__proto__…) e só pode virar página se estiver na lista
+  const views = new Map(Object.entries({ inicio: viewHome, hoje: viewGeral, geral: viewGeral, garimpo: (...a) => viewGarimpo(...a), busca: viewBusca, radar: viewRadar, carteira: viewCarteira, vitrine: viewVitrine, prospeccao: viewProspeccao, atendimento: viewAtendimento, cerebro: viewCerebro, simulador: viewSimulador, ajustes: viewAjustes }));
 
   // Desenha a página atual. Ao TROCAR de página (go) anima a entrada; nas atualizações da mesma
   // página não anima, mantém a rolagem e (manterCampos) o que estava sendo digitado.
@@ -837,7 +844,7 @@
     const y = scrollY;
     const campos = opts.manterCampos ? capturarCampos() : null;
     root.classList.toggle('sem-anim', !navegando);
-    (views[S.route] || viewHome)();
+    (views.get(S.route) || viewHome)();
     if (campos) restaurarCampos(campos);
     afterRender(navegando);
     if (!navegando) scrollTo(0, y);
@@ -908,7 +915,7 @@
 
   async function go() {
     const r = (location.hash || '#inicio').slice(1);
-    S.route = views[r] ? r : location.pathname === '/dia-a-dia' ? 'atendimento' : 'inicio';
+    S.route = views.has(r) ? r : location.pathname === '/dia-a-dia' ? 'atendimento' : 'inicio';
     S.editing = null;
     if (!S.authed) return render();
     const animate = S._booted;

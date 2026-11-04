@@ -12,13 +12,23 @@ const PROVEDORES = {
   apify: { env: 'APIFY_API_TOKEN', nome: 'Apify', onde: 'apify.com › Settings › API & Integrations' }
 };
 
+const ASPAS = new Set(['"', "'", '`']);
+/** Tira aspas do começo e do fim em tempo linear (a regex `["'`]+$` era lenta em texto grande) */
+function tirarAspas(s) {
+  let a = 0;
+  let b = s.length;
+  while (a < b && ASPAS.has(s[a])) a++;
+  while (b > a && ASPAS.has(s[b - 1])) b--;
+  return s.slice(a, b);
+}
+
 /** Tira espaços, quebras, invisíveis, aspas e "NOME_DA_VARIAVEL=" */
 function limparChave(bruto) {
-  return String(bruto || '')
+  const limpo = String(bruto || '')
     .replace(/[​-‍⁠﻿ ]/g, '')
     .replace(/\s+/g, '')
-    .replace(/^[A-Z][A-Z0-9_]{3,40}=/, '')
-    .replace(/^["'`]+|["'`]+$/g, '');
+    .replace(/^[A-Z][A-Z0-9_]{3,40}=/, '');
+  return tirarAspas(limpo);
 }
 
 const formatoValido = chave => /^[A-Za-z0-9._~+/=-]{16,300}$/.test(chave);
