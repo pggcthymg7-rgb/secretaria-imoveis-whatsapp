@@ -25,6 +25,8 @@
   const CAT = { s: 'Sem serifa', r: 'Serifada', d: 'Display', h: 'Manuscrita', m: 'Monoespaçada' };
   const PALETA_PADRAO = ['#ffffff', '#171721', '#5266eb', '#ededf3', '#c9a227', '#0f3d2e', '#b8452e', '#000000'];
   const HANDLE = 22;
+  /** campos que o painel pode gravar numa camada (lista branca: nada de __proto__/constructor vindo do DOM) */
+  const CHAVES = new Set(['nome', 'x', 'y', 'w', 'h', 'rot', 'opacidade', 'texto', 'peso', 'alinhamento', 'tamanho', 'escalaX', 'escalaY', 'espacamento', 'entrelinha', 'italico', 'maiusculas', 'fundo', 'raioFundo', 'folga', 'sombra', 'contorno', 'ancora', 'zoom', 'offX', 'offY', 'brilho', 'contraste', 'saturacao', 'desfoque', 'raio', 'borda', 'angulo', 'cor', 'corFundo', 'corSombra', 'corContorno', 'corBorda', 'cor1', 'cor2']);
 
   const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -873,7 +875,7 @@
     function aplicarCor(k, hex, refazPainel = true) {
       if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(hex)) return;
       if (k === 'doc.fundo') E.doc.fundo = hex;
-      else {
+      else if (CHAVES.has(k)) {
         const c = camada(E.sel);
         if (c) c[k] = hex;
       }
@@ -903,6 +905,7 @@
       }
       const k = t.dataset.k;
       if (!k || t.type === 'checkbox' || t.tagName === 'SELECT') return;
+      if (k !== 'doc.fundo' && !CHAVES.has(k)) return;
       if (k === 'doc.fundo' || (t.closest('.cp-cor') && t.type === 'text')) {
         if (/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(t.value)) aplicarCor(k, t.value.toLowerCase(), false);
         return;
@@ -972,7 +975,7 @@
         return;
       }
       const c = camada(E.sel);
-      if (!c || !k) return;
+      if (!c || !k || !CHAVES.has(k)) return;
       if (t.type === 'checkbox') {
         marcar();
         c[k] = t.checked;
