@@ -61,5 +61,5 @@
 - [x] Casa de condomínio como categoria de imóvel
 - [x] Navegação do painel mais clara e intuitiva (4 grupos: Meu dia, Imóveis, Clientes, Configurar)
 - [x] Editor de capa (beta): canvas imobiliário com modelos editáveis
-- [ ] Funcionalidade surpresa do dia a dia do corretor
+- [x] Surpresa: 🎯 "Quem procura este imóvel?" — ao cadastrar, a BIGA relê os pedidos dos grupos (60 dias) e oferece o imóvel a quem pediu
 - [x] Gerador de PDF minimalista e editável dos imóveis (baixar ou enviar pelo WhatsApp)

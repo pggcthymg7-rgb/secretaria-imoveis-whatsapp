@@ -411,3 +411,10 @@ details summary::-webkit-details-marker { display: none; }
 .pdf-n { position: absolute; top: 6px; left: 6px; min-width: 22px; height: 22px; border-radius: 11px; background: var(--color-cobalt); color: #fff; font-size: 12px; display: grid; place-items: center; }
 .pdf-n:empty { display: none; }
 .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -1px; margin-right: 4px; }
+
+/* ---------- 🎯 Quem procura (match reverso) ---------- */
+.qp { display: grid; gap: 10px; padding: var(--s16); border-radius: var(--r-card); background: rgba(82, 102, 235, .08); border: 1px solid rgba(82, 102, 235, .25); }
+.qp-item { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: start; cursor: pointer; padding: 8px; border-radius: 10px; }
+.qp-item:hover { background: rgba(237, 237, 243, .04); }
+.qp-item input { margin-top: 4px; accent-color: var(--color-cobalt); }
+.qp-item .tag { margin-right: 4px; }

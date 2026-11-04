@@ -185,6 +185,8 @@ app.post('/api/upload-photos', (req, res) => {
 app.post('/api/property', ah(async (req, res) => {
   const created = await sheets.createProperty(req.body || {});
   wa.addLog('CRM_CADASTRO', `Imóvel #${created.id} (${created.tipo} - ${created.setor}) cadastrado.`);
+  // 🎯 match reverso em segundo plano: avisa o dono no WhatsApp se alguém já pediu algo assim
+  require('./src/quem-procura').avisarNovoImovel(created, { enviarAoDono: t => wa.sendOwnerWhatsAppAlert(t), log: wa.addLog });
   res.json({ ok: true, property: created, inventory: await sheets.loadAllProperties() });
 }));
 
@@ -352,6 +354,19 @@ app.post('/api/radar/:code/enviar', ah(async (req, res) => {
 // ---------------------------------------------------------------------------
 // Vitrine
 // ---------------------------------------------------------------------------
+// 🎯 Quem procura este imóvel? (pedidos dos grupos que batem com ele) e oferecer para eles
+app.get('/api/property/:id/quem-procura', ah(async (req, res) => {
+  const p = await sheets.getPropertyById(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Imóvel não encontrado.' });
+  const lista = await require('./src/quem-procura').quemProcura(p);
+  res.json({ dias: require('./src/quem-procura').DIAS_PADRAO, lista: lista.map(({ texto, jid, ...l }) => ({ ...l, texto: texto.slice(0, 400) })) });
+}));
+app.post('/api/property/:id/oferecer', ah(async (req, res) => {
+  const codes = Array.isArray(req.body?.codes) ? req.body.codes.map(String).filter(c => /^A\d{1,3}$/.test(c)).slice(0, 50) : null;
+  const r = await wa.oferecerImovel(null, String(req.params.id), codes && codes.length ? codes : null);
+  res.status(r.ok ? 200 : 400).json(r.ok ? r : { error: r.message });
+}));
+
 // Ficha em PDF (moderna e editável): ver, salvar edições, baixar e enviar pelo WhatsApp
 async function imovelOu404(req, res) {
   const p = await sheets.getPropertyById(req.params.id);

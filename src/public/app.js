@@ -344,7 +344,8 @@
               <div class="row tight"><span class="tag iris">#${esc(p.id)}</span>${p.ativo ? '<span class="tag enviar">● ativo</span>' : '<span class="tag">● inativo</span>'}${p.negociacao === 'AGIO' ? '<span class="tag avisar">ágio</span>' : ''}${p.negociacao === 'ALUGUEL' ? '<span class="tag">aluguel</span>' : ''}${p.aceita_permuta === 'SIM' ? '<span class="tag">aceita permuta</span>' : ''}</div>
               <h3 class="h2xs">${esc(propTitle(p))}</h3>
               <div class="body muted">${[p.quartos ? p.quartos + ' qts' : '', p.suites !== '' && p.suites !== undefined ? p.suites + ' suítes' : '', p.vagas ? p.vagas + ' vagas' : '', p.tamanho_m2 ? p.tamanho_m2 + ' m²' : '', { SIM: 'mobiliado', SEMI: 'com armários' }[p.mobiliado] || ''].filter(Boolean).join(' · ')} · <span class="saffron">${p.negociacao === 'AGIO' && p.valor_agio ? 'ágio ' + brl(p.valor_agio) : brl(p.valor)}</span></div>
-              <div class="row tight"><button class="btn-ghost accent" data-action="editar" data-id="${esc(p.id)}">Editar</button><button class="btn-ghost" data-action="ativo" data-id="${esc(p.id)}">${p.ativo ? 'Desativar' : 'Ativar'}</button><button class="btn-ghost" data-action="aVitrine" data-id="${esc(p.id)}">Vitrine</button><button class="btn-ghost danger" data-action="excluir" data-id="${esc(p.id)}">Excluir</button></div>
+              <div class="row tight"><button class="btn-ghost accent" data-action="editar" data-id="${esc(p.id)}">Editar</button><button class="btn-ghost" data-action="ativo" data-id="${esc(p.id)}">${p.ativo ? 'Desativar' : 'Ativar'}</button><button class="btn-ghost" data-action="aVitrine" data-id="${esc(p.id)}">Vitrine</button><button class="btn-ghost accent" data-action="quemProcura" data-id="${esc(p.id)}" title="Pedidos dos grupos que batem com este imóvel">🎯 Quem procura</button><button class="btn-ghost" data-action="irPdf" data-id="${esc(p.id)}">Ficha PDF</button><button class="btn-ghost danger" data-action="excluir" data-id="${esc(p.id)}">Excluir</button></div>
+              ${S.qp && String(S.qp.id) === String(p.id) ? blocoQuemProcura(S.qp) : ''}
             </div>
           </div>`).join('') : '<p class="body ash">Nenhum imóvel encontrado.</p>'}</div>
       </div></section>`);
@@ -382,6 +383,20 @@
       <div class="row">${toggle('ativo', p.ativo !== false, 'Ativo na carteira')}</div>
       <div class="row"><button class="btn-primary" data-action="salvarImovel">Salvar imóvel</button><button class="btn-ghost" data-action="cancelarEdicao">Cancelar</button></div>
     </div></section>`;
+  }
+
+  // ------------------------------------------------------------------ 🎯 QUEM PROCURA (match reverso)
+  function blocoQuemProcura(q) {
+    if (q.carregando) return '<div class="qp card-in"><p class="caption">Relendo os pedidos dos grupos…</p></div>';
+    if (!q.lista.length) return `<div class="qp card-in"><p class="body muted">Ninguém pediu algo assim nos grupos nos últimos ${q.dias} dias. Que tal divulgar na Vitrine ou fazer uma capa?</p></div>`;
+    return `<div class="qp card-in" data-qp="${esc(q.id)}">
+      <p class="body"><b>${q.lista.length}</b> corretor(es) pediram algo assim nos últimos ${q.dias} dias:</p>
+      ${q.lista.map(l => `<label class="qp-item"><input type="checkbox" name="qpCode" value="${esc(l.code)}" ${l.nivel === 'MATCH' && !l.jaRecebeu ? 'checked' : ''}>
+        <span><span class="tag ${l.nivel === 'MATCH' ? 'enviar' : 'avisar'}">${l.nivel === 'MATCH' ? '🎯 bate em tudo' : '🤔 quase'}</span>${l.jaRecebeu ? ' <span class="tag">já recebeu</span>' : ''}
+        <b>${esc(l.sender)}</b> <span class="caption">${esc(when(l.ts))} · ${esc(l.grupo)}${l.phone ? ` · <a href="https://wa.me/${esc(l.phone)}" target="_blank" rel="noopener">wa.me/${esc(l.phone)}</a>` : ''}</span><br>
+        <span class="caption">“${esc(l.texto)}”${l.falta && l.falta.length ? `<br>Falta confirmar: ${esc(l.falta.join('; '))}` : ''}</span></span></label>`).join('')}
+      <div class="row tight"><button class="btn-primary" data-action="oferecer" data-id="${esc(q.id)}">Oferecer para os marcados</button><span class="caption">Um por vez, com pausa de 25–45 s, no privado de cada um.</span></div>
+    </div>`;
   }
 
   // ------------------------------------------------------------------ FICHAS EM PDF
@@ -1301,6 +1316,25 @@
       S.vitrine.posts[el.dataset.id] = r.post;
       toast('Texto salvo (aguardando aprovação).');
       render();
+    },
+    quemProcura: async el => {
+      const id = el.dataset.id;
+      if (S.qp && String(S.qp.id) === String(id) && !S.qp.carregando) {
+        S.qp = null;
+        return render({ manterCampos: true });
+      }
+      S.qp = { id, carregando: true, lista: [] };
+      render({ manterCampos: true });
+      const r = await api('GET', `/api/property/${encodeURIComponent(id)}/quem-procura`);
+      S.qp = { id, dias: r.dias, lista: r.lista };
+      render({ manterCampos: true });
+    },
+    oferecer: async el => {
+      const box = $(`[data-qp="${CSS.escape(el.dataset.id)}"]`);
+      const codes = $$('input[name=qpCode]', box).filter(i => i.checked).map(i => i.value);
+      if (!codes.length) return toast('Marque pelo menos um corretor.', true);
+      const r = await api('POST', `/api/property/${encodeURIComponent(el.dataset.id)}/oferecer`, { codes });
+      toast(`🎯 ${r.message} Eu aviso no WhatsApp quando terminar.`);
     },
     irPdf: async el => {
       S.pdfSel = el.dataset.id;
