@@ -53,3 +53,13 @@
 - [x] Página Busca no painel + todas as configurações da busca também pelo "Mensagem para mim"
 - [ ] Colocar a chave do Gemini (AI Studio) e conferir a cota grátis da busca com Google — **precisa de você**
 - [ ] Rodar `importar histórico` com o celular ligado; exportar os grupos que vierem com pouco histórico — **precisa de você**
+
+## 7. Noite de 04/11/2026 (pedido do João)
+- [x] Vitrine sem o teto de 5: até 10 imóveis COM foto e 20 SÓ TEXTO por horário, pausa de 20–40 s entre imóveis
+- [x] Descrição completa na vitrine (sem cortar na 1ª frase/220 caracteres) + botão "Texto completo da carteira"
+- [x] Busca: "até 200 m²" = 160 a 210 m² (80%–105%); "apto com piscina" = piscina privativa; decorado = mobiliado; vocabulário ampliado
+- [x] Casa de condomínio como categoria de imóvel
+- [x] Navegação do painel mais clara e intuitiva (4 grupos: Meu dia, Imóveis, Clientes, Configurar)
+- [x] Editor de capa (beta): canvas imobiliário com modelos editáveis
+- [x] Surpresa: 🎯 "Quem procura este imóvel?" — ao cadastrar, a BIGA relê os pedidos dos grupos (60 dias) e oferece o imóvel a quem pediu
+- [x] Gerador de PDF minimalista e editável dos imóveis (baixar ou enviar pelo WhatsApp)

@@ -15,7 +15,7 @@
  * ============================================================================
  */
 const { normalize, parseBrazilianNumber } = require('./brain/text');
-const { detectTipos, detectRooms, detectArea, detectPrice, detectMobilia, detectNegocio } = require('./brain/parser');
+const { detectTipos, detectRooms, detectArea, detectPrice, detectMobilia, detectNegocio, detectSubtipoCasa } = require('./brain/parser');
 const { detectLocations } = require('./brain/locations');
 const { nowParts } = require('./timeutil');
 const sheets = require('./sheets');
@@ -41,7 +41,7 @@ function parsePropertyFromText(text) {
   const loc = detectLocations(text);
 
   const prop = {
-    tipo: tipos[0] || 'Apartamento',
+    tipo: tipos[0] === 'Casa' && detectSubtipoCasa(norm) === 'CONDOMINIO' ? 'Casa de condomínio' : tipos[0] || 'Apartamento',
     negociacao: neg.agio ? 'AGIO' : neg.transacao === 'ALUGUEL' ? 'ALUGUEL' : 'VENDA',
     setor: loc.bairros[0] || (loc.condominios[0] && loc.condominios[0].name) || '',
     edificio: (loc.condominios[0] && loc.condominios[0].name) || (loc.edificios[0] && loc.edificios[0].name) || '',
@@ -49,7 +49,7 @@ function parsePropertyFromText(text) {
     quartos: rooms.quartos_min || '',
     suites: rooms.suites_min || '',
     vagas: rooms.vagas_min || '',
-    tamanho_m2: area.area_min ? Math.round(area.area_min / 0.95) : area.area_max || '',
+    tamanho_m2: area.area_alvo || (area.area_min ? Math.round(area.area_min / 0.95) : area.area_max || ''),
     mobiliado: { MOBILIADO: 'SIM', SEMI: 'SEMI', SEM: 'NAO' }[detectMobilia(norm)] || '',
     descricao: String(text).replace(/^\s*(cadastrar|cadastra|novo im[oó]vel|#im[oó]vel)\s*:?\s*/i, '').trim()
   };
@@ -142,6 +142,7 @@ const HELP = `${BOT} *Oi, eu sou a BIGA!* Seus comandos:
 
 📋 *Carteira*
 • *lista* · *ver 12* · *pdf 12* · *ativar 12* · *desativar 12*
+• 🎯 *quem procura 12* (quem pediu algo assim nos grupos) · *oferecer 12* (mando para eles)
 
 🔔 *Pedidos dos grupos*
 • *buscas* (últimos pedidos) · *demanda* (o que mais pedem)
@@ -444,6 +445,10 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
       drafts.delete(key);
       if (ctx.log) ctx.log('ASSISTENTE', `Imóvel #${created.id} cadastrado pelo WhatsApp.`);
       await reply(wa, chatJid, `✅ Imóvel *#${created.id}* salvo e ativo — já vale para os pedidos dos grupos.\nQuer divulgar na vitrine? Responda *vitrine ${created.id}*.`);
+      // 🎯 match reverso: quem já pediu algo assim nos grupos?
+      const QP = require('./quem-procura');
+      const lista = await QP.quemProcura(created).catch(() => []);
+      if (lista.length) await reply(wa, chatJid, QP.textoAviso(created, lista));
       return true;
     }
     if (/^(cancelar|cancela|descartar)$/.test(norm)) {
@@ -563,6 +568,23 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
     const d = radar.demand(30);
     const fmt = arr => arr.map(x => `${x.nome} (${x.qtd})`).join(', ') || '-';
     await reply(wa, chatJid, `*Demanda dos últimos 30 dias* (${d.total} pedidos)\n🏠 Tipos: ${fmt(d.tipos)}\n📍 Locais: ${fmt(d.locais)}\n💰 Faixas: ${fmt(d.faixas)}\n\nUse isso para captar o que está sendo procurado.`);
+    return true;
+  }
+  if ((m = norm.match(/^(?:quem procura|quem quer|interessados(?: no)?|quem pediu)\s+#?(\d{1,6})$/))) {
+    const p = await sheets.getPropertyById(m[1]);
+    if (!p) {
+      await reply(wa, chatJid, `Não achei o imóvel #${m[1]}.`);
+      return true;
+    }
+    const QP = require('./quem-procura');
+    const lista = await QP.quemProcura(p);
+    await reply(wa, chatJid, lista.length ? QP.textoAviso(p, lista) : `Ninguém pediu algo como o #${p.id} nos grupos nos últimos ${QP.DIAS_PADRAO} dias. Quer divulgar? *vitrine ${p.id}*`);
+    return true;
+  }
+  if ((m = norm.match(/^(?:oferecer|ofereca|oferece)\s+#?(\d{1,6})$/))) {
+    if (!ctx.oferecerImovel) return false;
+    const r = await ctx.oferecerImovel(chatJid, m[1]);
+    if (!r.ok && !/Ninguém/.test(r.message)) await reply(wa, chatJid, r.message);
     return true;
   }
   if ((m = norm.match(/^(?:enviar|envia|ok|manda|mandar)\s+(a\d{1,3})(?:\s+#?(\w+))?$/))) {

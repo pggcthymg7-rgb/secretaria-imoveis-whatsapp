@@ -1,3 +1,58 @@
+# ✅ Entrega v5 (noite de 04/11/2026): vitrine, busca mais esperta, Capas, Fichas PDF e 🎯 Quem procura
+
+## O que foi feito
+| Pedido | Resultado |
+|---|---|
+| **1. Vitrine sem limite de 5** | A vitrine manda até **10 imóveis com foto** e **20 só com texto** por horário (a escolha é sua). Entre um imóvel e outro ela espera **20 a 40 s**, e entre grupos 25 a 70 s, para o WhatsApp não tratar como spam. |
+| **2. Busca com discernimento** | **"Até 200 m²"** agora quer dizer **perto de 200: de 160 a 210 m²** (80% a 105%). **"Em torno de 200"** vai de 180 a 220. **"Até 20 mil m² ou menos"** continua aceitando qualquer tamanho abaixo. **"Apto com piscina"** = piscina **no apartamento**; **"condomínio/área de lazer com piscina"** = piscina do prédio; **"casa com piscina"** = a da casa. **Decorado = mobiliado**. Sinônimos novos: apê/ape, dorms, porteira fechada, todo equipado, com móveis, varanda com churrasqueira, lavabo, hidro/banheira/ofurô, vista livre, automação, ar-condicionado, aquecimento. A faixa pode ser ajustada sem mexer no código (`AREA_ATE_PISO_PCT`, `AREA_ATE_TETO_PCT`, `AREA_TORNO_PCT`). |
+| **3. Casa de condomínio** | Virou **categoria própria**: no cadastro, nos pedidos ("casas de condomínio", "cond fechado"), nos filtros da Busca e nos portais (ZAP: CONDOMINIUM). |
+| **4. Navegação** | As 12 abas soltas viraram **4 grupos**, com ícones: ☀️ **Meu dia** (Hoje, Radar, Atendimento), 🏠 **Imóveis** (Carteira, Vitrine, Capas, Fichas PDF), 🤝 **Clientes** (Busca, Garimpo, Prospecção) e ⚙️ **Configurar** (Cérebro, Simulador, Ajustes). Cada página tem um submenu e uma trilha "Início › Imóveis › Vitrine". A página inicial mostra os 4 grupos em cartões. |
+| **5. Descrição completa** | O post da vitrine leva a **descrição inteira** (antes: 1ª frase, 220 caracteres). O botão **"Texto completo da carteira"** refaz os posts antigos. A carteira aceita descrições de até 60 mil caracteres. |
+| **6. Capas (beta): canvas imobiliário** | Em Imóveis › **Capas**, a BIGA monta a capa do Instagram com foto, nome e preço. Formatos: Feed 4:5, Quadrado e Story. Tudo é editável: **1.838 fontes do Google** com busca e prévia, **roda de cores** (com transparência, paleta e conta-gotas), escala **uniforme ou separada na horizontal e na vertical**, camadas (foto, texto, forma, degradê, logo), arrastar, redimensionar, girar, alinhar, travar, ocultar, ordem, duplicar, desfazer/refazer, guias de centro, filtros na foto (brilho, contraste, saturação, desfoque), enquadramento da foto, sombra, contorno, etiqueta de fundo e texto que cresce para cima. Textos com **{nome} {preco} {bairro} {quartos}…** trocam sozinhos. Você **salva seus modelos** e usa **"Aplicar em outros imóveis"** para gerar as capas de toda a carteira. Depois é só baixar ou mandar para a Vitrine. |
+| **7. Fichas PDF (pedido extra)** | Em Imóveis › **Fichas PDF** (ou o botão "Ficha PDF" na Vitrine e na Carteira): um **PDF moderno e minimalista** com foto grande, preço, números, diferenciais, descrição completa, galeria e rodapé com o seu contato. Tudo é editável: título, preço, diferenciais, descrição, fotos e a ordem delas, cor de destaque e contato. **Baixar**, **ver antes** ou **enviar direto pelo WhatsApp** para um número. O comando `pdf 12` e o PDF que os corretores pedem nos grupos passaram a usar este modelo novo. |
+| **8. Surpresa: 🎯 Quem procura este imóvel?** | O dia a dia do corretor: chegou um imóvel novo, quem pediu algo assim? Ao cadastrar (pelo painel ou pelo WhatsApp), a BIGA **relê todos os pedidos dos grupos dos últimos 60 dias** e avisa você no WhatsApp quem bate em tudo e quem está "quase" (com o que falta confirmar), com o link wa.me de cada um. Em Carteira › **🎯 Quem procura** você marca e toca em **Oferecer**: ela manda no privado de cada um, um por vez, com o mesmo texto humano e as mesmas travas dos grupos. No WhatsApp: `quem procura 12` e `oferecer 12`. |
+
+## Bugs corrigidos durante o trabalho
+- Pedido vago ("alguém tem contato de pintor?") batia com qualquer imóvel no match reverso: agora exige tipo + pelo menos 1 critério real.
+- Capas: as fontes do Google não apareciam no canvas (ele desenhava antes de a folha de fontes carregar).
+- Capas: nome comprido cobria os detalhes. Agora o nome "cresce para cima" e o texto é medido antes de ser posicionado.
+- Fichas PDF: a descrição longa invadia o rodapé, e as caixinhas de foto eram restauradas erradas ao redesenhar a tela.
+
+## Testes
+- `npm run verify`: **69 arquivos, 0 erros · 158 testes, 158 passando** (eram 147). Testes novos:
+  - caso real da corretora no fixture (`aptoDecoradoPiscina`);
+  - vocabulário (piscina, mobília, apê, gourmet, hidro, "em torno de", "ou menos");
+  - casa de condomínio;
+  - vitrine 10/20 com pausa e descrição completa;
+  - Capas (lista branca, injeção de CSS pelo nome da fonte, logo de URL externa recusado);
+  - Fichas PDF (PDF válido, várias páginas, fotos só locais, contato compartilhado, `__proto__`);
+  - 🎯 Quem procura (match x quase, já recebeu, um pedido por corretor, 60 dias, pedido vago).
+- **Testado no navegador** (Chromium, Playwright) com a BIGA rodando local:
+  - Capas: abrir, trocar fonte, roda de cores, escala horizontal, arrastar, salvar modelo, gerar em lote, baixar JPG e usar na Vitrine;
+  - Fichas PDF: editar, trocar a cor, baixar e conferir as páginas;
+  - Carteira: 🎯 Quem procura e Oferecer;
+  - navegação nova e celular (390 px).
+  - Nenhum erro no console.
+- **Não testado com WhatsApp real** (a sessão não tem um aparelho pareado): o envio da Ficha PDF e o "Oferecer" foram testados até o ponto em que o WhatsApp precisa estar conectado (a mensagem "WhatsApp desconectado" aparece certa).
+
+## Auditoria de segurança
+- **Rotas novas** (`/api/capas*`, `/api/pdf/*`, `/api/property/:id/quem-procura`, `/api/property/:id/oferecer`): todas atrás do login e do cabeçalho anti-CSRF.
+- **Entradas**: tudo passa por lista branca.
+  - Modelos de capa: só campos conhecidos, números dentro de faixas, cores só `#rrggbb[aa]`, nome de fonte só letras, números e espaços (não injeta CSS), logo só como imagem `data:` pequena (sem URL externa), até 40 modelos e 40 camadas.
+  - Fichas PDF: fotos só da própria pasta de fotos (sem caminho nem URL); nome do arquivo baixado só com letras, números e "_"; o id `__proto__`/`constructor` é recusado.
+  - Envio: telefone normalizado e conferido no WhatsApp; os códigos de pedido em `oferecer` precisam ser `A123`.
+- **Editor no navegador**: só grava campos de uma lista fixa (sem poluição de protótipo) e todo texto mostrado passa por `esc()`. A CSP não mudou (as fontes vêm de fonts.googleapis.com/gstatic, que já eram permitidos).
+- **Anti-spam**: a vitrine e o "Oferecer" têm pausa entre envios e respeitam o limite por hora e o "não repetir oferta".
+- **Segredos**: nenhuma chave nova no código; o repositório continua sem segredos.
+
+## O que você precisa fazer
+1. Dar o merge na PR (depois dos 4 checks verdes) e mandar `atualizar` no "Mensagem para mim".
+2. Abrir Imóveis › **Fichas PDF** e preencher o seu contato uma vez (nome, CRECI, telefone).
+3. Testar a Capa de um imóvel e salvar o seu modelo.
+4. Cadastrar um imóvel e ver o aviso 🎯 no WhatsApp (se alguém tiver pedido algo parecido nos grupos).
+
+---
+
 # ✅ Entrega v4.1 — Atualizar a BIGA pelo celular
 
 - **Ajustes › Sistema**: mostra a versão em uso e as últimas atualizações, e tem o botão **Atualizar agora**.

@@ -19,6 +19,8 @@ const contacts = require('./src/contacts');
 const radar = require('./src/radar');
 const metrics = require('./src/metrics');
 const vitrine = require('./src/vitrine');
+const capas = require('./src/capas');
+const fichaPdf = require('./src/pdf-ficha');
 const prospeccao = require('./src/prospeccao');
 const scheduler = require('./src/scheduler');
 const auth = require('./src/auth');
@@ -183,6 +185,8 @@ app.post('/api/upload-photos', (req, res) => {
 app.post('/api/property', ah(async (req, res) => {
   const created = await sheets.createProperty(req.body || {});
   wa.addLog('CRM_CADASTRO', `Imóvel #${created.id} (${created.tipo} - ${created.setor}) cadastrado.`);
+  // 🎯 match reverso em segundo plano: avisa o dono no WhatsApp se alguém já pediu algo assim
+  require('./src/quem-procura').avisarNovoImovel(created, { enviarAoDono: t => wa.sendOwnerWhatsAppAlert(t), log: wa.addLog });
   res.json({ ok: true, property: created, inventory: await sheets.loadAllProperties() });
 }));
 
@@ -350,6 +354,59 @@ app.post('/api/radar/:code/enviar', ah(async (req, res) => {
 // ---------------------------------------------------------------------------
 // Vitrine
 // ---------------------------------------------------------------------------
+// 🎯 Quem procura este imóvel? (pedidos dos grupos que batem com ele) e oferecer para eles
+app.get('/api/property/:id/quem-procura', ah(async (req, res) => {
+  const p = await sheets.getPropertyById(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Imóvel não encontrado.' });
+  const lista = await require('./src/quem-procura').quemProcura(p);
+  res.json({ dias: require('./src/quem-procura').DIAS_PADRAO, lista: lista.map(({ texto, jid, ...l }) => ({ ...l, texto: texto.slice(0, 400) })) });
+}));
+app.post('/api/property/:id/oferecer', ah(async (req, res) => {
+  const codes = Array.isArray(req.body?.codes) ? req.body.codes.map(String).filter(c => /^A\d{1,3}$/.test(c)).slice(0, 50) : null;
+  const r = await wa.oferecerImovel(null, String(req.params.id), codes && codes.length ? codes : null);
+  res.status(r.ok ? 200 : 400).json(r.ok ? r : { error: r.message });
+}));
+
+// Ficha em PDF (moderna e editável): ver, salvar edições, baixar e enviar pelo WhatsApp
+async function imovelOu404(req, res) {
+  const p = await sheets.getPropertyById(req.params.id);
+  if (!p) res.status(404).json({ error: 'Imóvel não encontrado.' });
+  return p;
+}
+app.get('/api/pdf/:id', ah(async (req, res) => {
+  const p = await imovelOu404(req, res);
+  if (p) res.json({ ficha: fichaPdf.ficha(p), cores: fichaPdf.CORES, fotos: (p.fotos || []).filter(f => !/^https?:/i.test(f)) });
+}));
+app.post('/api/pdf/:id', ah(async (req, res) => {
+  const p = await imovelOu404(req, res);
+  if (p) res.json({ ok: true, ficha: req.body?.restaurar ? fichaPdf.restaurar(p) : fichaPdf.salvar(p, req.body || {}) });
+}));
+app.post('/api/pdf/:id/arquivo', ah(async (req, res) => {
+  const p = await imovelOu404(req, res);
+  if (!p) return;
+  const f = fichaPdf.salvar(p, req.body || {});
+  const buf = await fichaPdf.gerar(p, f);
+  res.set('Content-Disposition', `attachment; filename="${fichaPdf.nomeArquivo(p, f)}"`).type('application/pdf').send(buf);
+}));
+app.post('/api/pdf/:id/enviar', ah(async (req, res) => {
+  const p = await imovelOu404(req, res);
+  if (!p) return;
+  const tel = prospeccao.normalizePhone(req.body?.telefone);
+  if (!tel) return res.status(400).json({ error: 'Telefone inválido. Use DDD + número, ex.: 62 99999-9999.' });
+  if (!wa.api.isConnected()) return res.status(400).json({ error: 'WhatsApp desconectado.' });
+  const jid = await wa.api.checkNumber(tel);
+  if (!jid) return res.status(400).json({ error: 'Esse número não tem WhatsApp.' });
+  const f = fichaPdf.salvar(p, req.body?.ficha || {});
+  const buf = await fichaPdf.gerar(p, f);
+  await wa.api.sendDocument(jid, buf, fichaPdf.nomeArquivo(p, f), str(req.body?.mensagem, 1000));
+  wa.addLog('PDF', `📄 Ficha do imóvel #${p.id} enviada para ${tel.slice(0, 4)}…${tel.slice(-2)}.`);
+  res.json({ ok: true });
+}));
+
+// Capas (beta): modelos do editor de capas para o Instagram (o desenho é feito no navegador)
+app.get('/api/capas', (req, res) => res.json(capas.listar()));
+app.post('/api/capas/modelos', ah(async (req, res) => res.json({ ok: true, modelo: capas.salvar(req.body || {}), ...capas.listar() })));
+app.delete('/api/capas/modelos/:id', (req, res) => res.json({ ok: capas.apagar(req.params.id), ...capas.listar() }));
 app.get('/api/vitrine', (req, res) => res.json(vitrine.getState()));
 app.post('/api/vitrine/config', (req, res) => res.json({ ok: true, config: vitrine.updateConfig(req.body || {}) }));
 app.post('/api/vitrine/gerar', ah(async (req, res) => {
@@ -365,7 +422,9 @@ app.post('/api/vitrine/post/:id', ah(async (req, res) => {
   const p = await sheets.getPropertyById(req.params.id);
   if (!p) return res.status(404).json({ error: 'Imóvel não encontrado.' });
   const foto = typeof req.body?.foto === 'string' ? sheets.sanitizePhotoRef(req.body.foto) : undefined;
-  res.json({ ok: true, post: vitrine.upsertPost(p, { texto: typeof req.body?.texto === 'string' ? req.body.texto : undefined, foto }) });
+  // regerar: refaz o texto a partir da carteira (descrição completa), útil para posts antigos que saíam cortados
+  const texto = req.body?.regerar ? vitrine.defaultPostText(p) : typeof req.body?.texto === 'string' ? req.body.texto : undefined;
+  res.json({ ok: true, post: vitrine.upsertPost(p, { texto, foto }) });
 }));
 app.post('/api/vitrine/post/:id/status', (req, res) => {
   const st = String(req.body?.status || '');

@@ -13,14 +13,21 @@ const { nowParts, hhmmToMinutes } = require('./timeutil');
 const { describeProperty, formatPriceLabel } = require('./matcher');
 
 const FILE = 'vitrine.json';
+/** Teto por horário (decisão do João, 04/11): mais que isso num grupo vira spam e o WhatsApp pode bloquear o número */
+const MAX_FOTO = 10;
+const MAX_TEXTO = 20;
+/** WhatsApp aceita até ~65 mil caracteres por mensagem: a descrição vai inteira */
+const MAX_TEXTO_POST = 60000;
 const DEFAULT = {
   config: {
     ativo: false,
     horarios: ['08:30', '11:30', '15:00', '18:30'],
     grupos: [],
-    porHorario: 1,
+    porHorario: 1, // posts COM foto por horário (máx. 10)
+    porHorarioTexto: 1, // posts SÓ TEXTO por horário (máx. 20)
     diasSemana: [1, 2, 3, 4, 5, 6],
-    intervaloGruposSeg: [25, 70]
+    intervaloGruposSeg: [25, 70],
+    intervaloPostsSeg: [20, 40] // pausa entre um imóvel e outro (protege o número contra bloqueio por spam)
   },
   posts: {},
   historico: [],
@@ -50,7 +57,9 @@ function sanitizeConfig(input = {}) {
     c.horarios = [...new Set(input.horarios.map(h => String(h).trim()).filter(h => hhmmToMinutes(h) !== null))].sort().slice(0, 6);
   }
   if (Array.isArray(input.grupos)) c.grupos = [...new Set(input.grupos.map(String).filter(g => /@g\.us$/.test(g)))].slice(0, 50);
-  if (input.porHorario !== undefined) c.porHorario = Math.min(5, Math.max(1, parseInt(input.porHorario, 10) || 1));
+  if (input.porHorario !== undefined) c.porHorario = Math.min(MAX_FOTO, Math.max(0, parseInt(input.porHorario, 10) || 0));
+  if (input.porHorarioTexto !== undefined) c.porHorarioTexto = Math.min(MAX_TEXTO, Math.max(0, parseInt(input.porHorarioTexto, 10) || 0));
+  if (c.porHorario + c.porHorarioTexto === 0) c.porHorario = 1;
   if (Array.isArray(input.diasSemana)) c.diasSemana = input.diasSemana.map(Number).filter(d => d >= 0 && d <= 6);
   return c;
 }
@@ -61,9 +70,9 @@ function updateConfig(input) {
   return state.config;
 }
 
-/** Texto de divulgação padrão (sem saudação pessoal — vai para grupo) */
+/** Texto de divulgação padrão (sem saudação pessoal — vai para grupo). A descrição vai COMPLETA, sem cortes. */
 function defaultPostText(prop) {
-  const desc = String(prop.descricao || '').split(/(?<=[.!])\s/)[0].slice(0, 220);
+  const desc = String(prop.descricao || '').trim();
   return [
     describeProperty(prop),
     desc ? `✨ ${desc}` : '',
@@ -81,7 +90,7 @@ function upsertPost(prop, { texto, foto, status } = {}) {
   const fotoFinal = foto !== undefined ? foto : prev.foto || (prop.fotos || [])[0] || '';
   const changedContent = (texto !== undefined && texto !== prev.texto) || (foto !== undefined && foto !== prev.foto);
   state.posts[prop.id] = {
-    texto: String(texto !== undefined ? texto : prev.texto || defaultPostText(prop)).slice(0, 3000),
+    texto: String(texto !== undefined ? texto : prev.texto || defaultPostText(prop)).slice(0, MAX_TEXTO_POST),
     foto: String(fotoFinal || '').slice(0, 600),
     // conteúdo alterado volta para "pendente" até você aprovar de novo
     status: status || (changedContent && prev.status === 'APROVADO' ? 'PENDENTE' : prev.status || 'PENDENTE'),
@@ -111,30 +120,39 @@ function removePost(propId) {
   save();
 }
 
-function nextPosts(inventory, n) {
+/** Próximos posts aprovados em rodízio: até `nFoto` com foto e até `nTexto` só com texto */
+function nextPosts(inventory, nFoto, nTexto = nFoto) {
   const active = new Map(inventory.filter(p => p.ativo).map(p => [String(p.id), p]));
-  return Object.entries(state.posts)
+  const fila = Object.entries(state.posts)
     .filter(([id, p]) => p.status === 'APROVADO' && active.has(String(id)))
+    .sort((a, b) => String(a[1].ultimoEnvio || '').localeCompare(String(b[1].ultimoEnvio || '')));
+  const comFoto = fila.filter(([, p]) => p.foto).slice(0, nFoto);
+  const soTexto = fila.filter(([, p]) => !p.foto).slice(0, nTexto);
+  return [...comFoto, ...soTexto]
     .sort((a, b) => String(a[1].ultimoEnvio || '').localeCompare(String(b[1].ultimoEnvio || '')))
-    .slice(0, n)
     .map(([id, post]) => ({ id, post, property: active.get(String(id)) }));
 }
+
+const esperar = ms => new Promise(r => setTimeout(r, ms));
+const sorteio = ([a, b]) => (a + Math.random() * (b - a)) * 1000;
 
 /**
  * Executa um horário da vitrine. `wa` = { isConnected, sendImage, sendText }
  */
-async function runSlot(wa, inventory, slotLabel, log = console.log) {
+async function runSlot(wa, inventory, slotLabel, log = console.log, { pausa = esperar } = {}) {
   if (running) return { ok: false, error: 'já existe um envio em andamento' };
   const cfg = state.config;
   if (!cfg.grupos.length) return { ok: false, error: 'nenhum grupo de vitrine selecionado' };
   if (!wa.isConnected()) return { ok: false, error: 'WhatsApp desconectado' };
-  const items = nextPosts(inventory, cfg.porHorario);
+  const items = nextPosts(inventory, cfg.porHorario, cfg.porHorarioTexto ?? cfg.porHorario);
   if (!items.length) return { ok: false, error: 'nenhum post aprovado' };
 
   running = true;
   const result = { ok: true, enviados: 0, erros: 0, posts: items.map(i => i.id) };
   try {
-    for (const { id, post } of items) {
+    for (let pi = 0; pi < items.length; pi++) {
+      const { id, post } = items[pi];
+      if (pi > 0) await pausa(sorteio(cfg.intervaloPostsSeg || DEFAULT.config.intervaloPostsSeg));
       let okGroups = 0;
       for (let gi = 0; gi < cfg.grupos.length; gi++) {
         const gid = cfg.grupos[gi];
@@ -147,10 +165,7 @@ async function runSlot(wa, inventory, slotLabel, log = console.log) {
           result.erros++;
           log('VITRINE_ERRO', `Falha ao publicar #${id} no grupo ${gid}: ${err.message}`);
         }
-        if (gi < cfg.grupos.length - 1) {
-          const [a, b] = cfg.intervaloGruposSeg;
-          await new Promise(r => setTimeout(r, (a + Math.random() * (b - a)) * 1000));
-        }
+        if (gi < cfg.grupos.length - 1) await pausa(sorteio(cfg.intervaloGruposSeg));
       }
       post.ultimoEnvio = new Date().toISOString();
       post.envios = (post.envios || 0) + 1;
@@ -183,4 +198,4 @@ async function tick(wa, getInventory, log) {
   }
 }
 
-module.exports = { getState, updateConfig, upsertPost, setStatus, removePost, defaultPostText, nextPosts, runSlot, tick };
+module.exports = { MAX_FOTO, MAX_TEXTO, getState, updateConfig, upsertPost, setStatus, removePost, defaultPostText, nextPosts, runSlot, tick };

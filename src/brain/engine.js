@@ -14,7 +14,7 @@
  */
 const { normalize } = require('./text');
 const { propertyMatchesLocation, locateProperty } = require('./locations');
-const { FEATURES } = require('./parser');
+const { FEATURES, PISCINA_CONDOMINIO_RX } = require('./parser');
 
 // ---------------------------------------------------------------------------
 // FATOS DO IMÓVEL (lidos dos campos e, quando vazios, da descrição)
@@ -97,10 +97,10 @@ function propCondominio(p) {
 
 function propMobilia(p) {
   const v = normalize(p.mobiliado);
-  if (['sim', 'mobiliado', 'porteira fechada'].includes(v)) return 'MOBILIADO';
+  if (['sim', 'mobiliado', 'porteira fechada', 'decorado', 'mobiliado e decorado'].includes(v)) return 'MOBILIADO';
   if (['semi', 'semimobiliado', 'armarios'].includes(v)) return 'SEMI';
   const d = normalize(p.descricao);
-  if (/\b(mobiliad[oa]|porteira fechada|todo mobiliado)\b/.test(d) && !/semi/.test(d)) return 'MOBILIADO';
+  if (/\b(mobiliad[oa]s?|decorad[oa]s?|porteira fechada|todo mobiliado|mobilia completa|com moveis|todo equipado)\b/.test(d) && !/semi/.test(d)) return 'MOBILIADO';
   if (/\b(semimobiliado|semi mobiliado|armarios)\b/.test(d)) return 'SEMI';
   if (['nao', 'sem mobilia', 'vazio'].includes(v)) return 'SEM';
   return 'SEM';
@@ -159,7 +159,7 @@ function propFinanciamento(p) {
 
 function propSubtipoCasa(p) {
   const d = propText(p);
-  if (/\b(condominio fechado|condominio horizontal|casa em condominio|sobrado em condominio|alphaville|portal do sol|aldeia do vale|jardins [a-z]+|residencial fechado|em condominio)\b/.test(d)) return 'CONDOMINIO';
+  if (/\b(condominio fechado|condominio horizontal|casas? (?:em|de) condominio|sobrados? (?:em|de) condominio|alphaville|portal do sol|aldeia do vale|jardins [a-z]+|residencial fechado|em condominio)\b/.test(d)) return 'CONDOMINIO';
   return 'RUA';
 }
 
@@ -305,8 +305,16 @@ function evaluateProperty(p, c, index) {
       if (!(rx && rx.test(text))) unknowns.push('documentação/escritura não confirmada no cadastro');
       continue;
     }
-    if (f.key === 'piscina' && /\bpiscina\b/.test(text)) {
-      // em apartamento a piscina costuma ser do condomínio; em casa, pedimos que conste "piscina"
+    if (f.key === 'piscina_privativa') {
+      // piscina DO IMÓVEL: casa/sobrado/chácara com "piscina" no texto é privativa; em apartamento precisa dizer
+      // "privativa / na varanda / na cobertura…" — "piscina" sozinha em apto é a do condomínio
+      const casa = ['Casa', 'Sobrado', 'Chácara', 'Fazenda'].includes(tipo);
+      if (rx.test(text) || (casa && /\bpiscinas?\b/.test(text))) continue;
+      if (tipo === 'Cobertura' && /\bpiscinas?\b/.test(text) && !PISCINA_CONDOMINIO_RX.test(text)) {
+        unknowns.push('conferir se a piscina da cobertura é privativa');
+        continue;
+      }
+      fails.push(/\bpiscinas?\b/.test(text) ? 'a piscina é do condomínio; pediram piscina no imóvel' : 'não consta: piscina privativa');
       continue;
     }
     if (!(rx && rx.test(text))) fails.push(`não consta: ${f.label}`);
