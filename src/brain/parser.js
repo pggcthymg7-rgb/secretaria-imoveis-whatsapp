@@ -60,7 +60,7 @@ function detectTipos(norm) {
   if (/\bflats?\b/.test(norm)) add('Flat');
   if (/\b(cobertura|coberturas|penthouse)\b/.test(norm)) add('Cobertura');
   if (/\b(kitnet|kitnets|kit net|studio|studios|stud|loft|lofts|quitinete)\b/.test(norm)) add('Studio');
-  if (/\b(ap|aps|apto|aptos|apartamento|apartamentos|apt)\b/.test(norm)) add('Apartamento');
+  if (/\b(ap|aps|apto|aptos|apartamento|apartamentos|apt|apts|ape|apes|apezinho|apartamentinho|garden)\b/.test(norm)) add('Apartamento');
   if (/\b(sobrado|sobrados)\b/.test(norm)) add('Sobrado');
   if (/\b(casa|casas|terrea)\b/.test(norm)) add('Casa');
   if (/\b(lote|lotes|terreno|terrenos)\b/.test(norm)) add('Terreno');
@@ -141,9 +141,22 @@ function toM2(value, unit) {
   return value;
 }
 
+/**
+ * Faixa de área quando o pedido dá UM número (decisão do João, 04/11/2026):
+ * "até 200 m²" NÃO é "qualquer coisa menor": é algo PRÓXIMO de 200 → 80% a 105% (160 a 210 m²).
+ * "em torno de 200" → 90% a 110%. Ajustável por variável de ambiente (AREA_ATE_PISO_PCT, AREA_ATE_TETO_PCT,
+ * AREA_TORNO_PCT) sem mexer no código.
+ */
+const pct = (nome, padrao) => {
+  const n = Number(process.env[nome]);
+  return Number.isFinite(n) && n > 0 && n < 300 ? n / 100 : padrao;
+};
+const faixaAte = () => ({ piso: pct('AREA_ATE_PISO_PCT', 0.8), teto: pct('AREA_ATE_TETO_PCT', 1.05) });
+const faixaTorno = () => pct('AREA_TORNO_PCT', 0.1);
+
 function detectArea(norm) {
   let text = norm;
-  const out = { area_min: null, area_max: null };
+  const out = { area_min: null, area_max: null, area_alvo: null };
   const spans = [];
 
   // intervalo: "de 4 a 5 mil m2", "entre 300 e 500 m2"
@@ -154,17 +167,35 @@ function detectArea(norm) {
     out.area_max = toM2(parseBrazilianNumber(range[2]), unit);
     spans.push(range[0]);
   } else {
-    const max = text.match(new RegExp(`\\b(?:ate|abaixo de|menor que|no maximo|maximo|max)\\s*(\\d+(?:[.,]\\d+)?)\\s*${AREA_UNIT}`));
+    // "em torno de / cerca de / aproximadamente / uns / por volta de 200 m²" → perto dos dois lados
+    const torno = text.match(new RegExp(`\\b(?:em torno de|entorno de|cerca de|aproximadamente|aprox\\.?|por volta de|mais ou menos|uns|umas|na faixa de|perto de|proximo de|algo como|tipo)\\s*(\\d+(?:[.,]\\d+)?)\\s*${AREA_UNIT}`));
+    const max = !torno && text.match(new RegExp(`\\b(?:ate|abaixo de|menor que|menos de|no maximo|maximo|max|nao passando de|que nao passe de)\\s*(\\d+(?:[.,]\\d+)?)\\s*${AREA_UNIT}`));
+    const min = !torno && text.match(new RegExp(`\\b(?:acima de|a partir de|no minimo|minimo(?: de)?|maior que|mais de|pelo menos|partindo de|nao menos que)\\s*(\\d+(?:[.,]\\d+)?)\\s*${AREA_UNIT}`));
+    if (torno) {
+      const v = toM2(parseBrazilianNumber(torno[1]), torno[2]);
+      const t = faixaTorno();
+      out.area_alvo = v;
+      out.area_min = Math.round(v * (1 - t));
+      out.area_max = Math.round(v * (1 + t));
+      spans.push(torno[0]);
+    }
     if (max) {
-      out.area_max = toM2(parseBrazilianNumber(max[1]), max[2]);
+      const v = toM2(parseBrazilianNumber(max[1]), max[2]);
+      const f = faixaAte();
+      // "até 200" = perto de 200 (não "qualquer coisa menor"); "abaixo de/menos de" não passa do número
+      const estrito = /^(?:abaixo de|menor que|menos de)/.test(max[0]);
+      out.area_alvo = v;
+      out.area_max = estrito ? v : Math.round(v * f.teto);
+      // "até 20 mil m² ou menos" / "pode ser menor": aí sim vale qualquer tamanho abaixo
+      const aceitaMenor = /^\s*(?:m2|m²|metros?)?\s*,?\s*(?:ou menos|ou menor|pode ser menor|ou abaixo|pra baixo|para baixo)/.test(text.slice(text.indexOf(max[0]) + max[0].length));
+      if (!min && !aceitaMenor) out.area_min = Math.round(v * f.piso);
       spans.push(max[0]);
     }
-    const min = text.match(new RegExp(`\\b(?:acima de|a partir de|no minimo|minimo(?: de)?|maior que|mais de|pelo menos)\\s*(\\d+(?:[.,]\\d+)?)\\s*${AREA_UNIT}`));
     if (min) {
       out.area_min = toM2(parseBrazilianNumber(min[1]), min[2]);
       spans.push(min[0]);
     }
-    if (!max && !min) {
+    if (!max && !min && !torno) {
       const plain = text.match(new RegExp(`\\b(\\d+(?:[.,]\\d+)?)\\s*${AREA_UNIT}(?![a-z])`));
       if (plain) {
         const v = toM2(parseBrazilianNumber(plain[1]), plain[2]);
@@ -317,11 +348,20 @@ function fmt(v) {
 // ---------------------------------------------------------------------------
 // CARACTERÍSTICAS (exigidas x desejáveis)
 // ---------------------------------------------------------------------------
+/** Piscina que é DO IMÓVEL (não a do condomínio) */
+const PISCINA_PRIVATIVA_RX = /\bpiscinas? (?:privativa|propria|exclusiva|particular|individual|na varanda|na sacada|no apartamento|no apto|no terraco|na cobertura|no garden|no quintal)\b|\b(?:varanda|sacada|terraco|garden|cobertura|quintal|area privativa) com piscina\b|\bpiscina privativa\b/;
+/** Piscina que é do CONDOMÍNIO/prédio (área de lazer) */
+const PISCINA_CONDOMINIO_RX = /\b(?:condominio|predio|edificio|lazer|clube|area comum|area de lazer)\b[^.\n]{0,40}\bpiscinas?\b|\bpiscinas?\b[^.\n]{0,30}\b(?:do condominio|no condominio|de condominio|do predio|no predio|do edificio|na area de lazer|coletiva|adulto e infantil)\b/;
+const TIPOS_APTO = ['Apartamento', 'Flat', 'Studio', 'Cobertura'];
+
 // key, rótulo, regex no pedido, regex que comprova no imóvel
 const FEATURES = [
   ['piscina', 'Piscina', /\bpiscinas?\b/, /\bpiscinas?\b/],
+  // "apto com piscina" = piscina NO apartamento (decisão do João, 04/11); a do condomínio é outra coisa
+  ['piscina_privativa', 'Piscina privativa (no imóvel)', /(?!)/, PISCINA_PRIVATIVA_RX],
+  ['piscina_condominio', 'Piscina no condomínio (área de lazer)', /(?!)/, /\bpiscinas?\b|\bcondominio clube\b|\blazer completo\b/],
   ['churrasqueira', 'Churrasqueira', /\bchurrasqueiras?\b/, /\bchurrasqueira|espaco gourmet|area gourmet|varanda gourmet\b/],
-  ['gourmet', 'Área/varanda gourmet', /\b(?:area|espaco|varanda|sacada) gourmet\b|\bgourmet\b/, /\bgourmet\b/],
+  ['gourmet', 'Área/varanda gourmet', /\b(?:area|espaco|varanda|sacada) gourmet\b|\bgourmet\b|\b(?:varanda|sacada) com churrasqueira\b|\bchurrasqueira na (?:varanda|sacada)\b/, /\bgourmet\b|\b(?:varanda|sacada) com churrasqueira\b|\bchurrasqueira na (?:varanda|sacada)\b/],
   ['quintal', 'Quintal', /\bquintal\b/, /\bquintal\b/],
   ['despensa', 'Despensa', /\bdespensa\b/, /\bdespensa\b/],
   ['closet', 'Closet', /\bcloset\b/, /\bcloset\b/],
@@ -341,6 +381,12 @@ const FEATURES = [
   ['agua', 'Água (córrego, nascente, lago ou represa)', /\b(?:corrego|riacho|rio|represa|lago|lagoa|nascente de agua|mina d.?agua|agua corrente|agua \()/, /\b(?:corrego|riacho|rio|represa|lago|lagoa|nascente|mina|agua corrente|cachoeira)\b/],
   ['escritura', 'Escriturado / documentação regularizada', /\b(?:escriturad[ao]|escritura|documentacao (?:ok|regularizada|em dia)|regularizad[ao])\b/, /\b(?:escriturad[ao]|escritura|documentacao (?:ok|regularizada|em dia)|regularizad[ao]|registrad[ao])\b/],
   ['pet', 'Aceita pet', /\b(?:aceita pets?|pet friendly|aceita animais?)\b/, /\b(?:aceita pets?|pet friendly|aceita animais?)\b/],
+  ['lavabo', 'Lavabo', /\blavabo\b/, /\blavabo\b/],
+  ['hidromassagem', 'Banheira/hidromassagem', /\b(?:hidro|hidromassagem|banheira|ofuro|jacuzzi|spa privativo)\b/, /\b(?:hidro|hidromassagem|banheira|ofuro|jacuzzi|spa)\b/],
+  ['vista', 'Vista livre/panorâmica', /\bvista (?:livre|panoramica|definitiva|eterna|privilegiada|para o parque|pro parque|para o lago|da cidade)\b/, /\bvista (?:livre|panoramica|definitiva|eterna|privilegiada|para o parque|pro parque|para o lago|da cidade)\b/],
+  ['automacao', 'Automação', /\bautomacao|automatizad[oa]\b/, /\bautomacao|automatizad[oa]\b/],
+  ['ar_condicionado', 'Ar-condicionado', /\b(?:ar condicionado|ar-condicionado|ares condicionados|climatizad[oa]|split)\b/, /\b(?:ar condicionado|ar-condicionado|ares condicionados|climatizad[oa]|split)\b/],
+  ['aquecimento', 'Aquecimento (água/piscina)', /\b(?:aquecimento|aquecedor|agua quente|piscina aquecida)\b/, /\b(?:aquecimento|aquecedor|agua quente|aquecida)\b/],
   ['dce', 'Dependência de empregada', /\b(?:dce|dependencia de empregada|quarto de empregada)\b/, /\b(?:dce|dependencia de empregada|quarto de empregada)\b/]
 ];
 
@@ -364,6 +410,28 @@ function detectFeatures(norm) {
   return { required, desired };
 }
 
+/**
+ * "piscina" no pedido vira um destes, conforme o contexto:
+ *  - piscina_privativa: "piscina privativa/na varanda/na cobertura…" ou pedido de APARTAMENTO que só diz "com piscina"
+ *  - piscina_condominio: "condomínio/prédio/área de lazer com piscina", "piscina do condomínio"
+ *  - piscina: casa/sobrado/chácara (a piscina é do próprio imóvel)
+ */
+function resolverPiscina(features, norm, tipos) {
+  const trocar = lista => {
+    const i = lista.findIndex(f => f.key === 'piscina');
+    if (i < 0) return;
+    const priv = PISCINA_PRIVATIVA_RX.test(norm);
+    const cond = PISCINA_CONDOMINIO_RX.test(norm);
+    const soApto = tipos.length > 0 && tipos.every(t => TIPOS_APTO.includes(t));
+    const key = priv ? 'piscina_privativa' : cond ? 'piscina_condominio' : soApto ? 'piscina_privativa' : 'piscina';
+    const def = FEATURES.find(f => f[0] === key);
+    lista[i] = { key, label: def[1] };
+  };
+  trocar(features.required);
+  trocar(features.desired);
+  return features;
+}
+
 // ---------------------------------------------------------------------------
 // MOBÍLIA / LAZER / IDADE
 // ---------------------------------------------------------------------------
@@ -371,7 +439,7 @@ function detectMobilia(norm) {
   if (/\b(sem armarios|sem mobilia|nao mobiliado|vazio|sem moveis)\b/.test(norm)) return 'SEM';
   if (/\b(semimobiliado|semi mobiliado|semi-mobiliado|semi)\b/.test(norm)) return 'SEMI';
   if (/\b(com armarios|rico em armarios|completo em armarios|armarios planejados|repleto de armarios|planejados)\b/.test(norm)) return 'SEMI';
-  if (/\b(mobiliados?|mobiliadas?|porteira fechada|todo mobiliado|100% mobiliado|decorado e mobiliado|com moveis)\b/.test(norm)) return 'MOBILIADO';
+  if (/\b(mobiliados?|mobiliadas?|porteira fechada|todo mobiliado|100% mobiliado|decorados?|decoradas?|decorado e mobiliado|com moveis|com mobilia|mobilia completa|todo equipado|equipado e mobiliado|montadinho|pronto (?:pra|para) morar com moveis|so entrar e morar)\b/.test(norm)) return 'MOBILIADO';
   return null;
 }
 
@@ -433,7 +501,7 @@ function parseRequest(rawText, ctx = {}) {
   const area = detectArea(semPermuta);
   const price = detectPrice(area.textWithoutArea, negocio.agio);
   const condominio_max = detectCondominioMax(semPermuta);
-  const features = detectFeatures(semPermuta);
+  const features = resolverPiscina(detectFeatures(semPermuta), semPermuta, tipos);
   const mobilia = detectMobilia(semPermuta);
   const lazer = detectLazer(semPermuta);
   const idade = detectIdade(semPermuta);
@@ -471,6 +539,7 @@ function parseRequest(rawText, ctx = {}) {
     ...rooms,
     area_min: areaMin,
     area_max: areaMax,
+    area_alvo: alternativas.length ? null : area.area_alvo || null,
     alternativas,
     valor_max: price.valor_max,
     valor_min: price.valor_min,
@@ -502,7 +571,7 @@ function summarizeCriteria(c) {
   if (c.suites_min) parts.push(`${c.suites_min}+ suíte(s)`);
   if (c.vagas_min) parts.push(`${c.vagas_min}+ vaga(s)`);
   for (const a of c.alternativas || []) parts.push(`${a.subtipo === 'RUA' ? 'fora de condomínio' : 'em condomínio'} ${a.area_min ? a.area_min.toLocaleString('pt-BR') : '0'}–${a.area_max ? a.area_max.toLocaleString('pt-BR') : '∞'} m²`);
-  if (c.area_min || c.area_max) parts.push(`${c.area_min ? c.area_min.toLocaleString('pt-BR') : '0'}${c.area_max ? '–' + c.area_max.toLocaleString('pt-BR') : '+'} m²`);
+  if (c.area_min || c.area_max) parts.push(`${c.area_alvo ? `~${c.area_alvo.toLocaleString('pt-BR')} m² (` : ''}${c.area_min ? c.area_min.toLocaleString('pt-BR') : '0'}${c.area_max ? '–' + c.area_max.toLocaleString('pt-BR') : '+'} m²${c.area_alvo ? ')' : ''}`);
   if (c.preco_texto) parts.push(c.preco_texto);
   if (c.mobilia) parts.push({ MOBILIADO: 'mobiliado', SEMI: 'com armários', SEM: 'sem mobília' }[c.mobilia]);
   if (c.lazer === 'SIM') parts.push('com lazer');
@@ -528,5 +597,7 @@ module.exports = {
   detectIdade,
   detectNegocio,
   FEATURES,
+  PISCINA_PRIVATIVA_RX,
+  PISCINA_CONDOMINIO_RX,
   fmtPrice: fmt
 };
