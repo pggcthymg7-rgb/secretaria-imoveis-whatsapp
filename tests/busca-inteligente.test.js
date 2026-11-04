@@ -676,7 +676,11 @@ test('Cascata: Serper (consulta site:) e Brave; se o 1º provedor recusa a chave
   const c = pedidoJardins({ tipo: 'casa', local: 'Jardins Itália', suites: '4', valor: '4 a 5 milhões' });
   let r = await bi.buscarNosPortais(c, c.resumo, { env: { SERPER_API_KEY: 'serper-chave-1234567', GEMINI_API_KEY: 'k-cascata', BUSCA_LIMITE_DIA: '99' }, fetcher: w.fetcher });
   assert.deepEqual(r.via, ['Serper + Gemini']);
-  assert.ok(w.corpos.serper.every(x => x.chave === 'serper-chave-1234567' && x.corpo.gl === 'br' && x.corpo.hl === 'pt-br' && /^site:(go\.olx\.com\.br|zapimoveis\.com\.br\/imovel|vivareal\.com\.br\/imovel) "Goiânia" "Jardins Itália" "Casa" venda$/.test(x.corpo.q)));
+  const sx = w.corpos.serper;
+  assert.ok(sx.every(x => x.chave === 'serper-chave-1234567' && x.corpo.gl === 'br' && x.corpo.hl === 'pt-br'));
+  assert.ok(sx.slice(0, 3).every(x => /^site:(go\.olx\.com\.br|zapimoveis\.com\.br\/imovel|vivareal\.com\.br\/imovel) "Goiânia" "Jardins Itália" "Casa" venda$/.test(x.corpo.q)), 'rodada 1: consulta precisa nos 3 portais');
+  assert.ok(sx.slice(3).length && sx.slice(3).every(x => !/"/.test(x.corpo.q)), 'rodadas seguintes (poucos anúncios): consulta solta, sem aspas');
+  assert.ok(sx.some(x => x.corpo.page === 2), 'a rodada 3 pede a página 2 do Google');
   w = mundoFalso();
   r = await bi.buscarNosPortais(c, c.resumo, { env: { BRAVE_API_KEY: 'brave-chave-1234567', GEMINI_API_KEY: 'k-cascata', BUSCA_LIMITE_DIA: '99' }, fetcher: w.fetcher });
   assert.deepEqual(r.via, ['Brave + Gemini']);
@@ -939,11 +943,11 @@ test('Busca desacoplada: se a consulta precisa vem vazia, tenta a solta e inform
   const r = await Serp.buscarAnuncios({ criterios: pedidoJardins({ tipo: 'casa', local: 'Setor Marista' }), dominios: ['zapimoveis.com.br'], env: { SERPER_API_KEY: 'x'.repeat(20) }, fetcher });
   assert.ok(r.ok);
   assert.equal(r.catalogo.length, 1);
-  assert.equal(consultas.length, 2);
-  assert.deepEqual(r.diag['zapimoveis.com.br'], { brutos: 2, anuncios: 1, descartadas: ['/venda/casas/go+goiania/'] });
+  assert.equal(consultas.length, 3, 'precisa (vazia) + solta + solta página 2');
+  assert.deepEqual(r.diag['zapimoveis.com.br'], { brutos: 4, anuncios: 1, descartadas: ['/venda/casas/go+goiania/'] });
 });
 
-test('Busca desacoplada (caso real Setor Marista, casa R$ 1–1,5 mi): OLX usa go.olx.com.br e a solta roda só no portal que ficou sem anúncio', async () => {
+test('Busca desacoplada (caso real Setor Marista, casa R$ 1–1,5 mi): OLX usa go.olx.com.br e as rodadas seguintes seguem só nos portais com poucos anúncios', async () => {
   // URLs reais: ZAP/VivaReal /imovel/…-id-N; OLX go.olx.com.br/<região>/imoveis/<slug>-N (região antes de /imoveis)
   const ZAP_M = 'https://www.zapimoveis.com.br/imovel/venda-casa-3-quartos-setor-marista-goiania-go-250m2-id-2800000001/';
   const OLX_M = 'https://go.olx.com.br/grande-goiania-e-anapolis/imoveis/casa-3-quartos-setor-marista-1403217895';
@@ -960,6 +964,6 @@ test('Busca desacoplada (caso real Setor Marista, casa R$ 1–1,5 mi): OLX usa g
   const r = await Serp.buscarAnuncios({ criterios: pedidoJardins({ tipo: 'casa', local: 'Setor Marista' }), dominios: ['zapimoveis.com.br', 'olx.com.br'], env: { SERPER_API_KEY: 'x'.repeat(20) }, fetcher });
   assert.equal(r.catalogo.length, 2, 'ZAP da precisa + OLX da solta');
   assert.ok(consultas.some(q => q.startsWith('site:go.olx.com.br ')), 'OLX precisa sem /imoveis');
-  assert.equal(consultas.filter(q => /zapimoveis/.test(q)).length, 1, 'ZAP já tinha anúncio: não repete a solta');
+  assert.equal(consultas.filter(q => /zapimoveis/.test(q)).length, 3, 'ZAP tinha só 1 anúncio (< 8): segue com a solta e a página 2');
   assert.deepEqual(r.diag['olx.com.br'].anuncios, 1);
 });
