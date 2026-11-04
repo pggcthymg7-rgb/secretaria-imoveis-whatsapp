@@ -61,7 +61,7 @@ function termosDoPedido(c) {
   const local = f.local || f.bairro || (c.local.condominios[0] && c.local.condominios[0].name) || (c.local.edificios[0] && c.local.edificios[0].name) || c.local.bairros[0] || '';
   const tipo = (c.tipos && c.tipos[0]) || '';
   const cidade = (c.local.cidades.find(x => x !== 'Goiânia') || 'Goiânia').trim();
-  return { local, tipo, cidade, aluguel: c.transacao === 'ALUGUEL' };
+  return { local, tipo, cidade, aluguel: c.transacao === 'ALUGUEL', quartos: c.quartos_min || 0 };
 }
 
 /**
@@ -80,6 +80,16 @@ function consultaSolta(portal, t) {
   const base = { 'olx.com.br': 'site:go.olx.com.br', 'zapimoveis.com.br': 'site:zapimoveis.com.br/imovel', 'vivareal.com.br': 'site:vivareal.com.br/imovel' }[portal] || `site:${portal}`;
   return [base, t.tipo, t.local, t.cidade, t.aluguel ? 'aluguel' : 'venda'].filter(Boolean).join(' ');
 }
+
+/** Consulta solta + número de quartos (o endereço do ZAP/VivaReal traz "3-quartos"): pega anúncios que as outras deixaram passar */
+function consultaQuartos(portal, t) {
+  const base = { 'olx.com.br': 'site:go.olx.com.br', 'zapimoveis.com.br': 'site:zapimoveis.com.br/imovel', 'vivareal.com.br': 'site:vivareal.com.br/imovel' }[portal] || `site:${portal}`;
+  return [base, t.tipo, t.quartos ? `${t.quartos} quartos` : '', t.local, t.cidade, t.aluguel ? 'aluguel' : 'venda'].filter(Boolean).join(' ');
+}
+
+/** Variantes da consulta, da mais precisa à mais ampla. A rodada N só roda nos portais que ainda têm poucos anúncios. */
+const VARIANTES = [{ q: 'precisa' }, { q: 'solta' }, { q: 'solta', pagina: 2 }, { q: 'quartos' }];
+const consultaDa = (portal, t, v) => (v.q === 'solta' ? consultaSolta(portal, t) : v.q === 'quartos' ? consultaQuartos(portal, t) : consultaSite(portal, t));
 
 /** Consulta em texto simples (Tavily é semântico: o domínio vai em include_domains) */
 function consultaSimples(t) {
@@ -119,7 +129,7 @@ async function tavily({ env, fetcher, portal, t }) {
   const r = await fetcher('https://api.tavily.com/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${chaveDe(env, 'TAVILY_API_KEY')}` },
-    body: JSON.stringify({ query: consultaSimples(t), search_depth: 'basic', max_results: 10, include_domains: [portal] }),
+    body: JSON.stringify({ query: consultaSimples(t), search_depth: 'basic', max_results: 20, include_domains: [portal] }),
     signal: AbortSignal.timeout(30000)
   });
   const j = await lerJson(r);
@@ -127,11 +137,11 @@ async function tavily({ env, fetcher, portal, t }) {
   return (j.results || []).map(x => ({ url: x.url, titulo: x.title, conteudo: x.content }));
 }
 
-async function serper({ env, fetcher, portal, t, solta }) {
+async function serper({ env, fetcher, portal, t, variante = VARIANTES[0] }) {
   const r = await fetcher('https://google.serper.dev/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-API-KEY': chaveDe(env, 'SERPER_API_KEY') },
-    body: JSON.stringify({ q: solta ? consultaSolta(portal, t) : consultaSite(portal, t), gl: 'br', hl: 'pt-br', num: 10 }),
+    body: JSON.stringify({ q: consultaDa(portal, t, variante), gl: 'br', hl: 'pt-br', num: 10, ...(variante.pagina > 1 ? { page: variante.pagina } : {}) }),
     signal: AbortSignal.timeout(30000)
   });
   const j = await lerJson(r);
@@ -139,8 +149,8 @@ async function serper({ env, fetcher, portal, t, solta }) {
   return (j.organic || []).map(x => ({ url: x.link, titulo: x.title, conteudo: x.snippet }));
 }
 
-async function brave({ env, fetcher, portal, t, solta }) {
-  const q = new URLSearchParams({ q: solta ? consultaSolta(portal, t) : consultaSite(portal, t), country: 'BR', search_lang: 'pt', count: '10' });
+async function brave({ env, fetcher, portal, t, variante = VARIANTES[0] }) {
+  const q = new URLSearchParams({ q: consultaDa(portal, t, variante), country: 'BR', search_lang: 'pt', count: '10', ...(variante.pagina > 1 ? { offset: String(variante.pagina - 1) } : {}) });
   const r = await fetcher(`https://api.search.brave.com/res/v1/web/search?${q}`, {
     headers: { Accept: 'application/json', 'X-Subscription-Token': chaveDe(env, 'BRAVE_SEARCH_API_KEY', 'BRAVE_API_KEY') },
     signal: AbortSignal.timeout(30000)
@@ -158,7 +168,7 @@ const NOME = { tavily: 'Tavily', serper: 'Serper', brave: 'Brave' };
  * Retorna { ok, provedor, catalogo:[{id,portal,url,titulo,conteudo}], buscas } ou { ok:false, motivo, detalhe, provedor }.
  * Tenta o próximo provedor configurado se o primeiro der erro.
  */
-async function buscarAnuncios({ criterios, dominios, env = process.env, fetcher = fetch, limite = 24 }) {
+async function buscarAnuncios({ criterios, dominios, env = process.env, fetcher = fetch, limite = 36 }) {
   const provedores = provedoresConfigurados(env);
   if (!provedores.length) return { ok: false, motivo: 'sem_chave_busca', provedor: null };
   const t = termosDoPedido(criterios);
@@ -170,12 +180,17 @@ async function buscarAnuncios({ criterios, dominios, env = process.env, fetcher 
     let falhasParciais = 0;
     let todasFalharam = true;
     let erroFalha = null;
-    // 1ª rodada: consulta precisa em todos os portais; 2ª: consulta solta só nos portais que ficaram sem anúncio
-    for (const solta of [false, true]) {
-      if (solta && p === 'tavily') break; // Tavily já é semântico: não há "solta"
-      const alvo = solta ? dominios.filter(d => !(diag[d] && diag[d].anuncios)) : dominios;
-      if (!alvo.length) break;
-      const resultados = await Promise.allSettled(alvo.map(d => ADAPTADORES[p]({ env, fetcher, portal: d, t, solta }).then(lista => ({ d, lista }))));
+    // Rodada 1: consulta precisa em todos os portais. Rodadas seguintes (solta, solta página 2, por quartos):
+    // só nos portais que ainda têm POUCOS anúncios (< minimo). Antes a solta só rodava com ZERO anúncios,
+    // e o ZAP/VivaReal (páginas feitas em JavaScript, que o Google guarda pouco) ficavam com 1 ou 2.
+    const minimo = Number(env.BUSCA_MIN_POR_PORTAL) || 8;
+    const rodadas = p === 'tavily' ? 1 : Math.min(VARIANTES.length, Math.max(1, Number(env.BUSCA_RODADAS) || 3));
+    for (let rodada = 0; rodada < rodadas; rodada++) {
+      const variante = VARIANTES[rodada];
+      const solta = rodada > 0;
+      const alvo = rodada ? dominios.filter(d => ((diag[d] && diag[d].anuncios) || 0) < minimo) : dominios;
+      if (!alvo.length || catalogo.length >= limite) break;
+      const resultados = await Promise.allSettled(alvo.map(d => ADAPTADORES[p]({ env, fetcher, portal: d, t, solta, variante }).then(lista => ({ d, lista }))));
       const falhas = resultados.filter(r => r.status === 'rejected');
       if (falhas.length === resultados.length) {
         if (!solta) erroFalha = falhas[0].reason || {};
@@ -192,7 +207,8 @@ async function buscarAnuncios({ criterios, dominios, env = process.env, fetcher 
           if (!portal || !dominios.includes(portal) || !ehPaginaDeAnuncio(x.url)) {
             if (dg.descartadas.length < 2) {
               try {
-                dg.descartadas.push(new URL(x.url).pathname.slice(0, 70));
+                const caminho = new URL(x.url).pathname.slice(0, 70);
+                if (!dg.descartadas.includes(caminho)) dg.descartadas.push(caminho);
               } catch {}
             }
             continue;
@@ -229,4 +245,4 @@ async function testarProvedor(p, { env = process.env, fetcher = fetch } = {}) {
   }
 }
 
-module.exports = { PORTAIS, NOME, portalDaUrl, ehPaginaDeAnuncio, termosDoPedido, consultaSite, consultaSimples, consultaSolta, provedoresConfigurados, buscarAnuncios, testarProvedor, norm };
+module.exports = { consultaQuartos, VARIANTES, PORTAIS, NOME, portalDaUrl, ehPaginaDeAnuncio, termosDoPedido, consultaSite, consultaSimples, consultaSolta, provedoresConfigurados, buscarAnuncios, testarProvedor, norm };
