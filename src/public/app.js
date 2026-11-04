@@ -5,7 +5,13 @@
   // ------------------------------------------------------------------ utilidades
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const esc = s =>
+    String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   const brl = v => (Number(v) ? Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }) : '—');
   const fotoUrl = f => (/^https?:\/\//i.test(f) ? f : `/fotos/${encodeURIComponent(f)}`);
   const when = ts => (ts ? new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
@@ -837,7 +843,7 @@
     const y = scrollY;
     const campos = opts.manterCampos ? capturarCampos() : null;
     root.classList.toggle('sem-anim', !navegando);
-    (views[S.route] || viewHome)();
+    (Object.prototype.hasOwnProperty.call(views, S.route) ? views[S.route] : viewHome)(); // #constructor etc. não é página
     if (campos) restaurarCampos(campos);
     afterRender(navegando);
     if (!navegando) scrollTo(0, y);
