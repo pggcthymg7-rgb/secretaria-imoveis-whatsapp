@@ -70,13 +70,14 @@ function faixa(bruto, tipo = 'dinheiro') {
   return { min: null, max: conv(n) };
 }
 
-const TIPOS_VALIDOS = ['Apartamento', 'Casa', 'Sobrado', 'Cobertura', 'Flat', 'Studio', 'Terreno', 'Chácara', 'Fazenda', 'Comercial'];
+const TIPOS_VALIDOS = ['Apartamento', 'Casa', 'Casa de condomínio', 'Sobrado', 'Cobertura', 'Flat', 'Studio', 'Terreno', 'Chácara', 'Fazenda', 'Comercial'];
 
 function tipoCanonico(bruto) {
   const t = normalize(bruto);
   if (!t || /^(qualquer|todos|todas|aberto|-)$/.test(t)) return '';
+  if (/\bcasas? (?:de|em|no) condominio\b|\bcondominio fechado\b/.test(t)) return 'Casa de condomínio';
   const r = detectTipos(t)[0];
-  if (!r) throw new Error(`Não entendi o tipo "${String(bruto).trim()}". Use: casa, apartamento, cobertura, sobrado, flat, studio, terreno, chácara ou comercial.`);
+  if (!r) throw new Error(`Não entendi o tipo "${String(bruto).trim()}". Use: casa, casa de condomínio, apartamento, cobertura, sobrado, flat, studio, terreno, chácara ou comercial.`);
   return r;
 }
 

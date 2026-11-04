@@ -15,7 +15,7 @@
  * ============================================================================
  */
 const { normalize, parseBrazilianNumber } = require('./brain/text');
-const { detectTipos, detectRooms, detectArea, detectPrice, detectMobilia, detectNegocio } = require('./brain/parser');
+const { detectTipos, detectRooms, detectArea, detectPrice, detectMobilia, detectNegocio, detectSubtipoCasa } = require('./brain/parser');
 const { detectLocations } = require('./brain/locations');
 const { nowParts } = require('./timeutil');
 const sheets = require('./sheets');
@@ -41,7 +41,7 @@ function parsePropertyFromText(text) {
   const loc = detectLocations(text);
 
   const prop = {
-    tipo: tipos[0] || 'Apartamento',
+    tipo: tipos[0] === 'Casa' && detectSubtipoCasa(norm) === 'CONDOMINIO' ? 'Casa de condomínio' : tipos[0] || 'Apartamento',
     negociacao: neg.agio ? 'AGIO' : neg.transacao === 'ALUGUEL' ? 'ALUGUEL' : 'VENDA',
     setor: loc.bairros[0] || (loc.condominios[0] && loc.condominios[0].name) || '',
     edificio: (loc.condominios[0] && loc.condominios[0].name) || (loc.edificios[0] && loc.edificios[0].name) || '',
@@ -49,7 +49,7 @@ function parsePropertyFromText(text) {
     quartos: rooms.quartos_min || '',
     suites: rooms.suites_min || '',
     vagas: rooms.vagas_min || '',
-    tamanho_m2: area.area_min ? Math.round(area.area_min / 0.95) : area.area_max || '',
+    tamanho_m2: area.area_alvo || (area.area_min ? Math.round(area.area_min / 0.95) : area.area_max || ''),
     mobiliado: { MOBILIADO: 'SIM', SEMI: 'SEMI', SEM: 'NAO' }[detectMobilia(norm)] || '',
     descricao: String(text).replace(/^\s*(cadastrar|cadastra|novo im[oó]vel|#im[oó]vel)\s*:?\s*/i, '').trim()
   };

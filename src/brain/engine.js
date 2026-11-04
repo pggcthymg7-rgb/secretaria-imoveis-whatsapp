@@ -159,7 +159,7 @@ function propFinanciamento(p) {
 
 function propSubtipoCasa(p) {
   const d = propText(p);
-  if (/\b(condominio fechado|condominio horizontal|casa em condominio|sobrado em condominio|alphaville|portal do sol|aldeia do vale|jardins [a-z]+|residencial fechado|em condominio)\b/.test(d)) return 'CONDOMINIO';
+  if (/\b(condominio fechado|condominio horizontal|casas? (?:em|de) condominio|sobrados? (?:em|de) condominio|alphaville|portal do sol|aldeia do vale|jardins [a-z]+|residencial fechado|em condominio)\b/.test(d)) return 'CONDOMINIO';
   return 'RUA';
 }
 

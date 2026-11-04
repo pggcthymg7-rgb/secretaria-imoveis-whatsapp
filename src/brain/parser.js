@@ -72,7 +72,7 @@ function detectTipos(norm) {
 
 function detectSubtipoCasa(norm) {
   if (/\b(casa de rua|sobrado de rua|fora de condominio|sem condominio|nao pode ser (?:em )?condominio)\b/.test(norm)) return 'RUA';
-  if (/\b(condominio fechado|casa em condominio|sobrado em condominio|condominio horizontal|em condominio)\b/.test(norm)) return 'CONDOMINIO';
+  if (/\b(condominio fechado|cond fechado|casas? (?:em|de|no) condominio|casa condominio|sobrados? (?:em|de|no) condominio|condominio horizontal|em condominio|residencial fechado)\b/.test(norm)) return 'CONDOMINIO';
   return null;
 }
 
@@ -588,6 +588,7 @@ module.exports = {
   parseRequest,
   detectIntent,
   detectTipos,
+  detectSubtipoCasa,
   detectRooms,
   detectArea,
   detectPrice,
