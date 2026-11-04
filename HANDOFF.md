@@ -7,11 +7,13 @@ BIGA é a secretária do João (corretor em Goiânia). Ela fica conectada ao Wha
 - cadastra imóveis por conversa no "Mensagem para mim" (comandos: `ajuda`, `backup`, `atualizar`, `versão`...);
 - faz a Vitrine (posts aprovados, 4 horários, grupos escolhidos), a Prospecção, o Radar de buscas, o resumo diário e o Garimpo (leads da web pública).
 
-## Status (01/11/2026)
-- **No ar** na VM Oracle grátis: https://147-15-87-168.sslip.io — WhatsApp CONECTADO.
-- Código final em `main` (bde3762, v4.1). A VM se atualiza sozinha ~04:15 e, a partir de 02/11, também pelo botão "Atualizar agora" (Ajustes › Sistema) ou pelo comando `atualizar`.
-- Testes: 113/113 passando (`npm run verify`) — com o mapa OSM agora versionado (ver sessão 01/11 abaixo).
-- **Falta o João:** suspender o Render; colocar a chave Brave/Google e o token Meta no Garimpo.
+## Status (04/11/2026 — fechamento da fase "busca nos portais")
+- **No ar** na VM Oracle grátis: https://147-15-87-168.sslip.io (João) e https://laura.147-15-87-168.sslip.io (Laura, porta 3001). WhatsApp dos dois CONECTADO.
+- `main` protegida (ruleset "proteger main": só por PR, 4 checks `testes`/`analisar`/`graphify`/`CodeQL`, bypass do admin). `main` = cb728c5 + PR de fechamento. CI e CodeQL verdes; **0 alertas** do CodeQL na `main`.
+- Testes: 147/147 (`npm run verify`).
+- Busca nos portais **funcionando na VM** com Apify (OLX, ZAP e VivaReal com preço exato; `testar apify` ✅ nos 3) + Serper de reserva. Custo ~US$ 0,16 por busca (crédito grátis US$ 5/mês ≈ 30 buscas).
+- Robô do mapa OSM: roda dia 1 de cada mês, abre PR só se o mapa mudou de verdade (run #10 ✅ sem PR).
+- **Falta o João (opcional):** apagar as branches velhas (ver "Fechamento 04/11"); suspender o Render; chaves do Garimpo (Brave/Google, token Meta); revisar campos do portfólio; testar `backup`.
 
 ## Decisões importantes
 - Mapa: OpenStreetMap (`src/brain/data/mapa-osm.json`), porque o geo360 da prefeitura não tem exportação aberta (precisa de convênio).
@@ -167,3 +169,10 @@ Fomos por ciclos `/resolver-tudo`: bug real → caso no fixture → correção �
 - **Não verificado aqui:** execução real dos robôs (precisa do token do João; a sessão não tem). Próximo passo do João: `chave apify SEU_TOKEN` → apagar a mensagem → `testar apify` → repetir a `busca` do Marista.
 - Testes: 147/147.
 - **`testar apify` na VM (04/11, após o merge da #40):** ZAP ✅ (6 s), VivaReal ✅ (4 s), OLX ✅ (20 s), gasto US$ 0,00 de US$ 5. **Defeito achado:** o anúncio da OLX era de Caraguatatuba-SP. O robô da OLX ignorou a região do link (`searchUrls`). Correção: OLX agora vai por `searchQueries` (tipo + bairro/condomínio + cidade) com `state: "GO"` (filtro nativo do robô, só vale para texto) + preço; e `naCidade` descarta anúncio fora de GO (subdomínio `go.olx.com.br` ou campo `state`) ou de outra cidade (campo `city`, quando vem). O `testar apify` agora mostra ⚠️ se a OLX devolver anúncio fora de Goiânia. Caso real nos testes. 147/147. Próximo: `atualizar` → `testar apify` (o link da OLX deve ser `go.olx.com.br`) → `busca` do Marista.
+
+## Fechamento 04/11/2026 — arestas fechadas antes da nova fase
+- Conferido: sem PRs abertas; CI e CodeQL verdes na `main` (log do "Listar alertas" vazio = 0 alertas); robô do mapa run #10 ✅ sem PR; `npm run verify` 147/147.
+- `codeql.yml`: `github/codeql-action` v3 → **v4** (a v3 roda em Node 20, que o GitHub avisou estar descontinuado).
+- `mapa-osm.yml`: Node 20 → **22** (Node 20 saiu de suporte em abr/2026; CI e VM já usam 22).
+- Branches: TODAS as 22 branches antigas (`claude/*`, `dependabot/*`, `mapa-osm-auto`) já estão na `main` (conferido com `git merge-base`/`git cherry`). A sessão não pode apagá-las (bloqueio de ação destrutiva). Manter só `main` e `restauracao/v4.3-funcionando`. Sugestão: Settings › General › marcar **"Automatically delete head branches"** (apaga a branch sozinha depois de cada merge).
+- Pendências antigas que continuam valendo (não bloqueiam a nova fase): Tavily NÃO conectar (vira principal e piora ZAP/VivaReal); teste de velocidade do cérebro (< 60 ms) — se ficar vermelho no CI, aquecer antes de medir, nunca desligar; itens do João acima.
