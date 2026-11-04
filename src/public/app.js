@@ -611,7 +611,7 @@
         <div class="row">${toggle('whatsapp', false, 'Mandar também pro meu WhatsApp')}<button class="btn-primary" data-action="buscar">${S.buscando ? 'Buscando… (até 2 min)' : 'Buscar'}</button><button class="btn-ghost" data-action="limparFiltros">Limpar</button></div>
         <p class="caption">Buscas nos portais hoje: ${c.usadasHoje || 0} de ${c.limiteDia ?? 20} · ${(() => {
           const m = c.motores || {};
-          const partes = [m.apify ? 'Apify (ZAP e VivaReal)' : '', (m.busca || []).length ? `${m.busca[0]} + Gemini` : '', !(m.apify || (m.busca || []).length) && m.gemini ? 'Gemini + Google' : ''].filter(Boolean);
+          const partes = [m.apify ? 'Apify (OLX, ZAP e VivaReal)' : '', (m.busca || []).length ? `${m.busca[0]} + Gemini` : '', !(m.apify || (m.busca || []).length) && m.gemini ? 'Gemini + Google' : ''].filter(Boolean);
           return partes.length ? `motor: ${esc(partes.join(' + '))}` : 'sem motor de busca: só grupos e buscas prontas (configure o Tavily ou o Serper em Ajustes)';
         })()}</p>
       </div></div></section>
@@ -786,7 +786,7 @@
           ${field('geminiApiKey', 'Chave do Gemini (grátis em aistudio.google.com)', '', { type: 'password', ph: c.hasGeminiKey ? '•••••••• (manter a atual)' : 'cole aqui', attrs: 'autocomplete="off"' })}
           ${field('tavilyApiKey', 'Busca nos portais: chave do Tavily', '', { type: 'password', ph: c.hasTavilyKey ? '•••••••• (manter a atual)' : 'cole aqui (grátis)', attrs: 'autocomplete="off"' })}
           ${field('serperApiKey', 'Busca nos portais: chave do Serper (alternativa)', '', { type: 'password', ph: c.hasSerperKey ? '•••••••• (manter a atual)' : 'cole aqui (grátis)', attrs: 'autocomplete="off"' })}
-          ${field('apifyToken', 'Opcional: token do Apify (ZAP e VivaReal estruturados)', '', { type: 'password', ph: c.hasApifyToken ? '•••••••• (manter o atual)' : 'cole aqui', attrs: 'autocomplete="off"' })}
+          ${field('apifyToken', 'Opcional: token do Apify (OLX, ZAP e VivaReal com preço exato)', '', { type: 'password', ph: c.hasApifyToken ? '•••••••• (manter o atual)' : 'cole aqui', attrs: 'autocomplete="off"' })}
           <p class="caption" style="grid-column:1/-1">Para a Busca nos portais funcionar sem depender do Google: crie uma chave grátis em 1 minuto em <a href="https://tavily.com" target="_blank" rel="noopener noreferrer">tavily.com</a> (1.000 buscas por mês) ou <a href="https://serper.dev" target="_blank" rel="noopener noreferrer">serper.dev</a> (2.500 buscas). Cada chave é conferida no serviço antes de salvar.</p>
           ${field('googleSheetsUrl', 'Link CSV do Google Sheets (importar)', c.googleSheetsUrl, { ph: 'https://docs.google.com/…' })}
           ${field('googleSheetsWebhookUrl', 'Webhook do Apps Script (sincronizar)', c.googleSheetsWebhookUrl, { ph: 'https://script.google.com/…/exec' })}
