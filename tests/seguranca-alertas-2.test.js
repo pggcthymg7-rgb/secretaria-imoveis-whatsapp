@@ -50,9 +50,12 @@ test('Vitrine: id "__proto__" ou "constructor" não mexe em Object.prototype', (
   assert.equal(vitrine.setStatus('abc123', 'APROVADO'), null);
 });
 
-test('Painel (app.js): rota que não é página cai no início e esc() escapa os 5 caracteres', () => {
+test('Painel (app.js): rota da URL que não é página (#constructor) cai no início e esc() escapa os 5 caracteres', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'app.js'), 'utf8');
-  assert.match(src, /Object\.prototype\.hasOwnProperty\.call\(views, S\.route\) \? views\[S\.route\] : viewHome/);
+  assert.match(src, /const views = new Map\(Object\.entries\(/, 'rotas num Map: #constructor não é página');
+  assert.match(src, /\(views\.get\(S\.route\) \|\| viewHome\)\(\)/);
+  assert.match(src, /S\.route = views\.has\(r\) \?/, 'a rota inicial também usa o Map');
+  assert.ok(!/views\[/.test(src), 'nenhum acesso views[...] por chave da URL');
   const m = src.match(/const esc = s =>([\s\S]*?);\n/);
   assert.ok(m, 'esc() encontrada');
   const esc = new Function(`const esc = s =>${m[1]}; return esc;`)();
