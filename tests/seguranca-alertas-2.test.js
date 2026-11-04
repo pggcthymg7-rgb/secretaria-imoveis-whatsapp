@@ -62,3 +62,13 @@ test('Painel (app.js): rota da URL que não é página (#constructor) cai no in�
   assert.equal(esc(`<img src=x onerror="a('&')">`), '&lt;img src=x onerror=&quot;a(&#39;&amp;&#39;)&quot;&gt;');
   assert.equal(esc(null), '');
 });
+
+test('Vitrine: nomes do protótipo e id inexistente nunca chegam à atribuição (guarda inline)', () => {
+  const vitrine = require('../src/vitrine');
+  for (const id of ['__proto__', 'constructor', 'prototype', 'toString', 'hasOwnProperty', 'nao-existe', '', undefined, null, {}]) {
+    assert.equal(vitrine.setStatus(id, 'APROVADO'), null, `id ${String(id)}`);
+  }
+  assert.equal(({}).status, undefined);
+  assert.equal(({}).aprovadoEm, undefined);
+  assert.equal(Object.prototype.status, undefined);
+});
