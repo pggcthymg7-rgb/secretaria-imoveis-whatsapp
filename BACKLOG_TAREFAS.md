@@ -59,6 +59,7 @@
 - [x] Descrição completa na vitrine (sem cortar na 1ª frase/220 caracteres) + botão "Texto completo da carteira"
 - [x] Busca: "até 200 m²" = 160 a 210 m² (80%–105%); "apto com piscina" = piscina privativa; decorado = mobiliado; vocabulário ampliado
 - [x] Casa de condomínio como categoria de imóvel
-- [ ] Navegação do painel mais clara e intuitiva
-- [ ] Editor de capa (beta): canvas imobiliário com modelos editáveis
+- [x] Navegação do painel mais clara e intuitiva (4 grupos: Meu dia, Imóveis, Clientes, Configurar)
+- [x] Editor de capa (beta): canvas imobiliário com modelos editáveis
 - [ ] Funcionalidade surpresa do dia a dia do corretor
+- [ ] Gerador de PDF minimalista e editável dos imóveis (baixar ou enviar)

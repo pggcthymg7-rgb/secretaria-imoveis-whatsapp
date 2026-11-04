@@ -175,20 +175,31 @@
   }
 
   // ------------------------------------------------------------------ SHELL
-  const ROUTES = [
-    ['inicio', 'Início', 'Volte para a BIGA'],
-    ['hoje', 'Hoje', 'Números do dia, QR Code e atividade'],
-    ['radar', 'Radar', 'Pedidos dos grupos e o que eu fiz com cada um'],
-    ['busca', 'Busca', 'Procuro o imóvel do seu cliente nos grupos e nos portais'],
-    ['carteira', 'Carteira', 'Seus imóveis, fotos e cadastro'],
-    ['garimpo', 'Garimpo', 'Clientes procurando imóvel na internet'],
-    ['vitrine', 'Vitrine', 'Divulgação automática nos grupos'],
-    ['prospeccao', 'Prospecção', 'Mensagens para contatos escolhidos'],
-    ['atendimento', 'Atendimento', '1ª mensagem, ligações e respostas rápidas'],
-    ['cerebro', 'Cérebro', 'Mapa de Goiânia e meu jeito de falar'],
-    ['simulador', 'Simulador', 'Teste um pedido antes de valer'],
-    ['ajustes', 'Ajustes', 'Grupos, alertas, backup e segurança']
+  // Páginas agrupadas por assunto (navegação de 04/11: 4 grupos em vez de 12 abas soltas)
+  const GRUPOS = [
+    ['dia', '☀️', 'Meu dia', 'O que aconteceu hoje e quem falou comigo'],
+    ['imoveis', '🏠', 'Imóveis', 'Carteira, divulgação e capas para o Instagram'],
+    ['clientes', '🤝', 'Clientes', 'Achar imóvel para cliente e achar cliente para imóvel'],
+    ['config', '⚙️', 'Configurar', 'Como eu penso, testes e ajustes']
   ];
+  const ROUTES = [
+    ['inicio', 'Início', 'Volte para a BIGA', '', '✨'],
+    ['hoje', 'Hoje', 'Números do dia, QR Code e atividade', 'dia', '📊'],
+    ['radar', 'Radar', 'Pedidos dos grupos e o que eu fiz com cada um', 'dia', '📡'],
+    ['atendimento', 'Atendimento', '1ª mensagem, ligações e respostas rápidas', 'dia', '💬'],
+    ['carteira', 'Carteira', 'Seus imóveis, fotos e cadastro', 'imoveis', '🗂️'],
+    ['vitrine', 'Vitrine', 'Divulgação automática nos grupos', 'imoveis', '🪟'],
+    ['capas', 'Capas', 'Editor de capas para o Instagram (beta)', 'imoveis', '🎨'],
+    ['busca', 'Busca', 'Procuro o imóvel do seu cliente nos grupos e nos portais', 'clientes', '🔎'],
+    ['garimpo', 'Garimpo', 'Clientes procurando imóvel na internet', 'clientes', '⛏️'],
+    ['prospeccao', 'Prospecção', 'Mensagens para contatos escolhidos', 'clientes', '📣'],
+    ['cerebro', 'Cérebro', 'Mapa de Goiânia e meu jeito de falar', 'config', '🧠'],
+    ['simulador', 'Simulador', 'Teste um pedido antes de valer', 'config', '🧪'],
+    ['ajustes', 'Ajustes', 'Grupos, alertas, backup e segurança', 'config', '🔧']
+  ];
+  const rotaDe = k => ROUTES.find(r => r[0] === k) || ROUTES[1];
+  const grupoDe = k => rotaDe(k === 'geral' ? 'hoje' : k)[3];
+  const paginasDo = g => ROUTES.filter(r => r[3] === g);
 
   let sayTimer = null;
   function say(text) {
@@ -209,6 +220,8 @@
   }
 
   function shell(inner) {
+    const rotaAtual = S.route === 'geral' ? 'hoje' : S.route;
+    const grupoAtual = grupoDe(rotaAtual);
     const st = S.status || {};
     const conn = st.connectionStatus === 'CONECTADO';
     const paused = st.config && st.config.pausado;
@@ -216,10 +229,13 @@
     root.innerHTML = `
       <nav class="nav"><div class="bar">
         <a class="logo" href="#inicio">${LOGO}</a>
-        <div class="links">${ROUTES.filter(r => r[0] !== 'inicio').map(([k, l]) => `<a href="#${k}" class="${S.route === k ? 'active' : ''}">${l}</a>`).join('')}</div>
+        <div class="links groups">${GRUPOS.map(([g, ic, nome]) => `<a href="#${paginasDo(g)[0][0]}" class="${grupoAtual === g ? 'active' : ''}"><span aria-hidden="true">${ic}</span> ${nome}</a>`).join('')}</div>
         <span class="status-dot"><span class="dot ${paused ? 'warn' : conn ? 'on' : ''}"></span>${paused ? 'Pausada' : conn ? 'Online' : st.connectionStatus === 'AGUARDANDO_QR_CODE' ? 'Ler QR' : 'Offline'}</span>
-      </div></nav>
-      <main class="page-enter">${inner}</main>
+      </div>
+      ${grupoAtual ? `<div class="subnav">${paginasDo(grupoAtual).map(([k, l, d, , ic]) => `<a href="#${k}" title="${esc(d)}" class="${rotaAtual === k ? 'active' : ''}"><span aria-hidden="true">${ic}</span> ${l}</a>`).join('')}</div>` : ''}</nav>
+      <main class="page-enter">
+        <div class="container crumbs"><a href="#inicio">Início</a> › ${esc((GRUPOS.find(x => x[0] === grupoAtual) || [])[2] || '')} › <b>${esc(rotaDe(rotaAtual)[1])}</b></div>
+        ${inner}</main>
       <div class="space-60"></div>`;
   }
 
@@ -244,7 +260,7 @@
             <h1 class="display">Eu sou a BIGA.</h1>
             <p class="sub">${conn ? (paused ? 'Estou pausada. Toque em Hoje para me retomar.' : 'Estou de olho nos grupos, nas ligações e nas conversas novas. Para onde vamos?') : 'Preciso que você conecte o WhatsApp para eu começar.'}</p>
             ${!conn && st.qrSvg ? `<div class="card" style="display:flex;gap:20px;align-items:center;margin-bottom:20px;flex-wrap:wrap"><div class="qr" style="width:180px">${st.qrSvg}</div><p class="body muted" style="flex:1;min-width:180px">WhatsApp › Configurações › Aparelhos conectados › <b>Conectar aparelho</b> e aponte para o código.</p></div>` : ''}
-            <ul class="menu-list">${ROUTES.filter(r => r[0] !== 'inicio').map(([k, l, d], i) => `<li style="animation-delay:${0.08 + i * 0.05}s"><a href="#${k}" data-say="${esc(d)}"><span><span class="t">${l}</span><span class="d">${d}</span></span><span class="arrow">→</span></a></li>`).join('')}</ul>
+            <div class="home-groups">${GRUPOS.map(([g, ic, nome, desc], gi) => `<div class="hg" style="animation-delay:${0.08 + gi * 0.08}s"><div class="hg-head"><span class="hg-ic" aria-hidden="true">${ic}</span><div><b>${nome}</b><span>${desc}</span></div></div><div class="hg-links">${paginasDo(g).map(([k, l, d, , pic]) => `<a href="#${k}" data-say="${esc(d)}"><span aria-hidden="true">${pic}</span>${l}</a>`).join('')}</div></div>`).join('')}</div>
             <div class="kpis"><div><b>${st.radarHoje || 0}</b>pedidos hoje</div><div><b>${h.ofertas_enviadas || 0}</b>imóveis enviados</div><div><b>${h.novas_conversas || 0}</b>conversas novas</div><div><b>${st.inventoryCount || 0}</b>imóveis ativos</div></div>
           </div>
         </div>
@@ -365,6 +381,22 @@
       <div class="row">${toggle('ativo', p.ativo !== false, 'Ativo na carteira')}</div>
       <div class="row"><button class="btn-primary" data-action="salvarImovel">Salvar imóvel</button><button class="btn-ghost" data-action="cancelarEdicao">Cancelar</button></div>
     </div></section>`;
+  }
+
+  // ------------------------------------------------------------------ CAPAS (beta)
+  function viewCapas() {
+    shell(`
+      ${header('Capas', 'Beta · canvas imobiliário', 'A BIGA monta a capa do post do Instagram com a foto, o nome e o preço do imóvel. Mude o que quiser (fontes do Google, cores, escala, camadas), salve como seu modelo e aplique em todos os imóveis de uma vez.')}
+      <section class="section"><div class="container" id="capasApp"></div></section>`);
+    if (!window.BIGA_CAPAS) return toast('O editor de capas não carregou. Recarregue a página.', true);
+    window.BIGA_CAPAS.montar($('#capasApp'), {
+      api,
+      toast,
+      fotoUrl,
+      inventario: () => S.inventory,
+      modelos: () => S.capas || { modelos: [] },
+      setModelos: r => (S.capas = { modelos: r.modelos, padrao: r.padrao, tamanhos: r.tamanhos })
+    });
   }
 
   // ------------------------------------------------------------------ VITRINE
@@ -829,13 +861,17 @@
     atendimento: loadStatus,
     cerebro: async () => (S.cerebro = await api('GET', '/api/cerebro')),
     simulador: async () => {},
+    capas: async () => {
+      S.capas = await api('GET', '/api/capas');
+      S.inventory = (await api('GET', '/api/inventory')).inventory;
+    },
     ajustes: async () => {
       await loadStatus();
       S.sistema = await api('GET', '/api/sistema').catch(() => null);
     }
   };
   // Map (e não objeto): a rota vem da URL (#constructor, #__proto__…) e só pode virar página se estiver na lista
-  const views = new Map(Object.entries({ inicio: viewHome, hoje: viewGeral, geral: viewGeral, garimpo: (...a) => viewGarimpo(...a), busca: viewBusca, radar: viewRadar, carteira: viewCarteira, vitrine: viewVitrine, prospeccao: viewProspeccao, atendimento: viewAtendimento, cerebro: viewCerebro, simulador: viewSimulador, ajustes: viewAjustes }));
+  const views = new Map(Object.entries({ inicio: viewHome, hoje: viewGeral, geral: viewGeral, garimpo: (...a) => viewGarimpo(...a), busca: viewBusca, radar: viewRadar, carteira: viewCarteira, vitrine: viewVitrine, capas: viewCapas, prospeccao: viewProspeccao, atendimento: viewAtendimento, cerebro: viewCerebro, simulador: viewSimulador, ajustes: viewAjustes }));
 
   // Desenha a página atual. Ao TROCAR de página (go) anima a entrada; nas atualizações da mesma
   // página não anima, mantém a rolagem e (manterCampos) o que estava sendo digitado.
