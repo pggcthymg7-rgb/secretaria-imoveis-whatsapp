@@ -127,7 +127,7 @@ function clearSession(res) {
 }
 
 function isAuthenticated(req) {
-  const bearer = String(req.headers.authorization || '').match(/^Bearer\s+(.+)$/i);
+  const bearer = String(req.headers.authorization || '').match(/^Bearer[ \t]+(\S+)$/i);
   if (bearer && process.env.API_TOKEN && process.env.API_TOKEN.length >= 16 && safeEqual(bearer[1], process.env.API_TOKEN)) return true;
   return Boolean(verify(parseCookies(req)[COOKIE]));
 }
