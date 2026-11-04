@@ -235,3 +235,19 @@ test('Vocabulário: piscina privativa x do condomínio, casa com piscina, sinôn
   assert.deepEqual([t.area_min, t.area_max], [135, 165]);
   assert.equal(parseRequest('chácara até 20 mil m² ou menos').area_min, null);
 });
+
+test('Casa de condomínio é categoria própria: no cadastro, no pedido e nos filtros da Busca', async () => {
+  const { tipoCanonico } = require('../src/busca-filtros');
+  const { parsePropertyFromText } = require('../src/assistant');
+  assert.equal(tipoCanonico('casa de condomínio'), 'Casa de condomínio');
+  assert.equal(tipoCanonico('Casa'), 'Casa');
+  assert.equal(parsePropertyFromText('cadastrar casa de condomínio 4 suítes 350m2 no Jardins Itália 3,2 milhões').tipo, 'Casa de condomínio');
+  assert.equal(parseRequest('busco casas de condomínio 4 suítes').subtipo_casa, 'CONDOMINIO');
+  const cond = prop({ id: 'c1', tipo: 'Casa de condomínio', setor: 'Jardins Itália', quartos: 4, valor: 3000000 });
+  const rua = prop({ id: 'c2', tipo: 'Casa', setor: 'Setor Bueno', quartos: 4, valor: 3000000 });
+  const r = await run('Busco casa de condomínio 4 quartos até 3,5 milhões', [cond, rua]);
+  assert.deepEqual(r.matches.map(m => m.id), ['c1']);
+  const bi = require('../src/busca-inteligente');
+  const { criterios } = bi.entenderFiltros({ tipo: 'Casa de condomínio', negocio: 'VENDA' });
+  assert.deepEqual([criterios.tipos, criterios.subtipo_casa], [['Casa'], 'CONDOMINIO']);
+});

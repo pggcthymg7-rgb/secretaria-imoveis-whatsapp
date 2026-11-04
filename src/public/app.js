@@ -307,7 +307,7 @@
   }
 
   // ------------------------------------------------------------------ CARTEIRA
-  const TIPOS = ['Apartamento', 'Casa', 'Sobrado', 'Flat', 'Cobertura', 'Studio', 'Terreno', 'Chácara', 'Fazenda', 'Comercial'];
+  const TIPOS = ['Apartamento', 'Casa', 'Casa de condomínio', 'Sobrado', 'Flat', 'Cobertura', 'Studio', 'Terreno', 'Chácara', 'Fazenda', 'Comercial'];
   function propTitle(p) {
     return `${p.tipo}${p.edificio ? ' · ' + p.edificio : ''} — ${p.setor || 'sem bairro'}${p.cidade && p.cidade !== 'Goiânia' ? ' (' + p.cidade + ')' : ''}`;
   }
@@ -591,7 +591,7 @@
       <section class="section"><div class="container"><div class="card reveal stack" id="buscaForm">
         <span class="label">Filtros — como nos portais (o que ficar em branco fica aberto)</span>
         <div class="fields">
-          ${field('tipo', 'Tipo', fb.tipo || '', { options: [['', 'Qualquer'], ['Apartamento', 'Apartamento'], ['Casa', 'Casa'], ['Sobrado', 'Sobrado'], ['Cobertura', 'Cobertura'], ['Flat', 'Flat'], ['Studio', 'Studio'], ['Terreno', 'Terreno / lote'], ['Chácara', 'Chácara'], ['Comercial', 'Comercial']] })}
+          ${field('tipo', 'Tipo', fb.tipo || '', { options: [['', 'Qualquer'], ['Apartamento', 'Apartamento'], ['Casa', 'Casa'], ['Casa de condomínio', 'Casa de condomínio'], ['Sobrado', 'Sobrado'], ['Cobertura', 'Cobertura'], ['Flat', 'Flat'], ['Studio', 'Studio'], ['Terreno', 'Terreno / lote'], ['Chácara', 'Chácara'], ['Comercial', 'Comercial']] })}
           ${field('negocio', 'Negócio', fb.negocio || 'VENDA', { options: [['VENDA', 'Venda'], ['ALUGUEL', 'Aluguel']] })}
           ${field('cidade', 'Cidade', fb.cidade || '', { ph: 'Ex.: Goiânia' })}
           ${field('bairro', 'Bairro', fb.bairro || '', { ph: 'Ex.: Setor Marista' })}
