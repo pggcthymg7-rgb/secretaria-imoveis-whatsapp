@@ -190,6 +190,7 @@
     ['carteira', 'Carteira', 'Seus imóveis, fotos e cadastro', 'imoveis', '🗂️'],
     ['vitrine', 'Vitrine', 'Divulgação automática nos grupos', 'imoveis', '🪟'],
     ['capas', 'Capas', 'Editor de capas para o Instagram (beta)', 'imoveis', '🎨'],
+    ['pdf', 'Fichas PDF', 'Apresentação do imóvel em PDF para baixar ou enviar', 'imoveis', '📄'],
     ['busca', 'Busca', 'Procuro o imóvel do seu cliente nos grupos e nos portais', 'clientes', '🔎'],
     ['garimpo', 'Garimpo', 'Clientes procurando imóvel na internet', 'clientes', '⛏️'],
     ['prospeccao', 'Prospecção', 'Mensagens para contatos escolhidos', 'clientes', '📣'],
@@ -383,6 +384,69 @@
     </div></section>`;
   }
 
+  // ------------------------------------------------------------------ FICHAS EM PDF
+  function viewPdf() {
+    const ativos = S.inventory.filter(p => p.ativo !== false);
+    const aprovados = new Set(Object.entries((S.vitrine && S.vitrine.posts) || {}).filter(([, v]) => v.status === 'APROVADO').map(([k]) => k));
+    const ord = [...ativos].sort((a, b) => Number(aprovados.has(String(b.id))) - Number(aprovados.has(String(a.id))));
+    const d = S.pdf;
+    const f = d && d.ficha;
+    shell(`
+      ${header('Fichas PDF', 'Apresentação do imóvel', 'Um PDF moderno e limpo com foto grande, preço, números, diferenciais e a descrição completa. Edite o que quiser, baixe ou mande direto para o WhatsApp de alguém.')}
+      <section class="section"><div class="container stack" id="pdfForm">
+        ${!ativos.length ? '<div class="card"><p class="body muted">Cadastre um imóvel na Carteira primeiro.</p></div>' : `
+        <div class="card stack-sm">
+          <label class="field"><span>Imóvel</span><select name="pdfImovel">${ord.map(p => `<option value="${esc(p.id)}" ${String(p.id) === String(S.pdfSel) ? 'selected' : ''}>${aprovados.has(String(p.id)) ? '🪟 ' : ''}#${esc(p.id)} · ${esc(p.tipo)} · ${esc(p.setor || '')} · ${esc(brl(p.valor))}</option>`).join('')}</select></label>
+          <p class="caption">🪟 = está na Vitrine (aprovado).</p>
+        </div>
+        ${f ? `
+        <div class="card stack-sm">
+          <span class="label">Textos da ficha</span>
+          <div class="row">${field('titulo', 'Título', f.titulo)}${field('subtitulo', 'Linha de baixo', f.subtitulo)}${field('preco', 'Preço', f.preco)}</div>
+          ${field('destaques', 'Diferenciais (um por linha)', f.destaques, { area: true, rows: 4, ph: 'Piscina privativa' })}
+          ${field('descricao', 'Descrição (vai inteira)', f.descricao, { area: true, rows: 8 })}
+        </div>
+        <div class="card stack-sm">
+          <span class="label">Fotos (marque na ordem: a 1ª é a capa · até 7)</span>
+          <div class="pdf-fotos">${(d.fotos || []).map(ft => `<label class="pdf-foto ${f.fotos.includes(ft) ? 'sel' : ''}"><input type="checkbox" name="pdfFoto" value="${esc(ft)}" ${f.fotos.includes(ft) ? 'checked' : ''}><img src="${esc(fotoUrl(ft))}" alt=""><span class="pdf-n">${f.fotos.includes(ft) ? f.fotos.indexOf(ft) + 1 : ''}</span></label>`).join('') || '<p class="caption">Este imóvel não tem foto enviada pelo painel.</p>'}</div>
+          <span class="label">Cor de destaque</span>
+          <div class="chips">${Object.entries(d.cores).map(([k, c]) => `<button type="button" class="toggle" data-action="pdfCor" data-cor="${esc(k)}" aria-pressed="${f.cor === k}"><span><i class="swatch" style="background:${esc(c)}"></i> ${esc(k)}</span></button>`).join('')}</div>
+          ${toggle('mostrarCodigo', f.mostrarCodigo !== false, 'Mostrar o código do imóvel')}
+        </div>
+        <div class="card stack-sm">
+          <span class="label">Seu contato (vale para todas as fichas)</span>
+          <div class="row">${field('corretor', 'Nome', f.corretor || '')}${field('creci', 'CRECI', f.creci || '')}${field('telefone', 'Telefone', f.telefone || '')}${field('email', 'E-mail', f.email || '')}</div>
+          ${field('rodape', 'Observação no rodapé (opcional)', f.rodape || '', { ph: 'Valores sujeitos a alteração.' })}
+        </div>
+        <div class="card stack-sm">
+          <div class="row"><button class="btn-primary" data-action="pdfBaixar">Baixar PDF</button><button class="btn-ghost" data-action="pdfVer">Ver antes</button><button class="btn-ghost" data-action="pdfSalvar">Salvar edições</button><button class="btn-ghost danger" data-action="pdfRestaurar">Voltar ao texto da carteira</button></div>
+          <span class="label">Enviar pelo WhatsApp</span>
+          <div class="row">${field('pdfTel', 'Telefone de quem recebe', (S.pdfEnvio || {}).tel || '', { ph: '62 99999-9999' })}${field('pdfMsg', 'Mensagem junto', (S.pdfEnvio || {}).msg || `Olá! Segue a apresentação do imóvel ${f.titulo}.`)}</div>
+          <button class="btn-ghost accent" data-action="pdfEnviar">Enviar PDF</button>
+        </div>` : ''}`}
+      </div></section>`);
+  }
+  // telefone/mensagem do envio não fazem parte da ficha: guardo antes de redesenhar a tela
+  function guardarEnvioPdf() {
+    const d = formData($('#pdfForm'));
+    S.pdfEnvio = { tel: d.pdfTel || '', msg: d.pdfMsg || '' };
+  }
+  function coletarPdf() {
+    const box = $('#pdfForm');
+    const d = formData(box);
+    const marcadas = $$('input[name=pdfFoto]', box).filter(i => i.checked).map(i => i.value);
+    const antes = (S.pdf && S.pdf.ficha.fotos) || [];
+    // mantém a ordem em que foram marcadas (as já escolhidas primeiro, as novas no fim)
+    const fotos = [...antes.filter(x => marcadas.includes(x)), ...marcadas.filter(x => !antes.includes(x))];
+    return { titulo: d.titulo, subtitulo: d.subtitulo, preco: d.preco, destaques: d.destaques, descricao: d.descricao, fotos, cor: (S.pdf && S.pdf.ficha.cor) || 'cobalto', mostrarCodigo: d.mostrarCodigo, corretor: d.corretor, creci: d.creci, telefone: d.telefone, email: d.email, rodape: d.rodape };
+  }
+  async function pdfArquivo() {
+    const r = await fetch(`/api/pdf/${encodeURIComponent(S.pdfSel)}/arquivo`, { method: 'POST', credentials: 'same-origin', headers: { 'x-secretaria': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(coletarPdf()) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Erro ${r.status}`);
+    const nome = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || 'Imovel.pdf';
+    return { blob: await r.blob(), nome };
+  }
+
   // ------------------------------------------------------------------ CAPAS (beta)
   function viewCapas() {
     shell(`
@@ -427,7 +491,7 @@
               <div class="row tight"><span class="tag iris">#${esc(id)}</span><span class="tag ${post.status === 'APROVADO' ? 'enviar' : post.status === 'PENDENTE' ? 'avisar' : ''}">● ${esc(post.status.toLowerCase())}</span><span class="caption">${post.envios || 0} envio(s)${post.ultimoEnvio ? ' · último ' + esc(when(post.ultimoEnvio)) : ''}</span></div>
               <textarea name="texto" rows="6">${esc(post.texto)}</textarea>
               ${(prop.fotos || []).length > 1 ? `<div class="photos">${prop.fotos.map(f => `<div class="ph-item ${f === post.foto ? 'sel' : ''}"><img src="${esc(fotoUrl(f))}" alt="" data-action="fotoPost" data-id="${esc(id)}" data-f="${esc(f)}"></div>`).join('')}</div>` : ''}
-              <div class="row tight"><button class="btn-ghost accent" data-action="aprovarPost" data-id="${esc(id)}">${post.status === 'APROVADO' ? 'Aprovado ✓' : 'Salvar e aprovar'}</button><button class="btn-ghost" data-action="salvarPost" data-id="${esc(id)}">Salvar texto</button><button class="btn-ghost" data-action="regerarPost" data-id="${esc(id)}" title="Refaz o texto com a descrição completa do imóvel">Texto completo da carteira</button><button class="btn-ghost danger" data-action="reprovarPost" data-id="${esc(id)}">Reprovar</button></div>
+              <div class="row tight"><button class="btn-ghost accent" data-action="aprovarPost" data-id="${esc(id)}">${post.status === 'APROVADO' ? 'Aprovado ✓' : 'Salvar e aprovar'}</button><button class="btn-ghost" data-action="salvarPost" data-id="${esc(id)}">Salvar texto</button><button class="btn-ghost" data-action="regerarPost" data-id="${esc(id)}" title="Refaz o texto com a descrição completa do imóvel">Texto completo da carteira</button><button class="btn-ghost" data-action="irPdf" data-id="${esc(id)}">Ficha PDF</button><button class="btn-ghost danger" data-action="reprovarPost" data-id="${esc(id)}">Reprovar</button></div>
             </div>
           </div>`).join('') : '<p class="body ash">Nenhum post ainda. Clique em “Gerar rascunhos da carteira”.</p>'}</div>
       </div></section>`);
@@ -861,6 +925,13 @@
     atendimento: loadStatus,
     cerebro: async () => (S.cerebro = await api('GET', '/api/cerebro')),
     simulador: async () => {},
+    pdf: async () => {
+      S.inventory = (await api('GET', '/api/inventory')).inventory;
+      if (!S.vitrine) S.vitrine = await api('GET', '/api/vitrine').catch(() => null);
+      const ativos = S.inventory.filter(p => p.ativo !== false);
+      if (!S.pdfSel || !ativos.some(p => String(p.id) === String(S.pdfSel))) S.pdfSel = (ativos[0] || {}).id;
+      S.pdf = S.pdfSel ? await api('GET', `/api/pdf/${encodeURIComponent(S.pdfSel)}`) : null;
+    },
     capas: async () => {
       S.capas = await api('GET', '/api/capas');
       S.inventory = (await api('GET', '/api/inventory')).inventory;
@@ -871,7 +942,7 @@
     }
   };
   // Map (e não objeto): a rota vem da URL (#constructor, #__proto__…) e só pode virar página se estiver na lista
-  const views = new Map(Object.entries({ inicio: viewHome, hoje: viewGeral, geral: viewGeral, garimpo: (...a) => viewGarimpo(...a), busca: viewBusca, radar: viewRadar, carteira: viewCarteira, vitrine: viewVitrine, capas: viewCapas, prospeccao: viewProspeccao, atendimento: viewAtendimento, cerebro: viewCerebro, simulador: viewSimulador, ajustes: viewAjustes }));
+  const views = new Map(Object.entries({ inicio: viewHome, hoje: viewGeral, geral: viewGeral, garimpo: (...a) => viewGarimpo(...a), busca: viewBusca, radar: viewRadar, carteira: viewCarteira, vitrine: viewVitrine, capas: viewCapas, pdf: viewPdf, prospeccao: viewProspeccao, atendimento: viewAtendimento, cerebro: viewCerebro, simulador: viewSimulador, ajustes: viewAjustes }));
 
   // Desenha a página atual. Ao TROCAR de página (go) anima a entrada; nas atualizações da mesma
   // página não anima, mantém a rolagem e (manterCampos) o que estava sendo digitado.
@@ -1231,6 +1302,59 @@
       toast('Texto salvo (aguardando aprovação).');
       render();
     },
+    irPdf: async el => {
+      S.pdfSel = el.dataset.id;
+      location.hash = '#pdf';
+    },
+    pdfCor: async el => {
+      guardarEnvioPdf();
+      S.pdf.ficha = { ...S.pdf.ficha, ...coletarPdf(), cor: el.dataset.cor };
+      render();
+    },
+    pdfSalvar: async () => {
+      const r = await api('POST', `/api/pdf/${encodeURIComponent(S.pdfSel)}`, coletarPdf());
+      S.pdf.ficha = r.ficha;
+      toast('Ficha salva.');
+      render();
+    },
+    pdfRestaurar: async () => {
+      if (!confirm('Voltar título, descrição, diferenciais e fotos ao que está na Carteira?')) return;
+      const r = await api('POST', `/api/pdf/${encodeURIComponent(S.pdfSel)}`, { restaurar: true });
+      S.pdf.ficha = r.ficha;
+      render();
+    },
+    pdfBaixar: async () => {
+      toast('Gerando o PDF…');
+      const { blob, nome } = await pdfArquivo();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = nome;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    },
+    pdfVer: async () => {
+      const aba = window.open('', '_blank');
+      toast('Gerando o PDF…');
+      try {
+        const { blob } = await pdfArquivo();
+        const url = URL.createObjectURL(blob);
+        if (aba) aba.location.href = url;
+        else location.href = url;
+      } catch (err) {
+        if (aba) aba.close();
+        throw err;
+      }
+    },
+    pdfEnviar: async () => {
+      const box = $('#pdfForm');
+      const d = formData(box);
+      if (!String(d.pdfTel || '').replace(/\D/g, '')) return toast('Digite o telefone de quem vai receber.', true);
+      toast('Enviando o PDF pelo WhatsApp…');
+      await api('POST', `/api/pdf/${encodeURIComponent(S.pdfSel)}/enviar`, { telefone: d.pdfTel, mensagem: d.pdfMsg, ficha: coletarPdf() });
+      toast('PDF enviado! ✅');
+    },
     regerarPost: async el => {
       const r = await api('POST', `/api/vitrine/post/${el.dataset.id}`, { regerar: true });
       S.vitrine.posts[el.dataset.id] = r.post;
@@ -1482,6 +1606,16 @@
   });
   root.addEventListener('change', async e => {
     try {
+      if (e.target.name === 'pdfImovel') {
+        S.pdfSel = e.target.value;
+        await loaders.pdf();
+        return render();
+      }
+      if (e.target.name === 'pdfFoto') {
+        guardarEnvioPdf();
+        S.pdf.ficha = { ...S.pdf.ficha, ...coletarPdf() };
+        return render();
+      }
       if (e.target.id === 'fotoInput' && e.target.files.length) {
         const p = syncEditing();
         toast('Enviando fotos…');
