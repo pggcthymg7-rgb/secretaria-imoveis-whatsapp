@@ -40,6 +40,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          # só a data de geração (geradoEm) mudou? então não há mapa novo: não abre PR à toa
+          if node -e "const f='src/brain/data/mapa-osm.json';const sem=s=>{const j=JSON.parse(s);delete j.geradoEm;return JSON.stringify(j)};const a=require('fs').readFileSync(f,'utf8');const b=require('child_process').execFileSync('git',['show','HEAD:'+f],{maxBuffer:1<<28}).toString();process.exit(sem(a)===sem(b)?0:1)"; then echo "Mapa sem mudanças (só a data de geração)."; exit 0; fi
           git add src/brain/data/mapa-osm.json
           if git diff --cached --quiet; then echo "Mapa sem mudanças."; exit 0; fi
           RAMO="mapa-osm-auto"

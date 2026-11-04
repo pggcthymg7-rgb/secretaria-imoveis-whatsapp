@@ -642,6 +642,8 @@ function mundoFalso({ gemini = 'ok', provedor = 'tavily', erroProvedor = 0 } = {
     if (/api\.apify\.com/.test(u)) {
       corpos.apify.push({ url: u, corpo, auth: o.headers.Authorization });
       const portal = corpo.portal;
+      // robô da OLX (solidcode): registro no formato do dataset dele (price, isBusiness, seller…); a 2ª é casa fora do pedido? não: é apartamento (tipo errado)
+      if (corpo.searchUrls) return { ok: true, status: 200, json: async () => [{ url: OLX_AD, title: 'Casa 4 suítes 400 m² no condomínio Jardins Itália', price: 4500000, priceDisplay: 'R$ 4.500.000', neighborhood: 'Jardins Itália', isBusiness: false, seller: { name: 'Fulano Dono' } }, { url: 'https://go.olx.com.br/grande-goiania-e-anapolis/imoveis/apartamento-3-quartos-jardins-italia-1234567899', title: 'Apartamento 3 quartos', price: 4400000, isBusiness: true, seller: { name: 'Imob X' } }] };
       return { ok: true, status: 200, json: async () => [portal === 'ZAP' ? { url: ZAP_AD, title: 'Casa 4 suítes', priceBRL: 4900000, usableArea: 369, bedrooms: 4, suites: 4, parkingSpaces: 6, neighborhood: 'Jardins Itália', agencyName: 'Lopes', publisherType: 'AGENCY' } : { url: VIVA_AD, title: 'Casa condomínio', priceBRL: 4520000, usableArea: 355, bedrooms: 4, suites: 4, neighborhood: 'Jardins Itália', publisherType: 'OWNER' }] };
     }
     throw new Error(`url inesperada no teste: ${u}`);
@@ -728,30 +730,91 @@ test('Cascata: o Google Search do Gemini só é usado se nenhuma camada anterior
   assert.deepEqual(r.via, ['Gemini + Google']);
 });
 
-test('Apify (opcional): ZAP e VivaReal estruturados, filtros enviados, token no cabeçalho, sem gastar IA', async () => {
+test('Apify (opcional): OLX, ZAP e VivaReal estruturados, filtros enviados, token no cabeçalho, sem gastar IA', async () => {
   const w = mundoFalso();
-  const c = pedidoJardins({ tipo: 'casa', bairro: 'Jardins Itália', quartos: '3', suites: '4', valor: '4 a 5 milhões', areaMin: '300' });
+  const c = pedidoJardins({ tipo: 'casa', bairro: 'Jardins Itália', quartos: '3', suites: '4', vagas: '2', valor: '4 a 5 milhões', areaMin: '300' });
   const r = await bi.buscarNosPortais(c, c.resumo, { env: { APIFY_API_TOKEN: 'apify_api_teste123', BUSCA_LIMITE_DIA: '99' }, fetcher: w.fetcher });
   assert.equal(r.ok, true);
   assert.deepEqual(r.via, ['Apify']);
-  assert.equal(w.corpos.apify.length, 2);
-  assert.ok(w.corpos.apify.every(x => x.auth === 'Bearer apify_api_teste123' && !/token=/.test(x.url) && /haketa~zapimoveis-scraper/.test(x.url)));
+  assert.equal(w.corpos.apify.length, 3, 'um robô por portal');
+  assert.ok(w.corpos.apify.every(x => x.auth === 'Bearer apify_api_teste123' && !/token=/.test(x.url) && /run-sync-get-dataset-items\?timeout=170$/.test(x.url)));
+  assert.equal(w.corpos.apify.filter(x => /haketa~zapimoveis-scraper/.test(x.url)).length, 2);
   const zap = w.corpos.apify.find(x => x.corpo.portal === 'ZAP').corpo;
-  assert.deepEqual(zap, { portal: 'ZAP', business: ['SALE'], states: ['GO'], cities: ['goiania'], neighborhoods: ['jardins-italia'], minPrice: 4000000, minBedrooms: 3, minArea: 300, maxListings: 15, maxPrice: 5000000 });
+  // filtros que evitam pagar por casa/sala comercial que o BIGA descartaria
+  assert.deepEqual(zap, { mode: 'listings', portal: 'ZAP', business: ['SALE'], listingType: [], usageTypes: ['RESIDENTIAL'], unitTypes: ['HOME', 'CONDOMINIUM'], states: ['GO'], cities: ['goiania'], maxListings: 15, maxPages: 2, neighborhoods: ['jardins-italia'], minPrice: 4000000, maxPrice: 5000000, minBedrooms: 3, minParkingSpaces: 2, minArea: 300 });
   assert.ok(w.corpos.apify.some(x => x.corpo.portal === 'VIVA_REAL'));
+  const olx = w.corpos.apify.find(x => x.corpo.searchUrls);
+  assert.match(olx.url, /solidcode~olx-brazil-scraper/);
+  assert.match(olx.corpo.searchUrls[0], /^https:\/\/www\.olx\.com\.br\/imoveis\/venda\/estado-go\/grande-goiania-e-anapolis\/goiania\?q=casa\+jardins\+it/);
+  assert.equal(olx.corpo.minPrice, 4000000);
   assert.equal(w.corpos.gemini.length, 0, 'sem Gemini');
-  assert.deepEqual(r.itens.map(i => [i.portal, i.tipoAnunciante, i.certeza]), [['ZAP Imóveis', 'profissional', 'anúncio'], ['VivaReal', 'particular', 'anúncio']]);
-  // Apify cobre ZAP e VivaReal: a OLX vem do Tavily (e só ela é consultada)
+  assert.deepEqual(r.itens.map(i => [i.portal, i.tipoAnunciante, i.certeza]).sort(), [['OLX', 'particular', 'anúncio'], ['VivaReal', 'particular', 'anúncio'], ['ZAP Imóveis', 'profissional', 'anúncio']].sort());
+  const o = r.itens.find(i => i.portal === 'OLX');
+  assert.equal(o.preco, 4500000, 'preço exato da OLX sem abrir a página na VM');
+  assert.equal(o.area, 400);
+  assert.equal(o.suites, 4);
+  assert.equal(o.anunciante, 'Particular', 'nome de dono particular nunca é guardado');
+  assert.ok(!r.itens.some(i => /apartamento-3-quartos/.test(i.link)), 'apartamento cortado num pedido de casa');
+  // Apify cobre os 3: o Tavily não gasta nada
   const w2 = mundoFalso();
-  const r2 = await bi.buscarNosPortais(c, c.resumo, { env: { APIFY_API_TOKEN: 'apify_api_teste123', TAVILY_API_KEY: 'tvly-teste-123456', GEMINI_API_KEY: 'k-cascata', BUSCA_LIMITE_DIA: '99' }, fetcher: w2.fetcher });
-  assert.deepEqual(r2.via, ['Apify', 'Tavily + Gemini']);
-  assert.deepEqual(w2.corpos.tavily.map(x => x.corpo.include_domains[0]), ['olx.com.br']);
+  const env2 = { APIFY_API_TOKEN: 'apify_api_teste123', TAVILY_API_KEY: 'tvly-teste-123456', GEMINI_API_KEY: 'k-cascata', BUSCA_LIMITE_DIA: '99' };
+  const r2 = await bi.buscarNosPortais(c, c.resumo, { env: env2, fetcher: w2.fetcher });
+  assert.deepEqual(r2.via, ['Apify']);
+  assert.equal(w2.corpos.tavily.length, 0);
+  // APIFY_OLX=0: a OLX volta para o Tavily
+  const w3 = mundoFalso();
+  const r3 = await bi.buscarNosPortais(c, c.resumo, { env: { ...env2, APIFY_OLX: '0' }, fetcher: w3.fetcher });
+  assert.deepEqual(r3.via, ['Apify', 'Tavily + Gemini']);
+  assert.deepEqual(w3.corpos.tavily.map(x => x.corpo.include_domains[0]), ['olx.com.br']);
+  // portal que o Apify devolveu vazio continua no Tavily
+  const w4 = mundoFalso();
+  const vazioOlx = async (u, o = {}) => (/olx-brazil-scraper/.test(String(u)) ? { ok: true, status: 200, json: async () => [] } : w4.fetcher(u, o));
+  const r4 = await bi.buscarNosPortais(c, c.resumo, { env: env2, fetcher: vazioOlx });
+  assert.deepEqual(w4.corpos.tavily.map(x => x.corpo.include_domains[0]), ['olx.com.br']);
+  assert.ok(r4.ok);
   // Apify com token recusado: não derruba a busca
-  const r3 = await bi.buscarNosPortais(c, c.resumo, { env: { APIFY_API_TOKEN: 'apify_ruim_123456', BUSCA_LIMITE_DIA: '99' }, fetcher: async () => ({ ok: false, status: 401, json: async () => ({ error: { message: 'User was not found or authentication token is not valid' } }) }) });
-  assert.equal(r3.ok, false);
-  assert.equal(r3.motivo, 'chave_apify_recusada');
+  const r5 = await bi.buscarNosPortais(c, c.resumo, { env: { APIFY_API_TOKEN: 'apify_ruim_123456', BUSCA_LIMITE_DIA: '99' }, fetcher: async () => ({ ok: false, status: 401, json: async () => ({ error: { message: 'User was not found or authentication token is not valid' } }) }) });
+  assert.equal(r5.ok, false);
+  assert.equal(r5.motivo, 'chave_apify_recusada');
 });
 
+test('Apify: tipo do pedido vira unitTypes; cidade fora da lista do robô vai em citiesCustom', () => {
+  const A = require('../src/busca-apify');
+  const apto = pedidoJardins({ tipo: 'apartamento', bairro: 'Setor Marista', quartos: '3', valor: '1 a 1,6 milhão' });
+  const z = A.corpoDaConsulta(apto, 'VIVA_REAL');
+  assert.deepEqual([z.unitTypes, z.usageTypes, z.neighborhoods, z.minPrice, z.maxPrice, z.minBedrooms], [['APARTMENT'], ['RESIDENTIAL'], ['setor-marista'], 1000000, 1600000, 3]);
+  assert.deepEqual(A.unidadesDoPedido({ tipos: ['Cobertura', 'Apartamento'], filtros: {} }).unitTypes, ['PENTHOUSE', 'APARTMENT']);
+  assert.deepEqual(A.unidadesDoPedido({ tipos: ['Comercial'], filtros: {} }), { unitTypes: [], usageTypes: ['COMMERCIAL'] });
+  const ap = A.corpoDaConsulta({ ...apto, local: { ...apto.local, cidades: ['Aparecida de Goiânia'] } }, 'ZAP');
+  assert.deepEqual([ap.cities, ap.citiesCustom], [[], ['aparecida-de-goiania']]);
+  // OLX: quartos/área pelo título ou pelo endereço do anúncio quando o robô não traz o campo
+  const it = A.normalizarOlx({ url: 'https://go.olx.com.br/grande-goiania-e-anapolis/imoveis/talk-marista-apartamento-com-3-quarto-s-e-4-banheiro-s-a-venda-140-00-por-r-1450000-00-1509799842', title: 'Talk Marista apartamento 140m²', priceDisplay: 'R$ 1.450.000', seller: { isBusiness: true, name: 'Imob Y' } });
+  assert.deepEqual([it.preco, it.quartos, it.area_m2, it.tipo, it.tipo_anunciante, it.anunciante], [1450000, 3, 140, 'apartamento', 'profissional', 'Imob Y']);
+});
+
+test('"testar apify": roda cada robô com 1 anúncio, mostra preço/link e o gasto do mês; token recusado ou ausente é explicado', async () => {
+  const A = require('../src/busca-apify');
+  const chamadas = [];
+  const fetcher = async (u, o = {}) => {
+    const url = String(u);
+    chamadas.push({ url, corpo: o.body ? JSON.parse(o.body) : null, auth: o.headers && o.headers.Authorization });
+    if (/users\/me\/limits/.test(url)) return { ok: true, status: 200, json: async () => ({ data: { current: { monthlyUsageUsd: 0.31 }, limits: { maxMonthlyUsageUsd: 5 } } }) };
+    const corpo = JSON.parse(o.body);
+    if (corpo.searchUrls) return { ok: true, status: 200, json: async () => [{ url: OLX_AD, title: 'Apartamento 3 quartos 90 m²', price: 650000, isBusiness: false }] };
+    if (corpo.portal === 'VIVA_REAL') return { ok: false, status: 402, json: async () => ({ error: { message: 'Not enough usage credits' } }) };
+    return { ok: true, status: 200, json: async () => [{ url: ZAP_AD, title: 'Apto', priceBRL: 700000, usableArea: 80, bedrooms: 3, publisherType: 'AGENCY', agencyName: 'Lopes' }] };
+  };
+  const r = await A.testarApify({ env: { APIFY_API_TOKEN: 'apify_api_teste123' }, fetcher });
+  assert.equal(r.ok, false, 'VivaReal sem crédito');
+  assert.ok(chamadas.filter(c => c.corpo).every(c => (c.corpo.maxListings || c.corpo.maxResults) === 1 && c.auth === 'Bearer apify_api_teste123'), 'só 1 anúncio por robô (custo mínimo)');
+  const t = A.textoTesteApify(r);
+  assert.match(t, /✅ ZAP \(\d+s\): R\$ 700\.000 · 80 m² · 3 quartos · profissional/);
+  assert.match(t, /✅ OLX \(\d+s\): R\$ 650\.000 · 90 m² · 3 quartos · particular/);
+  assert.match(t, /❌ VivaReal: HTTP 402 — Not enough usage credits/);
+  assert.match(t, /Gasto no mês: US\$ 0\.31 de US\$ 5\.00/);
+  assert.match(A.textoTesteApify(await A.testarApify({ env: {}, fetcher })), /Falta o token do Apify/);
+  assert.match(A.textoTesteApify(await A.testarApify({ env: { APIFY_API_TOKEN: 'x_ruim_123' }, fetcher: async () => ({ ok: false, status: 401, json: async () => ({}) }) })), /recusou o token/);
+});
 
 test('Diagnóstico: mostra os motores da busca nos portais, testa o principal e diz qual está ativo', async () => {
   const g = require('../src/gemini-chave');
@@ -769,7 +832,7 @@ test('Diagnóstico: mostra os motores da busca nos portais, testa o principal e 
     let r = await g.diagnosticarSalva(fetcher);
     assert.match(r.texto, /Tavily: ✅ configurado — respondeu \(1 resultado\(s\)\)/);
     assert.match(r.texto, /Serper: ❌ sem chave/);
-    assert.match(r.texto, /Apify \(ZAP\/VivaReal\): ❌ sem chave/);
+    assert.match(r.texto, /Apify \(OLX\/ZAP\/VivaReal\): ❌ sem chave/);
     assert.match(r.texto, /Gemini \+ Google: ✅ chave salva \(usado só se os acima falharem\)/);
     assert.match(r.texto, /Motor principal agora: Tavily \+ Gemini \(curadoria sem Google\)/);
     // sem chave do Gemini: só a curadoria precisa dela
