@@ -561,7 +561,7 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
         // Passo 1.5 — leitura do anúncio (grátis, sem IA): OLX pela página, ZAP/VivaReal pelo endereço
         const lei = await leitor.lerAnuncios({ catalogo: r.catalogo, criterios, fetcher, portalDaUrl: serp.portalDaUrl, ehPaginaDeAnuncio: serp.ehPaginaDeAnuncio, abrirPaginas: env.BUSCA_LER_PAGINAS !== '0' });
         if (lei.lidas) via.push(`leitura de ${lei.lidas} anúncio${lei.lidas > 1 ? 's' : ''}`);
-        diagBusca += `${diagBusca ? ' · ' : ''}lidos ${lei.lidas}, reprovados ${lei.descartados.size}${lei.falhas ? `, ${lei.falhas} sem leitura` : ''}`;
+        diagBusca += `${diagBusca ? ' · ' : ''}lidos ${lei.lidas}, reprovados ${lei.descartados.size}${lei.falhas ? `, ${lei.falhas} sem leitura (${Object.entries(lei.motivos).map(([m, n]) => `${m} ×${n}`).join(', ')})` : ''}`;
         const brutosLidos = lei.decididos.map(({ cat, dados, conferir, tipoExato }) => ({
           link: cat.url,
           titulo: dados.titulo || cat.titulo,
@@ -742,7 +742,7 @@ function formatarRelatorio(r) {
   }
 
   // 3. links prontos
-  if (Object.keys(r.links).length) blocos.push(`🔗 *BUSCA PRONTA NOS PORTAIS*\n${Object.entries(r.links).map(([n, u]) => `• ${n}: ${u}`).join('\n')}`);
+  if (Object.keys(r.links).length) blocos.push(`🔗 *BUSCA PRONTA NOS PORTAIS*\n_O Google só conhece parte dos anúncios do ZAP e do VivaReal. A lista COMPLETA, com os seus filtros, abre nestes links:_\n${Object.entries(r.links).map(([n, u]) => `• ${n}: ${u}`).join('\n')}`);
 
   const msgs = [];
   let atual = '';

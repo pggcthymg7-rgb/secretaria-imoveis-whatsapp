@@ -164,7 +164,7 @@ const HELP = `${BOT} *Oi, eu sou a BIGA!* Seus comandos:
 • *memória* (quantos anúncios estão guardados) · *memória ligar/desligar*
 • *minhas buscas* · *ver busca 3* · *config busca*
 • *grupos da busca* · *busca grupos 1,4,7* · *busca grupos todos*
-• *limite busca 30* · *portais olx zap vivareal* · *chave gemini SUA_CHAVE* · *testar gemini* · *testar gemini fundo*
+• *limite busca 30* · *portais olx zap vivareal* · *chave gemini SUA_CHAVE* · *testar gemini* · *testar gemini fundo* · *testar olx*
 • busca nos portais sem depender do Google: *chave tavily SUA_CHAVE* ou *chave serper SUA_CHAVE* (grátis: tavily.com · serper.dev) · opcional: *chave apify SEU_TOKEN*
 ⚙️ *status* · *pausar* · *retomar* · *ajuda*`;
 
@@ -327,6 +327,13 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
     bi.atualizarConfig({ gruposIds: novos });
     const nomes = gs.filter(g => novos.includes(g.id)).map(g => g.subject);
     await reply(wa, chatJid, `📂 Busca em ${nomes.length} grupo(s): ${nomes.slice(0, 15).join(', ')}${nomes.length > 15 ? '…' : ''}`);
+    return true;
+  }
+  const olxTeste = text.match(/^\s*(?:testar|diagnosticar|teste)\s+olx(?:\s+(\S{10,400}))?\s*$/i);
+  if (olxTeste) {
+    await reply(wa, chatJid, '🔬 Abrindo uma página da OLX a partir desta máquina…');
+    const A = require('./busca-anuncio');
+    await reply(wa, chatJid, A.textoDiagnosticoOlx(await A.diagnosticarOlx(olxTeste[1] ? { url: olxTeste[1] } : {})));
     return true;
   }
   if (/^(testar gemini (?:fundo|completo)|diagnosticar gemini|diagnostico gemini|testar chave (?:fundo|completa))$/.test(norm)) {
