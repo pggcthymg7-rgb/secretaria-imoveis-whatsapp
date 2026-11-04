@@ -1421,8 +1421,10 @@
     if (n === 'filtroGrupo') return applyGroupFilter(e.target.dataset.target);
     if (n && e.target.closest('#buscaForm') && !e.target.closest('[data-toggle]')) S.buscaForm = { ...S.buscaForm, [n]: e.target.value }; // não perde os filtros se a tela atualizar
     if (n === 'busca' || n === 'filtroContato' || n === 'filtroBairro') {
-      const key = { busca: 'filtro', filtroContato: 'filtroContato', filtroBairro: 'filtroBairro' }[n];
-      S[key] = e.target.value;
+      // atribuições explícitas (e não S[chave]): com chave dinâmica o CodeQL acha que QUALQUER campo de S recebeu texto digitado
+      if (n === 'busca') S.filtro = e.target.value;
+      else if (n === 'filtroContato') S.filtroContato = e.target.value;
+      else S.filtroBairro = e.target.value;
       clearTimeout(S._ft);
       S._ft = setTimeout(() => {
         const pos = e.target.selectionStart;
