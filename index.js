@@ -19,6 +19,7 @@ const contacts = require('./src/contacts');
 const radar = require('./src/radar');
 const metrics = require('./src/metrics');
 const vitrine = require('./src/vitrine');
+const capas = require('./src/capas');
 const prospeccao = require('./src/prospeccao');
 const scheduler = require('./src/scheduler');
 const auth = require('./src/auth');
@@ -350,6 +351,10 @@ app.post('/api/radar/:code/enviar', ah(async (req, res) => {
 // ---------------------------------------------------------------------------
 // Vitrine
 // ---------------------------------------------------------------------------
+// Capas (beta): modelos do editor de capas para o Instagram (o desenho é feito no navegador)
+app.get('/api/capas', (req, res) => res.json(capas.listar()));
+app.post('/api/capas/modelos', ah(async (req, res) => res.json({ ok: true, modelo: capas.salvar(req.body || {}), ...capas.listar() })));
+app.delete('/api/capas/modelos/:id', (req, res) => res.json({ ok: capas.apagar(req.params.id), ...capas.listar() }));
 app.get('/api/vitrine', (req, res) => res.json(vitrine.getState()));
 app.post('/api/vitrine/config', (req, res) => res.json({ ok: true, config: vitrine.updateConfig(req.body || {}) }));
 app.post('/api/vitrine/gerar', ah(async (req, res) => {
