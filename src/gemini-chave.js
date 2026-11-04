@@ -150,14 +150,14 @@ function textoDiagnostico(d, motores) {
   if (motores) {
     const sn = (ok, extra = '') => (ok ? `✅ configurado${extra}` : '❌ sem chave');
     const ping = n => (motores.ping && motores.ping[n] ? (motores.ping[n].ok ? ` — respondeu (${motores.ping[n].resultados} resultado(s))` : ` — ❌ erro ${motores.ping[n].status || ''}: ${motores.ping[n].mensagem}`) : '');
-    const ativo = [motores.apify ? 'Apify (ZAP e VivaReal)' : '', motores.busca.length ? `${motores.busca[0]} + Gemini (curadoria sem Google)` : '', !(motores.apify || motores.busca.length) && motores.gemini ? 'Gemini + Google (último recurso)' : ''].filter(Boolean);
+    const ativo = [motores.apify ? 'Apify (OLX, ZAP e VivaReal)' : '', motores.busca.length ? `${motores.busca[0]} + Gemini (curadoria sem Google)` : '', !(motores.apify || motores.busca.length) && motores.gemini ? 'Gemini + Google (último recurso)' : ''].filter(Boolean);
     partes.push(
       '',
       '🌐 *Motores da busca nos portais*',
       `• Tavily: ${sn(motores.busca.includes('Tavily'), ping('Tavily'))}`,
       `• Serper: ${sn(motores.busca.includes('Serper'), ping('Serper'))}`,
       `• Brave: ${sn(motores.busca.includes('Brave'), ping('Brave'))}`,
-      `• Apify (ZAP/VivaReal): ${sn(motores.apify)}`,
+      `• Apify (OLX/ZAP/VivaReal): ${sn(motores.apify)}`,
       `• Gemini + Google: ${motores.gemini ? '✅ chave salva (usado só se os acima falharem)' : '❌ sem chave'}`,
       `Motor principal agora: ${ativo.length ? ativo.join(' + ') : '❌ nenhum — mande *chave tavily SUA_CHAVE* (grátis em tavily.com)'}`
     );
