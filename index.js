@@ -365,7 +365,9 @@ app.post('/api/vitrine/post/:id', ah(async (req, res) => {
   const p = await sheets.getPropertyById(req.params.id);
   if (!p) return res.status(404).json({ error: 'Imóvel não encontrado.' });
   const foto = typeof req.body?.foto === 'string' ? sheets.sanitizePhotoRef(req.body.foto) : undefined;
-  res.json({ ok: true, post: vitrine.upsertPost(p, { texto: typeof req.body?.texto === 'string' ? req.body.texto : undefined, foto }) });
+  // regerar: refaz o texto a partir da carteira (descrição completa), útil para posts antigos que saíam cortados
+  const texto = req.body?.regerar ? vitrine.defaultPostText(p) : typeof req.body?.texto === 'string' ? req.body.texto : undefined;
+  res.json({ ok: true, post: vitrine.upsertPost(p, { texto, foto }) });
 }));
 app.post('/api/vitrine/post/:id/status', (req, res) => {
   const st = String(req.body?.status || '');
