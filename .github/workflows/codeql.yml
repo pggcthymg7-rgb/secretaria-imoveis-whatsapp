@@ -51,3 +51,8 @@ jobs:
             echo "|---|---|---|---|"
             jq -r '. as $r | ([$r.runs[] | .tool.driver.rules[]?, .tool.extensions[]?.rules[]?] | map({(.id): (.properties["security-severity"] // "-")}) | add // {}) as $sev | $r.runs[].results[]? | "| \($sev[.ruleId] // "-") \(.level // "") | \(.ruleId) | \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine) | \(.message.text | gsub("\n"; " ") | gsub("\\|"; "/") | .[0:140]) |"' "$f"
           } | tee -a "$GITHUB_STEP_SUMMARY"
+          # caminho de cada alerta (de onde o dado vem → onde ele chega), para saber se é real ou falso positivo
+          {
+            echo "### Caminhos (origem → destino)"
+            jq -r '[.runs[].results[]?] | .[] | select((.codeFlows | length) > 0) | "- \(.ruleId) \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine) ← " + ([.codeFlows[0].threadFlows[0].locations[] | "\(.location.physicalLocation.artifactLocation.uri):\(.location.physicalLocation.region.startLine)"] | join(" → "))' "$f"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
