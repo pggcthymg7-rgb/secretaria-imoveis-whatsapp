@@ -17,3 +17,6 @@ Você opera em modo de execução autônoma rigorosa. Sempre que receber tarefas
 - `src/assistant.js` — comandos no "Mensagem para mim"; `src/vitrine.js`, `src/prospeccao.js`, `src/scheduler.js`, `src/radar.js`
 - `src/auth.js` — login do painel; `src/public/` — painel (Dala design system)
 - Mensagens reais de grupos para regressão: `tests/fixtures-mensagens-reais.js` (sempre adicione novos casos reais aqui)
+
+## Outro projeto desta conta
+- Editor de legendas: repo `pggcthymg7-rgb/editor-legenda`, branch `claude/editor-legendas-v1`. Contexto completo em `docs/CEREBRO.md` desse repo.
