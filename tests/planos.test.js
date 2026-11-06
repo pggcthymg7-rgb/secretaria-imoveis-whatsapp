@@ -106,3 +106,12 @@ test('LGPD: "apagar dados" esquece o titular na agenda e no Radar (com e sem o 9
   assert.ok(radar.list({ limit: 1000 }).some(i => i.sender === 'Outro'));
   assert.equal(await assistant.handleOwnerMessage(wa, { chatJid: '556299999999@s.whatsapp.net', text: 'apagar dados 9888' }), false, 'número curto não casa o comando');
 });
+
+test('LGPD: telefone e e-mail são mascarados antes de ir ao Gemini; preço e metragem ficam', () => {
+  const { mascararContatos } = require('../src/matcher');
+  const t = mascararContatos('Procuro apto no Bueno até R$ 1.000.000,00, 120 m². Falar com (62) 98888-7777, +55 62 3333-4444 ou maria@x.com.br');
+  assert.doesNotMatch(t, /98888|3333-4444|maria@/);
+  assert.match(t, /1\.000\.000,00/);
+  assert.match(t, /120 m²/);
+  assert.match(t, /Bueno/);
+});

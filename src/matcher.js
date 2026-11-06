@@ -136,6 +136,13 @@ function chaveCacheIa(messageText) {
   return require('crypto').createHash('sha256').update(normalize(String(messageText).slice(0, 2000)).replace(/\s+/g, ' ').trim()).digest('hex');
 }
 
+/** LGPD (minimização): telefone e e-mail não vão para o Gemini; só os lugares importam */
+function mascararContatos(texto) {
+  return String(texto || '')
+    .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '[email]')
+    .replace(/(?:\+?55[\s-]?)?\(?\b\d{2}\)?[\s-]?9?\s?\d{4}[\s-]?\d{4}\b/g, '[telefone]');
+}
+
 /** O cérebro local já entendeu o local com segurança? Então o Gemini não precisa ser chamado. */
 function localConfiante(local) {
   if (!local) return false;
@@ -179,7 +186,7 @@ Extraia SOMENTE nomes de lugares citados no texto: bairros/setores, condomínios
 Ignore nomes de pessoas, telefones e lugares mencionados como imóvel oferecido em PERMUTA/TROCA.
 Responda apenas JSON: {"lugares":[{"nome":"texto exatamente como aparece","tipo":"bairro|condominio|edificio|cidade|marco"}]}
 TEXTO:
-"""${String(messageText).slice(0, 2000)}"""`;
+"""${mascararContatos(String(messageText).slice(0, 2000))}"""`;
   const call = ai.models.generateContent({
     model: await modeloExtracao(apiKey),
     contents: prompt,
@@ -382,6 +389,7 @@ function formatOutreachMessage(senderName, originalMessage, property, analysisCo
 module.exports = {
   analyzeMessageAndMatch,
   localConfiante,
+  mascararContatos,
   chaveCacheIa,
   formatOutreachMessage,
   buildHumanContextualParts,
