@@ -45,7 +45,7 @@ Detalhe: `data_room_biga/02_PRODUTO_E_COMPLIANCE/02.1_Auditoria_Tecnica_e_Roadma
 9. Fase 2: taxa fixa por parceria (nunca % da comissão, por risco COFECI) + pacotes de proprietário R$ 297/597 + relatório de demanda R$ 2,5 mil.
 10. Fase 3: setup de R$ 45 mil por condomínio dividido entre associação e corretores fundadores; recorrência R$ 9,85 mil/mês; payback de 5,3 meses.
 
-## 7. Data Room — Etapa 2/4 Vendas (aprovação pendente)
+## 7. Data Room — Etapa 2/4 Vendas (APROVADA 06/11/2026)
 1. Arquivo: `data_room_biga/04_VENDAS_E_CRESCIMENTO/04_Go_to_Market_CAC_LTV_e_Metas.md`.
 2. Canais: Indicação 35% · selo "feito com Biga" 25% · Eventos 15% · Meta Ads 15% · Venda consultiva Imob. 10%; CAC ponderado R$ 269.
 3. Churn (premissa): Radar 6% · Designer 4% · Imob. 2,5% → ponderado 5,05%; LTV/CAC 17,4×; payback 1,7 mês.
@@ -56,3 +56,14 @@ Detalhe: `data_room_biga/02_PRODUTO_E_COMPLIANCE/02.1_Auditoria_Tecnica_e_Roadma
 8. A Imobiliária é 10% dos contratos e 47% da MC; sem ela, o break-even vai para 225 contratos e o pico de caixa para R$ 162 mil.
 9. Compliance do GTM: sem disparo em massa nos grupos; prospecção só com opt-in ou indicação; venda sempre como SaaS, sem intermediação.
 10. 90 dias: Embaixadores, selo nas peças + página de teste, instrumentar funil e coortes no painel.
+
+## 8. Data Room — Etapa 3/4 Mercado (aprovação pendente)
+1. Arquivo: `data_room_biga/01_MERCADO_E_PESQUISA/01_Mercado_TAM_SAM_SOM_e_Concorrencia.md` (fontes públicas citadas).
+2. Dados: ~650 mil corretores no Brasil (Cofeci 2025); 39.622 em Goiás (CRECI-GO, ago/2024, +7,21% em 12 meses).
+3. Receita média por corretor de R$ 127,60/mês (mix do break-even) → TAM R$ 995 mi/ano · SAM Goiás R$ 30,3 mi · SAM Goiânia R$ 16,7 mi.
+4. SOM em 18 meses: 682 corretores, ARR de R$ 1,05 mi = 6,3% do SAM Goiânia (abaixo do teto de 10%).
+5. Premissas a validar: 50% dos registrados atuantes, 55% em Goiânia, 30 condomínios horizontais de alto padrão.
+6. Concorrência: CRMs (iMobzi R$ 129, ImobNuvem R$ 99, Kenlo/Jetimob sob consulta) não leem a demanda dos grupos.
+7. Posicionamento: "os CRMs organizam o que o corretor já tem; a Biga traz o que ele está perdendo".
+8. Pesquisa primária pendente: ativos por município (CRECI-GO), 30 entrevistas de disposição a pagar, lista de condomínios.
+9. Ordem combinada: Etapa 4 = Sala do Investidor (05). Marketing (06) fica fora das 4 etapas, salvo nova ordem.
