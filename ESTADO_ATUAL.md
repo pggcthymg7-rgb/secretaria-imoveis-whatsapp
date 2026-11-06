@@ -33,7 +33,7 @@
 
 Detalhe: `data_room_biga/02_PRODUTO_E_COMPLIANCE/02.1_Auditoria_Tecnica_e_Roadmap_3_Fases.md`.
 
-## 6. Data Room — Etapa 1/4 Financeiro (aprovação pendente)
+## 6. Data Room — Etapa 1/4 Financeiro (APROVADA 06/11/2026)
 1. Arquivo: `data_room_biga/03_FINANCEIRO_E_PRECOS/03_Unit_Economics_Custos_IA_e_Precos.md`.
 2. Premissas: R$ 5,50/US$; Simples 6%; gateway 3,99%; Biga paga todas as APIs (cenário conservador, hoje é BYOK).
 3. Margem bruta: Radar 76,4% (COGS R$ 21,52) · Designer 76,0% (R$ 44,39) · Imobiliária 78,3% (R$ 203,68, 8 assentos).
