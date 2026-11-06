@@ -32,3 +32,15 @@
 10. Próximo passo sugerido: tetos por plano + cache Gemini (Fase 1), depois migração para Postgres.
 
 Detalhe: `data_room_biga/02_PRODUTO_E_COMPLIANCE/02.1_Auditoria_Tecnica_e_Roadmap_3_Fases.md`.
+
+## 6. Data Room — Etapa 1/4 Financeiro (aprovação pendente)
+1. Arquivo: `data_room_biga/03_FINANCEIRO_E_PRECOS/03_Unit_Economics_Custos_IA_e_Precos.md`.
+2. Premissas: R$ 5,50/US$; Simples 6%; gateway 3,99%; Biga paga todas as APIs (cenário conservador, hoje é BYOK).
+3. Margem bruta: Radar 76,4% (COGS R$ 21,52) · Designer 76,0% (R$ 44,39) · Imobiliária 78,3% (R$ 203,68, 8 assentos).
+4. Uso justo: Radar 100 buscas SERP/1.500 pedidos IA, sem Apify · Designer 200 buscas/5 Apify/200 artes · Imob. 8 assentos + 20 Apify.
+5. Acima do limite: cai para o cérebro local + add-ons (R$ 19/50 buscas · R$ 49/10 Apify · R$ 29/100 artes · R$ 79/assento).
+6. Obrigatório: Flash-Lite fixo no matcher (Flash derruba o Radar para 70,9%) e fim do padrão Apify 20/dia.
+7. Break-even: OPEX R$ 21 mil → 134 contratos (80/40/14) = 232 corretores; MRR R$ 29,6 mil.
+8. Fase 2 autofinanciada (+R$ 25 mil/mês): 291 contratos = 501 corretores; MRR R$ 63,9 mil.
+9. Fase 2: taxa fixa por parceria (nunca % da comissão, por risco COFECI) + pacotes de proprietário R$ 297/597 + relatório de demanda R$ 2,5 mil.
+10. Fase 3: setup de R$ 45 mil por condomínio dividido entre associação e corretores fundadores; recorrência R$ 9,85 mil/mês; payback de 5,3 meses.
