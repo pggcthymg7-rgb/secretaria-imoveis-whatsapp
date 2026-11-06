@@ -9,6 +9,10 @@ const FILE = 'radar.json';
 const MAX = 800;
 let items = readJson(FILE, []);
 if (!Array.isArray(items)) items = [];
+// LGPD (retenção): pedidos dos grupos ficam no máximo 90 dias
+const RETENCAO_MS = 90 * 86400000;
+const dentroDaRetencao = i => !i || !i.ts || i.ts >= Date.now() - RETENCAO_MS;
+items = items.filter(dentroDaRetencao);
 let seq = items.reduce((m, i) => Math.max(m, Number(String(i.code || '').replace(/\D/g, '')) || 0), 0);
 let timer = null;
 
@@ -30,6 +34,7 @@ function add(entry) {
   const item = { code: `A${seq}`, ts: Date.now(), ...entry };
   items.unshift(item);
   if (items.length > MAX) items.length = MAX;
+  items = items.filter(dentroDaRetencao);
   persist();
   return item;
 }
@@ -93,4 +98,4 @@ function apagarTitular(telefone) {
   return n;
 }
 
-module.exports = { add, update, get, list, since, demand, flush, apagarTitular };
+module.exports = { add, update, get, list, since, demand, flush, apagarTitular, RETENCAO_MS };

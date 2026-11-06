@@ -115,3 +115,12 @@ test('LGPD: telefone e e-mail são mascarados antes de ir ao Gemini; preço e me
   assert.match(t, /120 m²/);
   assert.match(t, /Bueno/);
 });
+
+test('LGPD: Radar descarta pedidos com mais de 90 dias', () => {
+  const radar = require('../src/radar');
+  const velho = radar.add({ grupo: 'G', sender: 'Antigo', phone: '5562911112222', text: 'x' });
+  velho.ts = Date.now() - radar.RETENCAO_MS - 1000; // envelhece o registro guardado
+  radar.add({ grupo: 'G', sender: 'Novo', phone: '5562933334444', text: 'y' });
+  assert.ok(!radar.list({ limit: 1000 }).some(i => i.sender === 'Antigo'));
+  assert.ok(radar.list({ limit: 1000 }).some(i => i.sender === 'Novo'));
+});

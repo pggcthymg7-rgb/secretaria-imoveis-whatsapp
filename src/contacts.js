@@ -45,7 +45,13 @@ function phoneFromJid(jid) {
   const saved = readJson(KNOWN_CONTACTS_PATH, []);
   if (Array.isArray(saved)) saved.forEach(k => k && known.add(String(k)));
   const savedBook = readJson(BOOK_FILE, {});
-  for (const [k, v] of Object.entries(savedBook || {})) book.set(k, v);
+  // LGPD (retenção): contato fora da agenda do celular sem interação há 12 meses é expurgado
+  const limite = Date.now() - 365 * 86400000;
+  for (const [k, v] of Object.entries(savedBook || {})) {
+    const visto = v && v.visto ? Date.parse(v.visto) : NaN;
+    if (v && !v.agenda && !v.nome && Number.isFinite(visto) && visto < limite) continue;
+    book.set(k, v);
+  }
 })();
 
 const bootKnownCount = known.size;
