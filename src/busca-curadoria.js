@@ -7,10 +7,10 @@
  */
 const M = require('./gemini-modelo');
 
-/** Ordem: GEMINI_*_MODEL fixo, depois os "lite" (mais leves e menos sobrecarregados), depois os demais da chave */
+/** Ordem: GEMINI_*_MODEL fixo, depois os "lite" (mais leves e ~4x mais baratos), depois os demais da chave só se não houver lite */
 async function ordemDeModelos(chave, env, fetcher) {
   const fixo = String(env.GEMINI_CURADORIA_MODEL || env.GEMINI_BUSCA_MODEL || '').trim();
-  const lista = [fixo, 'gemini-2.5-flash-lite', 'gemini-2.5-flash', ...(await M.escolherModelos(chave, { fetcher, preferirLite: true, max: 4 }))].filter(Boolean);
+  const lista = [fixo, 'gemini-2.5-flash-lite', ...(await M.escolherModelos(chave, { fetcher, preferirLite: true, max: 4 }))].filter(Boolean);
   return [...new Set(lista)].filter(m => !M.ehIndisponivel(chave, m));
 }
 

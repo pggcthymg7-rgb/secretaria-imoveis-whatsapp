@@ -25,6 +25,7 @@ const leitor = require('./busca-anuncio');
 const { curar } = require('./busca-curadoria');
 const { buscarApify, apifyConfigurado } = require('./busca-apify');
 const links = require('./busca-links');
+const planos = require('./planos');
 
 const USO_FILE = 'busca_inteligente.json';
 const PORTAIS = { 'olx.com.br': 'OLX', 'zapimoveis.com.br': 'ZAP Imóveis', 'vivareal.com.br': 'VivaReal' };
@@ -221,7 +222,8 @@ function getConfig() {
       const m = motoresConfigurados(process.env);
       return { apify: m.apify, busca: m.serp.map(x => serp.NOME[x]), gemini: m.gemini };
     })(),
-    usadasHoje: usoHoje()
+    usadasHoje: usoHoje(),
+    plano: planos.resumo(process.env)
   };
 }
 
@@ -498,6 +500,7 @@ function explicarMotivo(p) {
       sem_chave: 'falta uma chave de busca: Tavily ou Serper (grátis, recomendado) ou Gemini. Painel › Ajustes, ou mande *chave tavily SUA_CHAVE*.',
       desligado: 'todos os portais estão desligados (painel › Busca, ou *portais olx zap vivareal*).',
       limite: 'limite diário de buscas atingido (protege de cobranças). Volta amanhã.',
+      limite_plano: 'as buscas nos portais do seu plano acabaram neste mês (uso justo). Os pedidos dos grupos e a carteira continuam funcionando; compre um pacote extra ou espere o próximo mês.',
       cota: `o Google respondeu "sem cota" (429)${d}.${modelos} Se a mensagem fala em "limit: 0", a busca com Google não vem no plano grátis desta chave: mande *testar gemini fundo*. Com uma chave Tavily ou Serper a busca passa a não depender disso.`,
       erro: `o Gemini não respondeu agora${d}.${modelos}`,
       sem_chave_busca: 'falta a chave do Tavily/Serper.',
@@ -524,7 +527,12 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
   const dominios = portaisAtivos();
   if (!dominios.length) return { ok: false, motivo: 'desligado', explicacao: explicarMotivo({ motivo: 'desligado' }), ...vazio };
   if (usoHoje() >= limiteDia(env)) return { ok: false, motivo: 'limite', explicacao: explicarMotivo({ motivo: 'limite' }), ...vazio };
+  if (!planos.podeUsar('buscas', env)) return { ok: false, motivo: 'limite_plano', explicacao: explicarMotivo({ motivo: 'limite_plano' }), ...vazio };
   registrarUso();
+  planos.registrar('buscas');
+  // Apify (US$ 0,16/busca) só com crédito de "busca profunda" do plano; sem crédito, segue no Serper/Tavily/Brave
+  const usarApify = m.apify && planos.podeUsar('apify', env);
+  if (usarApify && planos.planoAtual(env)) planos.registrar('apify');
   const descricao = descreverPedido(criterios);
   const via = [];
   const erros = [];
@@ -538,7 +546,7 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
   let cobertos = [];
 
   // Camada 3 — Apify
-  if (m.apify) {
+  if (usarApify) {
     const r = await buscarApify({ criterios, dominios, env, fetcher });
     if (r.ok) {
       algumOk = true;
@@ -546,7 +554,10 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
       // portal que o Apify cobriu mas voltou vazio continua no Serper/Tavily (nunca fica sem resultado)
       cobertos = r.cobertos.filter(d => r.itens.some(it => it.portalDominio === d));
       todos.push(...finalizarItens(r.itens, { permitidos: null, dominios, criterios, certeza: 'anúncio' }).itens);
-    } else erros.push({ camada: 'apify', ...r });
+    } else {
+      erros.push({ camada: 'apify', ...r });
+      if (planos.planoAtual(env)) planos.devolver('apify'); // Apify que falhou não gasta crédito
+    }
   }
 
   // Camada 2 — busca desacoplada + curadoria
@@ -628,6 +639,7 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
 
   if (!algumOk) {
     devolverUso(); // busca que nenhum motor respondeu não conta no limite do dia
+    planos.devolver('buscas');
     const e = erros[0] || { motivo: 'erro' };
     const { camada, ...resto } = e;
     return { ok: false, ...resto, erros, explicacao: explicarMotivo(e), ...vazio };

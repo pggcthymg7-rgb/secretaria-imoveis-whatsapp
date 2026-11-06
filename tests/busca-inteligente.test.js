@@ -941,12 +941,12 @@ test('Curadoria resiliente: 404 lembra, 503 tenta de novo e depois passa ao pró
   let r = await curar({ chave: 'k-res', descricao: 'x', catalogo, env, fetcher: w.fetcher });
   assert.equal(r.ok, true);
   assert.equal(r.modelo, 'gemini-3.5-flash-lite', 'os "lite" vão primeiro nesta tarefa simples');
-  assert.deepEqual(w.chamadas, ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.5-flash-lite']);
+  assert.deepEqual(w.chamadas, ['gemini-2.5-flash-lite', 'gemini-3.5-flash-lite'], 'o Flash cheio (~4x mais caro) não é tentado quando há lite');
   // 2) na 2ª busca os 2.5 já são lembrados como indisponíveis: nem são chamados
   w = montar(m => (/^gemini-2\.5/.test(m) ? 404 : m === 'gemini-3.8-flash' ? 503 : 'ok'));
   r = await curar({ chave: 'k-res', descricao: 'x', catalogo, env, fetcher: w.fetcher });
   assert.deepEqual(w.chamadas, ['gemini-3.5-flash-lite']);
-  assert.ok(M.ehIndisponivel('k-res', 'gemini-2.5-flash') && M.ehIndisponivel('k-res', 'gemini-2.5-flash-lite'));
+  assert.ok(M.ehIndisponivel('k-res', 'gemini-2.5-flash-lite'));
 
   // 3) 503 passageiro: o mesmo modelo é tentado de novo e funciona na 3ª vez
   M.esquecer('k-res');

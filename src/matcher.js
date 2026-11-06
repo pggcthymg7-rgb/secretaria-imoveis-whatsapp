@@ -127,9 +127,52 @@ function buildHumanContextualParts(messageText, senderName, humanTraining = '', 
 // ---------------------------------------------------------------------------
 // Gemini (opcional): só ajuda a identificar nomes de lugares que o mapa não conhece
 // ---------------------------------------------------------------------------
+// Cache da extração por IA: o mesmo pedido repostado em vários grupos paga o Gemini uma vez só
+const CACHE_IA_MAX = 500;
+const CACHE_IA_TTL_MS = 7 * 24 * 3600 * 1000;
+const cacheIa = new Map(); // hash do texto normalizado -> { lugares, ate }
+
+function chaveCacheIa(messageText) {
+  return require('crypto').createHash('sha256').update(normalize(String(messageText).slice(0, 2000)).replace(/\s+/g, ' ').trim()).digest('hex');
+}
+
+/** O cérebro local já entendeu o local com segurança? Então o Gemini não precisa ser chamado. */
+function localConfiante(local) {
+  if (!local) return false;
+  if (local.qualquer) return true;
+  const achou = ['regioes', 'bairros', 'perto', 'marcos', 'condominios', 'edificios', 'cidades'].some(k => Array.isArray(local[k]) && local[k].length) || Boolean(local.raio);
+  return achou && !local.localNaoReconhecido && !(local.nomesDesconhecidos || []).length;
+}
+
+/** Modelo da extração: GEMINI_MODEL fixo ou o Flash-Lite mais novo da chave (o Flash cheio custa ~4x mais) */
+async function modeloExtracao(apiKey) {
+  const fixo = String(process.env.GEMINI_MODEL || '').trim();
+  if (fixo) return fixo;
+  const lista = await require('./gemini-modelo').escolherModelos(apiKey, { preferirLite: true, max: 1 });
+  return lista[0] || require('./gemini-modelo').FALLBACK;
+}
+
 async function aiExtractPlaces(messageText) {
   const apiKey = (process.env.GEMINI_API_KEY || '').trim();
   if (!apiKey || apiKey === 'coloque_sua_chave_aqui') return null;
+  const chave = chaveCacheIa(messageText);
+  const salvo = cacheIa.get(chave);
+  if (salvo && salvo.ate > Date.now()) return salvo.lugares;
+  const planos = require('./planos');
+  if (!planos.podeUsar('ia')) return null; // teto do plano: segue só com o cérebro local
+  planos.registrar('ia');
+  try {
+    const lugares = await chamarGemini(apiKey, messageText);
+    if (cacheIa.size >= CACHE_IA_MAX) cacheIa.delete(cacheIa.keys().next().value);
+    cacheIa.set(chave, { lugares, ate: Date.now() + CACHE_IA_TTL_MS });
+    return lugares;
+  } catch (err) {
+    planos.devolver('ia'); // chamada que falhou não conta no mês
+    throw err;
+  }
+}
+
+async function chamarGemini(apiKey, messageText) {
   const ai = new GoogleGenAI({ apiKey });
   const prompt = `Você lê pedidos de imóveis em grupos de corretores de Goiânia-GO.
 Extraia SOMENTE nomes de lugares citados no texto: bairros/setores, condomínios, edifícios/empreendimentos, cidades, praças, avenidas e pontos de referência.
@@ -138,7 +181,7 @@ Responda apenas JSON: {"lugares":[{"nome":"texto exatamente como aparece","tipo"
 TEXTO:
 """${String(messageText).slice(0, 2000)}"""`;
   const call = ai.models.generateContent({
-    model: process.env.GEMINI_MODEL || (await require('./gemini-modelo').escolherModelo(apiKey)),
+    model: await modeloExtracao(apiKey),
     contents: prompt,
     config: { responseMimeType: 'application/json', temperature: 0 }
   });
@@ -209,7 +252,7 @@ async function analyzeMessageAndMatch(messageText, senderName, inventory, option
   }
 
   let usedEngine = 'Motor de regras + Mapa de Goiânia';
-  if (options.useAi !== false && settings.usarIaGemini !== false) {
+  if (options.useAi !== false && settings.usarIaGemini !== false && !localConfiante(criteria.local)) {
     try {
       const aiPlaces = await aiExtractPlaces(messageText);
       if (aiPlaces) {
@@ -338,6 +381,8 @@ function formatOutreachMessage(senderName, originalMessage, property, analysisCo
 
 module.exports = {
   analyzeMessageAndMatch,
+  localConfiante,
+  chaveCacheIa,
   formatOutreachMessage,
   buildHumanContextualParts,
   describeProperty,
