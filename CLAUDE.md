@@ -1,19 +1,16 @@
-# Regras de Engenharia Autônoma
-Você opera em modo de execução autônoma rigorosa. Sempre que receber tarefas, correções ou modificações:
-- Nunca pare na metade para pedir confirmação. Tome a decisão técnica mais segura e continue.
-- Nenhuma tarefa está concluída até que o comando de build/typecheck e os testes passem com 0 erros.
-- Se uma correção quebrar outro arquivo, rastreie a causa raiz e corrija em loop até estabilizar.
-- Antes de encerrar qualquer sessão, execute obrigatoriamente uma checagem de segurança (dados expostos, injeção, chaves hardcoded, rotas desprotegidas).
+# Biga PropTech — memória raiz
+Leia `ESTADO_ATUAL.md` antes de qualquer tarefa. Regras de engenharia e mapa do código: `.claude/ENGENHARIA.md` (`npm run verify` com 0 erros).
 
-## Comandos do projeto
-- Verificação completa (sintaxe + testes): `npm run verify`
-- Só testes: `npm test` (usa pasta temporária — nunca toca na planilha real)
-- Rodar local: `PAINEL_SENHA=algumasenha npm start` → http://localhost:3000
+## Tese: "Come for the tool, stay for the network"
+1. Ferramenta: Assistente WhatsApp (Radar de grupos) + Designer de PDFs/Artes.
+2. Rede: CRM + Ranking Meritocrático de Corretores + Parcerias.
+3. Portal Imersivo 3D de condomínios fechados (ex.: Jardins Itália).
 
-## Mapa do código
-- `src/brain/` — cérebro: mapa de Goiânia (`gazetteer.js`), localização (`locations.js`), intérprete de pedidos (`parser.js`), motor de compatibilidade (`engine.js`)
-- `src/matcher.js` — decisão ENVIAR/AVISAR/SILÊNCIO e mensagem humana
-- `src/whatsapp.js` — conexão Baileys e roteamento; `src/atendimento-diario.js` — 1ª mensagem e ligações; `src/contacts.js` — memória de contatos (telefone + LID)
-- `src/assistant.js` — comandos no "Mensagem para mim"; `src/vitrine.js`, `src/prospeccao.js`, `src/scheduler.js`, `src/radar.js`
-- `src/auth.js` — login do painel; `src/public/` — painel (Dala design system)
-- Mensagens reais de grupos para regressão: `tests/fixtures-mensagens-reais.js` (sempre adicione novos casos reais aqui)
+## Marca
+Preto Obsidian `#0D0D0D` · Branco `#FFFFFF` · Dourado Champagne `#D4AF37`. Fontes: Plus Jakarta Sans (títulos), Inter (texto).
+
+## Trava financeira
+Planos R$ 97 (Radar) · R$ 197 (Designer) · R$ 997 (Imobiliária). Margem bruta mínima > 75% — nenhuma feature entra sem passar nisso.
+
+## Economia de tokens
+Respostas executivas: tabelas e listas enxutas, sem introdução. Skills sob demanda em `.claude/skills/`.
