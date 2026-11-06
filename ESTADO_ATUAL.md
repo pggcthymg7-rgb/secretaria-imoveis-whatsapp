@@ -68,7 +68,7 @@ Detalhe: `data_room_biga/02_PRODUTO_E_COMPLIANCE/02.1_Auditoria_Tecnica_e_Roadma
 8. Pesquisa primária pendente: ativos por município (CRECI-GO), 30 entrevistas de disposição a pagar, lista de condomínios.
 9. Ordem combinada: Etapa 4 = Sala do Investidor (05). Marketing (06) fica fora das 4 etapas, salvo nova ordem.
 
-## 9. Data Room — Etapa 4/4 Sala do Investidor (aprovação pendente)
+## 9. Data Room — Etapa 4/4 Sala do Investidor (APROVADA 06/11/2026)
 1. Arquivo: `data_room_biga/05_SALA_DO_INVESTIDOR/05_Tese_Captacao_e_Uso_dos_Recursos.md`.
 2. Rodada proposta: pré-seed de R$ 600 mil em mútuo conversível (LC 182/2021); cap de R$ 6,0 mi post-money; desconto de 20%; ~10% de diluição.
 3. Mínimo viável: R$ 120 mil (só o caixa até o break-even). Múltiplo implícito: 5,7× a receita anual do M18.
