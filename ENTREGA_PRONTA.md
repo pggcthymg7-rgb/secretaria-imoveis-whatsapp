@@ -1,3 +1,44 @@
+# ✅ Entrega v6 (06/11/2026): uso justo por plano, IA mais barata, LGPD e Data Room completo
+
+## O que foi feito
+| Item | Resultado | Arquivos |
+|---|---|---|
+| **1. Tetos mensais por plano** | `BIGA_PLANO=radar|designer|imobiliaria` no `.env`. Radar: 100 buscas/mês, sem Apify, 1.500 pedidos com IA · Designer: 200 buscas, 5 Apify, 3.000 IA · Imobiliária: 800 buscas, 20 Apify, 12.000 IA. Sem plano = instalação própria (chaves do corretor), sem teto mensal. Ao acabar o saldo, a busca explica "uso justo" e o resto continua funcionando. Chamada que falha devolve o crédito. | `src/planos.js` (novo), `src/busca-inteligente.js`, `.env.example` |
+| **2. Apify só com crédito** | No plano Radar o Apify (US$ 0,16/busca) não é chamado mesmo com token; a busca segue no Serper/Tavily/Brave. | `src/busca-inteligente.js` |
+| **3. Gemini Flash-Lite + cache** | A extração de lugares usa o Flash-Lite mais novo da chave (o Flash cheio custa ~4× mais), guarda o resultado por hash do texto (o mesmo pedido em 10 grupos paga 1 vez) e **só chama a IA quando o cérebro local tem dúvida**. A curadoria não tenta mais o Flash cheio quando há lite. | `src/matcher.js`, `src/busca-curadoria.js` |
+| **4. LGPD: exclusão do titular** | Comando `apagar dados 62 99999-9999` no "Mensagem para mim": apaga nome, telefone e LID da agenda e os pedidos do Radar (com e sem o 9º dígito). | `src/contacts.js`, `src/radar.js`, `src/assistant.js` |
+| **5. LGPD: minimização** | Telefone e e-mail são mascarados antes de o texto ir ao Gemini. | `src/matcher.js` |
+| **6. LGPD: retenção** | Radar guarda no máximo 90 dias; contato fora da agenda do celular sem interação há 12 meses é expurgado. `uso_plano.json` fora do Git. | `src/radar.js`, `src/contacts.js`, `.gitignore` |
+| **7. Termos, Privacidade e DPA** | Auditoria de fluxos de dados + minutas (revisão jurídica obrigatória). | `data_room_biga/02_PRODUTO_E_COMPLIANCE/02.2_Termos_Privacidade_e_DPA.md` |
+| **8. Pasta 06 (marca e pitch)** | Manual de marca, deck de 10 slides, roteiro do vídeo de 90 s e peças de aquisição. | `data_room_biga/06_MARKETING_MARCA_E_VIDEO/06_Marca_Pitch_e_Roteiro_Video.md` |
+| **9. Data Room etapas 1 a 4** | Unit economics, go-to-market, mercado e sala do investidor (aprovados). | `data_room_biga/01`, `03`, `04`, `05` |
+
+## Bugs e ajustes durante o trabalho
+- Teste de LGPD revelou que `apagar dados (62) 98888-7777` não era reconhecido (o número começava com parêntese): regex corrigida.
+- O teste antigo da curadoria esperava a tentativa no `gemini-2.5-flash`; atualizado para a regra nova (o Flash cheio não é tentado quando há lite).
+
+## Testes
+| Comando | Resultado |
+|---|---|
+| `npm run verify` | ✅ 72 arquivos verificados, 0 erros · **169 testes, 169 passando, 0 falhas** (eram 158; +11 em `tests/planos.test.js`) |
+
+## Auditoria de segurança
+| Checagem | Resultado |
+|---|---|
+| Credenciais expostas | ✅ nenhuma chave real no código; as que aparecem nos testes são fictícias (já existiam) |
+| `.env` e JSON de dados no Git | ✅ nenhum versionado; `uso_plano.json` adicionado ao `.gitignore` |
+| Comando `apagar dados` | ✅ só funciona no chat "Mensagem para mim" do próprio dono (`src/whatsapp.js`, `ownerChat`) |
+| Rotas do painel | ✅ `/api` continua atrás de `requireAppHeader` + `requireAuth` (`index.js:78-82`) |
+| Validação de entrada | ✅ telefone exige 10 ou mais dígitos; tipo de uso do plano validado (lança erro em tipo desconhecido); plano desconhecido não inventa limite |
+| Memória e ReDoS | ✅ cache da IA limitado a 500 entradas e 7 dias; regex com tamanho limitado |
+
+## O que depende de você
+- Definir `BIGA_PLANO` nas instalações vendidas como SaaS (João e Laura seguem sem teto, com as chaves próprias).
+- Revisar as minutas com advogado e nomear o Encarregado (DPO).
+- Itens antigos do backlog que precisam de você: revisar a carteira, ensinar edifícios no Cérebro, chaves do Garimpo e do Gemini, desligar o Render, importar o histórico.
+
+---
+
 # ✅ Entrega v5 (noite de 04/11/2026): vitrine, busca mais esperta, Capas, Fichas PDF e 🎯 Quem procura
 
 ## O que foi feito

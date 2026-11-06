@@ -76,3 +76,11 @@ Detalhe: `data_room_biga/02_PRODUTO_E_COMPLIANCE/02.1_Auditoria_Tecnica_e_Roadma
 5. Marcos: M1 tetos/cache · M6 100 contratos + fim do Baileys · M8 break-even · M9 Fase 2 · M12 piloto 3D · M14–M18 Seed.
 6. Riscos principais: Meta/Baileys, custo de LLM, churn, dependência da Imobiliária (47% da MC), praça única.
 7. Pendências da diligência: pasta 06 (deck/marca/vídeo), jurídico (cap table, PI, INPI), Termos/Privacidade/DPA.
+
+## 10. Entrega v6 (resolver-tudo, 06/11/2026)
+1. `src/planos.js`: tetos mensais por `BIGA_PLANO` (radar/designer/imobiliaria); sem plano = instalação própria, sem teto.
+2. Apify só com crédito do plano; busca nos portais com teto mensal e devolução em caso de falha.
+3. Matcher: Flash-Lite, cache por hash e Gemini só quando o cérebro local tem dúvida (resolve o item 5 do §5).
+4. LGPD: `apagar dados <tel>`, máscara de contatos antes da IA, retenção Radar 90 dias / contatos 12 meses.
+5. Data Room completo: 01–06 + 02.2 (Termos, Privacidade, DPA). `npm run verify`: 169/169.
+6. Próximo: paleta Biga no Designer, Cloud API, Postgres multi-tenant.

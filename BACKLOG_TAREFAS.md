@@ -63,3 +63,14 @@
 - [x] Editor de capa (beta): canvas imobiliário com modelos editáveis
 - [x] Surpresa: 🎯 "Quem procura este imóvel?" — ao cadastrar, a BIGA relê os pedidos dos grupos (60 dias) e oferece o imóvel a quem pediu
 - [x] Gerador de PDF minimalista e editável dos imóveis (baixar ou enviar pelo WhatsApp)
+
+## 8. Viabilidade, LGPD e Data Room (06/11/2026)
+- [x] Tetos mensais por plano (`BIGA_PLANO`): buscas, créditos Apify e pedidos com IA
+- [x] Gemini Flash-Lite por padrão, cache por hash e IA só quando o cérebro local tem dúvida
+- [x] LGPD: comando `apagar dados <telefone>`, máscara de telefone/e-mail antes da IA, retenção (Radar 90 dias, contatos 12 meses)
+- [x] Minutas de Termos de Uso, Política de Privacidade e DPA (`data_room_biga/02_PRODUTO_E_COMPLIANCE/02.2_Termos_Privacidade_e_DPA.md`)
+- [x] Pasta 06: marca, pitch deck e roteiro do vídeo de demonstração
+- [ ] Revisão jurídica das minutas e nomeação do DPO — **precisa de você**
+- [ ] Definir `BIGA_PLANO` nas instalações SaaS — **precisa de você**
+- [ ] Aplicar a paleta e as fontes da Biga no Designer (ficha PDF e capas)
+- [ ] Migrar do Baileys para a WhatsApp Cloud API (risco Meta)
