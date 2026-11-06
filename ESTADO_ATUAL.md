@@ -44,3 +44,15 @@ Detalhe: `data_room_biga/02_PRODUTO_E_COMPLIANCE/02.1_Auditoria_Tecnica_e_Roadma
 8. Fase 2 autofinanciada (+R$ 25 mil/mês): 291 contratos = 501 corretores; MRR R$ 63,9 mil.
 9. Fase 2: taxa fixa por parceria (nunca % da comissão, por risco COFECI) + pacotes de proprietário R$ 297/597 + relatório de demanda R$ 2,5 mil.
 10. Fase 3: setup de R$ 45 mil por condomínio dividido entre associação e corretores fundadores; recorrência R$ 9,85 mil/mês; payback de 5,3 meses.
+
+## 7. Data Room — Etapa 2/4 Vendas (aprovação pendente)
+1. Arquivo: `data_room_biga/04_VENDAS_E_CRESCIMENTO/04_Go_to_Market_CAC_LTV_e_Metas.md`.
+2. Canais: Indicação 35% · selo "feito com Biga" 25% · Eventos 15% · Meta Ads 15% · Venda consultiva Imob. 10%; CAC ponderado R$ 269.
+3. Churn (premissa): Radar 6% · Designer 4% · Imob. 2,5% → ponderado 5,05%; LTV/CAC 17,4×; payback 1,7 mês.
+4. Funil Radar: lead → teste 25% → ativado (1º match em 7 dias) 70% → pago 40% = 7%; North Star = matches/corretor/semana.
+5. Plano anual só no Pix com 10% de desconto (margem ≥ 77%); no cartão, proibido (Radar cai para cerca de 72%).
+6. Metas: break-even em M8 (151 contratos) · resultado positivo em M9 · 291 contratos em M14 · Fase 2 autofinanciada em M16.
+7. Caixa até o break-even: pico de −R$ 95,5 mil → captação mínima de R$ 120 mil (insumo para a Sala do Investidor).
+8. A Imobiliária é 10% dos contratos e 47% da MC; sem ela, o break-even vai para 225 contratos e o pico de caixa para R$ 162 mil.
+9. Compliance do GTM: sem disparo em massa nos grupos; prospecção só com opt-in ou indicação; venda sempre como SaaS, sem intermediação.
+10. 90 dias: Embaixadores, selo nas peças + página de teste, instrumentar funil e coortes no painel.
