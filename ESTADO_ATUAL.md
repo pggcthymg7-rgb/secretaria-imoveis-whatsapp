@@ -42,3 +42,47 @@
 10. Próximo passo sugerido: tetos por plano + cache Gemini (Fase 1), depois migração para Postgres.
 
 Detalhe: `data_room_biga/02_PRODUTO_E_COMPLIANCE/02.1_Auditoria_Tecnica_e_Roadmap_3_Fases.md`.
+
+## 6. Data Room — Etapa 1/4 Financeiro (APROVADA 06/11/2026)
+1. Arquivo: `data_room_biga/03_FINANCEIRO_E_PRECOS/03_Unit_Economics_Custos_IA_e_Precos.md`.
+2. Premissas: R$ 5,50/US$; Simples 6%; gateway 3,99%; Biga paga todas as APIs (cenário conservador, hoje é BYOK).
+3. Margem bruta: Radar 76,4% (COGS R$ 21,52) · Designer 76,0% (R$ 44,39) · Imobiliária 78,3% (R$ 203,68, 8 assentos).
+4. Uso justo: Radar 100 buscas SERP/1.500 pedidos IA, sem Apify · Designer 200 buscas/5 Apify/200 artes · Imob. 8 assentos + 20 Apify.
+5. Acima do limite: cai para o cérebro local + add-ons (R$ 19/50 buscas · R$ 49/10 Apify · R$ 29/100 artes · R$ 79/assento).
+6. Obrigatório: Flash-Lite fixo no matcher (Flash derruba o Radar para 70,9%) e fim do padrão Apify 20/dia.
+7. Break-even: OPEX R$ 21 mil → 134 contratos (80/40/14) = 232 corretores; MRR R$ 29,6 mil.
+8. Fase 2 autofinanciada (+R$ 25 mil/mês): 291 contratos = 501 corretores; MRR R$ 63,9 mil.
+9. Fase 2: taxa fixa por parceria (nunca % da comissão, por risco COFECI) + pacotes de proprietário R$ 297/597 + relatório de demanda R$ 2,5 mil.
+10. Fase 3: setup de R$ 45 mil por condomínio dividido entre associação e corretores fundadores; recorrência R$ 9,85 mil/mês; payback de 5,3 meses.
+
+## 7. Data Room — Etapa 2/4 Vendas (APROVADA 06/11/2026)
+1. Arquivo: `data_room_biga/04_VENDAS_E_CRESCIMENTO/04_Go_to_Market_CAC_LTV_e_Metas.md`.
+2. Canais: Indicação 35% · selo "feito com Biga" 25% · Eventos 15% · Meta Ads 15% · Venda consultiva Imob. 10%; CAC ponderado R$ 269.
+3. Churn (premissa): Radar 6% · Designer 4% · Imob. 2,5% → ponderado 5,05%; LTV/CAC 17,4×; payback 1,7 mês.
+4. Funil Radar: lead → teste 25% → ativado (1º match em 7 dias) 70% → pago 40% = 7%; North Star = matches/corretor/semana.
+5. Plano anual só no Pix com 10% de desconto (margem ≥ 77%); no cartão, proibido (Radar cai para cerca de 72%).
+6. Metas: break-even em M8 (151 contratos) · resultado positivo em M9 · 291 contratos em M14 · Fase 2 autofinanciada em M16.
+7. Caixa até o break-even: pico de −R$ 95,5 mil → captação mínima de R$ 120 mil (insumo para a Sala do Investidor).
+8. A Imobiliária é 10% dos contratos e 47% da MC; sem ela, o break-even vai para 225 contratos e o pico de caixa para R$ 162 mil.
+9. Compliance do GTM: sem disparo em massa nos grupos; prospecção só com opt-in ou indicação; venda sempre como SaaS, sem intermediação.
+10. 90 dias: Embaixadores, selo nas peças + página de teste, instrumentar funil e coortes no painel.
+
+## 8. Data Room — Etapa 3/4 Mercado (APROVADA 06/11/2026)
+1. Arquivo: `data_room_biga/01_MERCADO_E_PESQUISA/01_Mercado_TAM_SAM_SOM_e_Concorrencia.md` (fontes públicas citadas).
+2. Dados: ~650 mil corretores no Brasil (Cofeci 2025); 39.622 em Goiás (CRECI-GO, ago/2024, +7,21% em 12 meses).
+3. Receita média por corretor de R$ 127,60/mês (mix do break-even) → TAM R$ 995 mi/ano · SAM Goiás R$ 30,3 mi · SAM Goiânia R$ 16,7 mi.
+4. SOM em 18 meses: 682 corretores, ARR de R$ 1,05 mi = 6,3% do SAM Goiânia (abaixo do teto de 10%).
+5. Premissas a validar: 50% dos registrados atuantes, 55% em Goiânia, 30 condomínios horizontais de alto padrão.
+6. Concorrência: CRMs (iMobzi R$ 129, ImobNuvem R$ 99, Kenlo/Jetimob sob consulta) não leem a demanda dos grupos.
+7. Posicionamento: "os CRMs organizam o que o corretor já tem; a Biga traz o que ele está perdendo".
+8. Pesquisa primária pendente: ativos por município (CRECI-GO), 30 entrevistas de disposição a pagar, lista de condomínios.
+9. Ordem combinada: Etapa 4 = Sala do Investidor (05). Marketing (06) fica fora das 4 etapas, salvo nova ordem.
+
+## 9. Data Room — Etapa 4/4 Sala do Investidor (APROVADA 06/11/2026)
+1. Arquivo: `data_room_biga/05_SALA_DO_INVESTIDOR/05_Tese_Captacao_e_Uso_dos_Recursos.md`.
+2. Rodada proposta: pré-seed de R$ 600 mil em mútuo conversível (LC 182/2021); cap de R$ 6,0 mi post-money; desconto de 20%; ~10% de diluição.
+3. Mínimo viável: R$ 120 mil (só o caixa até o break-even). Múltiplo implícito: 5,7× a receita anual do M18.
+4. Uso: 20% caixa até o BE · 25% Fase 2 antecipada (M6) · 10% Cloud API + Postgres · 25% aceleração comercial · 7,5% piloto 3D · 5% jurídico/pesquisa · 7,5% reserva.
+5. Marcos: M1 tetos/cache · M6 100 contratos + fim do Baileys · M8 break-even · M9 Fase 2 · M12 piloto 3D · M14–M18 Seed.
+6. Riscos principais: Meta/Baileys, custo de LLM, churn, dependência da Imobiliária (47% da MC), praça única.
+7. Pendências da diligência: pasta 06 (deck/marca/vídeo), jurídico (cap table, PI, INPI), Termos/Privacidade/DPA.
