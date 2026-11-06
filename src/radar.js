@@ -82,4 +82,15 @@ function flush() {
   writeJson(FILE, items);
 }
 
-module.exports = { add, update, get, list, since, demand, flush };
+/** LGPD: apaga do Radar os pedidos de um titular (pelo telefone). Retorna quantos saíram. */
+function apagarTitular(telefone) {
+  const alvo = new Set(require('./contacts').variantesTelefone(telefone));
+  if (!alvo.size) return 0;
+  const antes = items.length;
+  items = items.filter(i => !alvo.has(String((i && i.phone) || '').replace(/\D/g, '')));
+  const n = antes - items.length;
+  if (n) persist();
+  return n;
+}
+
+module.exports = { add, update, get, list, since, demand, flush, apagarTitular };

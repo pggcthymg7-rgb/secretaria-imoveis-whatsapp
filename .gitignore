@@ -24,6 +24,7 @@ anuncios.json
 ancoras_grupos.json
 busca_inteligente.json
 busca_historico.json
+uso_plano.json
 
 # Graphify local (gerado no CI)
 graphify-out/

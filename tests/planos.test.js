@@ -85,3 +85,24 @@ test('matcher: cache da IA ignora caixa, acento e espaços (mesmo pedido em vár
   assert.equal(matcher.chaveCacheIa('Procuro  APTO no Setor Bueno'), matcher.chaveCacheIa('procuro apto no setor bueno'));
   assert.notEqual(matcher.chaveCacheIa('apto no Bueno'), matcher.chaveCacheIa('apto no Marista'));
 });
+
+test('LGPD: "apagar dados" esquece o titular na agenda e no Radar (com e sem o 9º dígito)', async () => {
+  const contacts = require('../src/contacts');
+  const radar = require('../src/radar');
+  const assistant = require('../src/assistant');
+  contacts.upsertContact({ id: '5562988887777@s.whatsapp.net', name: 'Maria', agenda: true });
+  contacts.markKnown('5562988887777@s.whatsapp.net');
+  contacts.upsertContact({ id: '5562977776666@s.whatsapp.net', name: 'Outro', agenda: true });
+  radar.add({ grupo: 'G', sender: 'Maria', phone: '556288887777', text: 'procuro apto' });
+  radar.add({ grupo: 'G', sender: 'Outro', phone: '5562977776666', text: 'procuro casa' });
+  const sent = [];
+  const wa = { sendText: async (j, t) => sent.push(t) };
+  assert.equal(await assistant.handleOwnerMessage(wa, { chatJid: '556299999999@s.whatsapp.net', text: 'apagar dados (62) 98888-7777' }), true);
+  assert.match(sent.at(-1), /apagados \(LGPD\)/);
+  assert.equal(contacts.isKnown('5562988887777@s.whatsapp.net'), false);
+  assert.ok(!contacts.listContacts().some(c => c.nome === 'Maria'));
+  assert.ok(contacts.listContacts().some(c => c.nome === 'Outro'), 'outro titular fica');
+  assert.ok(!radar.list({ limit: 1000 }).some(i => i.sender === 'Maria'));
+  assert.ok(radar.list({ limit: 1000 }).some(i => i.sender === 'Outro'));
+  assert.equal(await assistant.handleOwnerMessage(wa, { chatJid: '556299999999@s.whatsapp.net', text: 'apagar dados 9888' }), false, 'número curto não casa o comando');
+});

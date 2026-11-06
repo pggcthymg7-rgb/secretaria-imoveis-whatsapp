@@ -160,8 +160,43 @@ function stats() {
   return { conhecidos: known.size, agenda: listContacts().filter(c => c.agenda).length, bootKnownCount };
 }
 
+/** Variantes de um telefone BR (com/sem 55, com/sem o 9º dígito) para achar o mesmo titular */
+function variantesTelefone(tel) {
+  const d = String(tel || '').replace(/\D/g, '');
+  if (d.length < 10) return [];
+  const com55 = d.startsWith('55') && d.length >= 12 ? d : `55${d}`;
+  const v = new Set([d, com55, com55.slice(2)]);
+  if (com55.length === 13 && com55[4] === '9') v.add(com55.slice(0, 4) + com55.slice(5)); // sem o 9
+  if (com55.length === 12) v.add(com55.slice(0, 4) + '9' + com55.slice(4)); // com o 9
+  for (const x of [...v]) if (x.startsWith('55')) v.add(x.slice(2));
+  return [...v];
+}
+
+/**
+ * LGPD (direito de exclusão do titular): apaga nome, telefone e LID do contato da agenda
+ * e da lista de conhecidos. Retorna quantos registros saíram.
+ */
+function apagarTitular(telefone) {
+  const alvo = new Set(variantesTelefone(telefone));
+  if (!alvo.size) return 0;
+  const bate = x => Boolean(x) && alvo.has(keyOf(x));
+  let n = 0;
+  for (const [k, v] of [...book]) {
+    if (bate(k) || bate(v && v.telefone)) {
+      if (v && v.lid) known.delete(keyOf(v.lid));
+      book.delete(k);
+      n++;
+    }
+  }
+  for (const k of [...known]) if (alvo.has(k)) { known.delete(k); n++; }
+  flush();
+  return n;
+}
+
 module.exports = {
   keyOf,
+  variantesTelefone,
+  apagarTitular,
   isLid,
   phoneFromJid,
   markKnown,

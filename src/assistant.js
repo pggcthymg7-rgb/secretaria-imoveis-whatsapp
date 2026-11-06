@@ -167,6 +167,7 @@ const HELP = `${BOT} *Oi, eu sou a BIGA!* Seus comandos:
 • *grupos da busca* · *busca grupos 1,4,7* · *busca grupos todos*
 • *limite busca 30* · *portais olx zap vivareal* · *chave gemini SUA_CHAVE* · *testar gemini* · *testar gemini fundo* · *testar olx* · *testar apify*
 • busca nos portais sem depender do Google: *chave tavily SUA_CHAVE* ou *chave serper SUA_CHAVE* (grátis: tavily.com · serper.dev) · opcional: *chave apify SEU_TOKEN*
+🔒 *apagar dados 62 99999-9999* (LGPD: esquece um contato que pediu exclusão)
 ⚙️ *status* · *pausar* · *retomar* · *ajuda*`;
 
 async function reply(wa, chatJid, text) {
@@ -352,6 +353,19 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
   if (/^(testar gemini|testar chave|testar chave gemini|teste gemini)$/.test(norm)) {
     const r = await require('./gemini-chave').testarChaveSalva();
     await reply(wa, chatJid, `🔑 ${r.mensagem}`);
+    return true;
+  }
+  // LGPD: o titular pediu para ser esquecido -> "apagar dados 62 99999-9999"
+  const apagar = text.match(/^\s*(?:apagar|excluir|esquecer)\s+(?:os\s+)?(?:dados|contato|titular)\s*(?:de|do|da)?\s*:?\s*([+(\d][\d\s().-]{8,20})\s*$/i);
+  if (apagar) {
+    const tel = apagar[1].replace(/\D/g, '');
+    if (tel.length < 10) {
+      await reply(wa, chatJid, 'Mande o telefone com DDD. Ex.: *apagar dados 62 99999-9999*');
+      return true;
+    }
+    const nContatos = require('./contacts').apagarTitular(tel);
+    const nRadar = require('./radar').apagarTitular(tel);
+    await reply(wa, chatJid, `🗑️ Dados do titular ${tel} apagados (LGPD): ${nContatos} registro(s) de contato e ${nRadar} pedido(s) do Radar. Os grupos e o histórico do seu próprio WhatsApp não são alterados pela BIGA.`);
     return true;
   }
   const chaveBusca = text.match(/^\s*chave\s+(tavily|serper|brave|apify)\s*:?\s+([\s\S]{8,400})$/i);
