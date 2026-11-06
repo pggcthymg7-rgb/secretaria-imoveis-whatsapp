@@ -57,7 +57,7 @@ Detalhe: `data_room_biga/02_PRODUTO_E_COMPLIANCE/02.1_Auditoria_Tecnica_e_Roadma
 9. Compliance do GTM: sem disparo em massa nos grupos; prospecção só com opt-in ou indicação; venda sempre como SaaS, sem intermediação.
 10. 90 dias: Embaixadores, selo nas peças + página de teste, instrumentar funil e coortes no painel.
 
-## 8. Data Room — Etapa 3/4 Mercado (aprovação pendente)
+## 8. Data Room — Etapa 3/4 Mercado (APROVADA 06/11/2026)
 1. Arquivo: `data_room_biga/01_MERCADO_E_PESQUISA/01_Mercado_TAM_SAM_SOM_e_Concorrencia.md` (fontes públicas citadas).
 2. Dados: ~650 mil corretores no Brasil (Cofeci 2025); 39.622 em Goiás (CRECI-GO, ago/2024, +7,21% em 12 meses).
 3. Receita média por corretor de R$ 127,60/mês (mix do break-even) → TAM R$ 995 mi/ano · SAM Goiás R$ 30,3 mi · SAM Goiânia R$ 16,7 mi.
@@ -67,3 +67,12 @@ Detalhe: `data_room_biga/02_PRODUTO_E_COMPLIANCE/02.1_Auditoria_Tecnica_e_Roadma
 7. Posicionamento: "os CRMs organizam o que o corretor já tem; a Biga traz o que ele está perdendo".
 8. Pesquisa primária pendente: ativos por município (CRECI-GO), 30 entrevistas de disposição a pagar, lista de condomínios.
 9. Ordem combinada: Etapa 4 = Sala do Investidor (05). Marketing (06) fica fora das 4 etapas, salvo nova ordem.
+
+## 9. Data Room — Etapa 4/4 Sala do Investidor (aprovação pendente)
+1. Arquivo: `data_room_biga/05_SALA_DO_INVESTIDOR/05_Tese_Captacao_e_Uso_dos_Recursos.md`.
+2. Rodada proposta: pré-seed de R$ 600 mil em mútuo conversível (LC 182/2021); cap de R$ 6,0 mi post-money; desconto de 20%; ~10% de diluição.
+3. Mínimo viável: R$ 120 mil (só o caixa até o break-even). Múltiplo implícito: 5,7× a receita anual do M18.
+4. Uso: 20% caixa até o BE · 25% Fase 2 antecipada (M6) · 10% Cloud API + Postgres · 25% aceleração comercial · 7,5% piloto 3D · 5% jurídico/pesquisa · 7,5% reserva.
+5. Marcos: M1 tetos/cache · M6 100 contratos + fim do Baileys · M8 break-even · M9 Fase 2 · M12 piloto 3D · M14–M18 Seed.
+6. Riscos principais: Meta/Baileys, custo de LLM, churn, dependência da Imobiliária (47% da MC), praça única.
+7. Pendências da diligência: pasta 06 (deck/marca/vídeo), jurídico (cap table, PI, INPI), Termos/Privacidade/DPA.
