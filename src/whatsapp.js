@@ -102,13 +102,11 @@ async function sendImage(jid, ref, caption) {
   return rawSend(jid, { image: img, caption });
 }
 
-/** Ficha em PDF (modelo novo, com as edições salvas no painel › Fichas PDF) */
+/** Ficha em PDF (motor 16:9 novo com as edições salvas e fallback automático para ficha A4) */
 async function sendPdf(jid, property) {
-  const fichaPdf = require('./pdf-ficha');
-  const f = fichaPdf.ficha(property);
-  if (!f.telefone) f.telefone = loadSettings().meuWhatsappAlerta || selfPhone();
-  const buf = await fichaPdf.gerar(property, f);
-  return rawSend(jid, { document: buf, mimetype: 'application/pdf', fileName: fichaPdf.nomeArquivo(property, f) });
+  const { gerarPdfComFallback } = require('./pdf16x9/manager');
+  const res = await gerarPdfComFallback(property);
+  return rawSend(jid, { document: res.buffer, mimetype: 'application/pdf', fileName: res.nomeArquivo });
 }
 
 /** Documento qualquer (ex.: ficha em PDF montada no painel) para um contato */
