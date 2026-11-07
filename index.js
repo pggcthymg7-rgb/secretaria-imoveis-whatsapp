@@ -21,6 +21,7 @@ const metrics = require('./src/metrics');
 const vitrine = require('./src/vitrine');
 const capas = require('./src/capas');
 const fichaPdf = require('./src/pdf-ficha');
+const pdf16x9 = require('./src/pdf16x9/manager');
 const prospeccao = require('./src/prospeccao');
 const scheduler = require('./src/scheduler');
 const auth = require('./src/auth');
@@ -373,20 +374,62 @@ async function imovelOu404(req, res) {
   if (!p) res.status(404).json({ error: 'Imóvel não encontrado.' });
   return p;
 }
+// Kit de marca (16:9)
+app.get('/api/pdf/kit', ah(async (req, res) => {
+  res.json({ ok: true, kit: pdf16x9.carregarKit(), modelos: require('./src/pdf16x9/gerar').MODELOS, compativeis: require('./src/pdf16x9/gerar').COMPATIVEIS });
+}));
+app.post('/api/pdf/kit', ah(async (req, res) => {
+  const kit = pdf16x9.salvarKit(req.body || {});
+  res.json({ ok: true, kit });
+}));
+
 app.get('/api/pdf/:id', ah(async (req, res) => {
   const p = await imovelOu404(req, res);
-  if (p) res.json({ ficha: fichaPdf.ficha(p), cores: fichaPdf.CORES, fotos: (p.fotos || []).filter(f => !/^https?:/i.test(f)) });
+  if (!p) return;
+  const fLegacy = fichaPdf.ficha(p);
+  const fichas16 = pdf16x9.carregarFichas16x9();
+  const f16 = fichas16[String(p.id)] || {};
+  const kit = pdf16x9.carregarKit();
+  const fichaUnificada = {
+    ...fLegacy,
+    ...f16,
+    modelo: f16.modelo || kit.modelo || 'A',
+    paleta: f16.paleta || kit.paletaPadrao || 'principal'
+  };
+  res.json({
+    ficha: fichaUnificada,
+    kit,
+    cores: fichaPdf.CORES,
+    fotos: (p.fotos || []).filter(f => !/^https?:/i.test(f)),
+    modelos: require('./src/pdf16x9/gerar').MODELOS,
+    compativeis: require('./src/pdf16x9/gerar').COMPATIVEIS
+  });
 }));
 app.post('/api/pdf/:id', ah(async (req, res) => {
   const p = await imovelOu404(req, res);
-  if (p) res.json({ ok: true, ficha: req.body?.restaurar ? fichaPdf.restaurar(p) : fichaPdf.salvar(p, req.body || {}) });
+  if (!p) return;
+  if (req.body?.restaurar) {
+    const fLegacy = fichaPdf.restaurar(p);
+    pdf16x9.salvarFicha16x9(p.id, {});
+    pdf16x9.invalidarCache(p.id);
+    return res.json({ ok: true, ficha: fLegacy });
+  }
+  const fLegacy = fichaPdf.salvar(p, req.body || {});
+  const f16 = pdf16x9.salvarFicha16x9(p.id, req.body || {});
+  pdf16x9.invalidarCache(p.id);
+  pdf16x9.agendarPreGeracao(p);
+  res.json({ ok: true, ficha: { ...fLegacy, ...f16 } });
 }));
 app.post('/api/pdf/:id/arquivo', ah(async (req, res) => {
   const p = await imovelOu404(req, res);
   if (!p) return;
-  const f = fichaPdf.salvar(p, req.body || {});
-  const buf = await fichaPdf.gerar(p, f);
-  res.set('Content-Disposition', `attachment; filename="${fichaPdf.nomeArquivo(p, f)}"`).type('application/pdf').send(buf);
+  if (req.body && Object.keys(req.body).length) {
+    fichaPdf.salvar(p, req.body);
+    pdf16x9.salvarFicha16x9(p.id, req.body);
+    pdf16x9.invalidarCache(p.id);
+  }
+  const resultado = await pdf16x9.gerarPdfComFallback(p, { ficha: req.body || {} });
+  res.set('Content-Disposition', `attachment; filename="${resultado.nomeArquivo}"`).type('application/pdf').send(resultado.buffer);
 }));
 app.post('/api/pdf/:id/enviar', ah(async (req, res) => {
   const p = await imovelOu404(req, res);
@@ -396,9 +439,13 @@ app.post('/api/pdf/:id/enviar', ah(async (req, res) => {
   if (!wa.api.isConnected()) return res.status(400).json({ error: 'WhatsApp desconectado.' });
   const jid = await wa.api.checkNumber(tel);
   if (!jid) return res.status(400).json({ error: 'Esse número não tem WhatsApp.' });
-  const f = fichaPdf.salvar(p, req.body?.ficha || {});
-  const buf = await fichaPdf.gerar(p, f);
-  await wa.api.sendDocument(jid, buf, fichaPdf.nomeArquivo(p, f), str(req.body?.mensagem, 1000));
+  if (req.body?.ficha) {
+    fichaPdf.salvar(p, req.body.ficha);
+    pdf16x9.salvarFicha16x9(p.id, req.body.ficha);
+    pdf16x9.invalidarCache(p.id);
+  }
+  const resultado = await pdf16x9.gerarPdfComFallback(p, { ficha: req.body?.ficha || {} });
+  await wa.api.sendDocument(jid, resultado.buffer, resultado.nomeArquivo, str(req.body?.mensagem, 1000));
   wa.addLog('PDF', `📄 Ficha do imóvel #${p.id} enviada para ${tel.slice(0, 4)}…${tel.slice(-2)}.`);
   res.json({ ok: true });
 }));
