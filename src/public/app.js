@@ -400,14 +400,28 @@
   }
 
   // ------------------------------------------------------------------ FICHAS EM PDF
+  const ROT_PAG_16X9 = { capa: 'Capa', resumo: 'Resumo', foto: 'Foto grande', galeria: 'Galeria', texto: 'Texto', contato: 'Contato' };
+  const NOMES_MODELOS_16X9 = { A: 'A · Escuro sofisticado', B: 'B · Editorial claro', D: 'D · Grade assimétrica', E: 'E · Acolhedor clássico', F: 'F · Luxo clássico' };
+
   function viewPdf() {
     const ativos = S.inventory.filter(p => p.ativo !== false);
     const aprovados = new Set(Object.entries((S.vitrine && S.vitrine.posts) || {}).filter(([, v]) => v.status === 'APROVADO').map(([k]) => k));
     const ord = [...ativos].sort((a, b) => Number(aprovados.has(String(b.id))) - Number(aprovados.has(String(a.id))));
     const d = S.pdf;
     const f = d && d.ficha;
+    const modSel = (f && f.modelo) || (d && d.kit && d.kit.modelo) || 'A';
+    const palSel = (f && f.paleta) || (d && d.kit && d.kit.paletaPadrao) || 'principal';
+    const pags = (f && Array.isArray(f.paginas) && f.paginas.length) ? f.paginas : [
+      { tipo: 'capa' },
+      { tipo: 'resumo' },
+      { tipo: 'foto', foto: 1 },
+      { tipo: 'galeria', fotos: [2, 3, 4] },
+      { tipo: 'texto' },
+      { tipo: 'contato' }
+    ];
+
     shell(`
-      ${header('Fichas PDF', 'Apresentação do imóvel', 'Um PDF moderno e limpo com foto grande, preço, números, diferenciais e a descrição completa. Edite o que quiser, baixe ou mande direto para o WhatsApp de alguém.')}
+      ${header('Fichas PDF (16:9)', 'Apresentação profissional', 'Gerador de alta resolução 16:9 para envio no WhatsApp e visualização mobile/desktop. 5 modelos de design, paleta personalizável e até 14 páginas modulares.')}
       <section class="section"><div class="container stack" id="pdfForm">
         ${!ativos.length ? '<div class="card"><p class="body muted">Cadastre um imóvel na Carteira primeiro.</p></div>' : `
         <div class="card stack-sm">
@@ -416,28 +430,69 @@
         </div>
         ${f ? `
         <div class="card stack-sm">
-          <span class="label">Textos da ficha</span>
-          <div class="row">${field('titulo', 'Título', f.titulo)}${field('subtitulo', 'Linha de baixo', f.subtitulo)}${field('preco', 'Preço', f.preco)}</div>
-          ${field('destaques', 'Diferenciais (um por linha)', f.destaques, { area: true, rows: 4, ph: 'Piscina privativa' })}
-          ${field('descricao', 'Descrição (vai inteira)', f.descricao, { area: true, rows: 8 })}
+          <span class="label">Design & Modelo 16:9</span>
+          <div class="row">
+            <label class="field"><span>Modelo visual</span><select name="pdfModelo">
+              ${Object.entries(NOMES_MODELOS_16X9).map(([k, n]) => `<option value="${esc(k)}" ${modSel === k ? 'selected' : ''}>${esc(n)}</option>`).join('')}
+            </select></label>
+            <label class="field"><span>Paleta de Cores</span><select name="pdfPaleta">
+              <option value="principal" ${palSel === 'principal' ? 'selected' : ''}>Paleta 1 (Principal)</option>
+              <option value="segunda" ${palSel === 'segunda' ? 'selected' : ''}>Paleta 2 (Segunda / Alternativa)</option>
+            </select></label>
+          </div>
         </div>
+
         <div class="card stack-sm">
-          <span class="label">Fotos (marque na ordem: a 1ª é a capa · até 7)</span>
+          <span class="label">Páginas da Apresentação (${pags.length} de 14)</span>
+          <div class="stack-sm">
+            ${pags.map((pg, i) => `
+              <div class="row" style="align-items:center;background:var(--bg-card-subtle,#f4f4f6);padding:6px 12px;border-radius:6px;gap:8px;">
+                <span class="caption" style="min-width:70px;font-weight:600;">Pág. ${i + 1} · ${esc(ROT_PAG_16X9[pg.tipo] || pg.tipo)}</span>
+                ${pg.tipo === 'texto' ? `<input type="text" name="pgTitulo_${i}" value="${esc(pg.titulo || '')}" placeholder="Título opcional da página" style="flex:1;font-size:12px;padding:4px 8px;">` : '<span style="flex:1;"></span>'}
+                <div class="tight row">
+                  <button type="button" class="btn-ghost" data-action="pdfSubirPagina" data-i="${i}" title="Subir página" ${i === 0 ? 'disabled' : ''}>↑</button>
+                  <button type="button" class="btn-ghost" data-action="pdfDescerPagina" data-i="${i}" title="Descer página" ${i === pags.length - 1 ? 'disabled' : ''}>↓</button>
+                  <button type="button" class="btn-ghost danger" data-action="pdfRmPagina" data-i="${i}" title="Remover página" ${pags.length <= 1 ? 'disabled' : ''}>×</button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          ${pags.length < 14 ? `
+          <div class="row tight" style="margin-top:8px;">
+            <button type="button" class="btn-ghost" data-action="pdfAddPagina" data-tipo="foto">+ Foto grande</button>
+            <button type="button" class="btn-ghost" data-action="pdfAddPagina" data-tipo="galeria">+ Galeria</button>
+            <button type="button" class="btn-ghost" data-action="pdfAddPagina" data-tipo="texto">+ Texto livre</button>
+          </div>` : '<p class="caption muted">Limite máximo de 14 páginas atingido.</p>'}
+        </div>
+
+        <div class="card stack-sm">
+          <span class="label">Textos do Imóvel</span>
+          <div class="row">${field('titulo', 'Título / Edifício', f.titulo)}${field('subtitulo', 'Linha de apoio', f.subtitulo)}${field('preco', 'Preço (texto livre ou ágio)', f.preco)}</div>
+          ${field('destaques', 'Diferenciais (um por linha · até 6 destaques principais)', f.destaques, { area: true, rows: 4, ph: 'Piscina privativa\nVaranda gourmet' })}
+          ${field('descricao', 'Descrição Completa (continua em nova página automaticamente)', f.descricao, { area: true, rows: 7 })}
+        </div>
+
+        <div class="card stack-sm">
+          <span class="label">Fotos (marque até 10 fotos na ordem desejada)</span>
           <div class="pdf-fotos">${(d.fotos || []).map(ft => `<label class="pdf-foto ${f.fotos.includes(ft) ? 'sel' : ''}"><input type="checkbox" name="pdfFoto" value="${esc(ft)}" ${f.fotos.includes(ft) ? 'checked' : ''}><img src="${esc(fotoUrl(ft))}" alt=""><span class="pdf-n">${f.fotos.includes(ft) ? f.fotos.indexOf(ft) + 1 : ''}</span></label>`).join('') || '<p class="caption">Este imóvel não tem foto enviada pelo painel.</p>'}</div>
-          <span class="label">Cor de destaque</span>
-          <div class="chips">${Object.entries(d.cores).map(([k, c]) => `<button type="button" class="toggle" data-action="pdfCor" data-cor="${esc(k)}" aria-pressed="${f.cor === k}"><span><i class="swatch" style="background:${esc(c)}"></i> ${esc(k)}</span></button>`).join('')}</div>
-          ${toggle('mostrarCodigo', f.mostrarCodigo !== false, 'Mostrar o código do imóvel')}
         </div>
+
         <div class="card stack-sm">
-          <span class="label">Seu contato (vale para todas as fichas)</span>
-          <div class="row">${field('corretor', 'Nome', f.corretor || '')}${field('creci', 'CRECI', f.creci || '')}${field('telefone', 'Telefone', f.telefone || '')}${field('email', 'E-mail', f.email || '')}</div>
-          ${field('rodape', 'Observação no rodapé (opcional)', f.rodape || '', { ph: 'Valores sujeitos a alteração.' })}
+          <span class="label">Contato do Corretor (com QR Code do WhatsApp)</span>
+          <div class="row">${field('corretor', 'Nome do Corretor', f.corretor || '')}${field('creci', 'CRECI', f.creci || '')}${field('telefone', 'WhatsApp (gera QR Code)', f.telefone || '')}${field('email', 'E-mail', f.email || '')}</div>
+          ${field('rodape', 'Observação de rodapé', f.rodape || '', { ph: 'Valores sujeitos a alteração.' })}
         </div>
+
         <div class="card stack-sm">
-          <div class="row"><button class="btn-primary" data-action="pdfBaixar">Baixar PDF</button><button class="btn-ghost" data-action="pdfVer">Ver antes</button><button class="btn-ghost" data-action="pdfSalvar">Salvar edições</button><button class="btn-ghost danger" data-action="pdfRestaurar">Voltar ao texto da carteira</button></div>
-          <span class="label">Enviar pelo WhatsApp</span>
-          <div class="row">${field('pdfTel', 'Telefone de quem recebe', (S.pdfEnvio || {}).tel || '', { ph: '62 99999-9999' })}${field('pdfMsg', 'Mensagem junto', (S.pdfEnvio || {}).msg || `Olá! Segue a apresentação do imóvel ${f.titulo}.`)}</div>
-          <button class="btn-ghost accent" data-action="pdfEnviar">Enviar PDF</button>
+          <div class="row">
+            <button class="btn-primary" data-action="pdfBaixar">Baixar PDF 16:9</button>
+            <button class="btn-ghost" data-action="pdfVer">Ver antes (Prévia)</button>
+            <button class="btn-ghost" data-action="pdfSalvar">Salvar edições</button>
+            <button class="btn-ghost danger" data-action="pdfRestaurar">Voltar ao padrão</button>
+          </div>
+          <span class="label" style="margin-top:12px;">Enviar direto pelo WhatsApp</span>
+          <div class="row">${field('pdfTel', 'Telefone do destinatário', (S.pdfEnvio || {}).tel || '', { ph: '62 99999-9999' })}${field('pdfMsg', 'Mensagem de envio', (S.pdfEnvio || {}).msg || `Olá! Segue a apresentação do imóvel ${f.titulo}.`)}</div>
+          <button class="btn-ghost accent" data-action="pdfEnviar">Enviar PDF 16:9</button>
         </div>` : ''}`}
       </div></section>`);
   }
@@ -451,9 +506,27 @@
     const d = formData(box);
     const marcadas = $$('input[name=pdfFoto]', box).filter(i => i.checked).map(i => i.value);
     const antes = (S.pdf && S.pdf.ficha.fotos) || [];
-    // mantém a ordem em que foram marcadas (as já escolhidas primeiro, as novas no fim)
-    const fotos = [...antes.filter(x => marcadas.includes(x)), ...marcadas.filter(x => !antes.includes(x))];
-    return { titulo: d.titulo, subtitulo: d.subtitulo, preco: d.preco, destaques: d.destaques, descricao: d.descricao, fotos, cor: (S.pdf && S.pdf.ficha.cor) || 'cobalto', mostrarCodigo: d.mostrarCodigo, corretor: d.corretor, creci: d.creci, telefone: d.telefone, email: d.email, rodape: d.rodape };
+    const fotos = [...antes.filter(x => marcadas.includes(x)), ...marcadas.filter(x => !antes.includes(x))].slice(0, 10);
+    const modelo = d.pdfModelo || (S.pdf && S.pdf.ficha && S.pdf.ficha.modelo) || 'A';
+    const paleta = d.pdfPaleta || (S.pdf && S.pdf.ficha && S.pdf.ficha.paleta) || 'principal';
+    const paginas = (S.pdf && S.pdf.ficha && Array.isArray(S.pdf.ficha.paginas)) ? S.pdf.ficha.paginas : null;
+
+    return {
+      titulo: d.titulo,
+      subtitulo: d.subtitulo,
+      preco: d.preco,
+      destaques: d.destaques,
+      descricao: d.descricao,
+      fotos,
+      modelo,
+      paleta,
+      paginas,
+      corretor: d.corretor,
+      creci: d.creci,
+      telefone: d.telefone,
+      email: d.email,
+      rodape: d.rodape
+    };
   }
   async function pdfArquivo() {
     const r = await fetch(`/api/pdf/${encodeURIComponent(S.pdfSel)}/arquivo`, { method: 'POST', credentials: 'same-origin', headers: { 'x-secretaria': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(coletarPdf()) });
@@ -1344,6 +1417,62 @@
       guardarEnvioPdf();
       S.pdf.ficha = { ...S.pdf.ficha, ...coletarPdf(), cor: el.dataset.cor };
       render();
+    },
+    pdfAddPagina: async el => {
+      guardarEnvioPdf();
+      const coletado = coletarPdf();
+      const tipo = el.dataset.tipo || 'foto';
+      const pags = (S.pdf && S.pdf.ficha && Array.isArray(S.pdf.ficha.paginas)) ? [...S.pdf.ficha.paginas] : [
+        { tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }
+      ];
+      if (pags.length >= 14) return toast('Limite máximo de 14 páginas atingido.', true);
+      if (tipo === 'foto') pags.push({ tipo: 'foto', foto: 0 });
+      else if (tipo === 'galeria') pags.push({ tipo: 'galeria', fotos: [0, 1] });
+      else if (tipo === 'texto') pags.push({ tipo: 'texto', titulo: 'Mais Detalhes' });
+      S.pdf.ficha = { ...S.pdf.ficha, ...coletado, paginas: pags };
+      render();
+    },
+    pdfRmPagina: async el => {
+      guardarEnvioPdf();
+      const coletado = coletarPdf();
+      const idx = parseInt(el.dataset.i, 10);
+      const pags = (S.pdf && S.pdf.ficha && Array.isArray(S.pdf.ficha.paginas)) ? [...S.pdf.ficha.paginas] : [
+        { tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }
+      ];
+      if (pags.length <= 1) return toast('A apresentação deve ter ao menos 1 página.', true);
+      pags.splice(idx, 1);
+      S.pdf.ficha = { ...S.pdf.ficha, ...coletado, paginas: pags };
+      render();
+    },
+    pdfSubirPagina: async el => {
+      guardarEnvioPdf();
+      const coletado = coletarPdf();
+      const idx = parseInt(el.dataset.i, 10);
+      const pags = (S.pdf && S.pdf.ficha && Array.isArray(S.pdf.ficha.paginas)) ? [...S.pdf.ficha.paginas] : [
+        { tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }
+      ];
+      if (idx > 0) {
+        const tmp = pags[idx];
+        pags[idx] = pags[idx - 1];
+        pags[idx - 1] = tmp;
+        S.pdf.ficha = { ...S.pdf.ficha, ...coletado, paginas: pags };
+        render();
+      }
+    },
+    pdfDescerPagina: async el => {
+      guardarEnvioPdf();
+      const coletado = coletarPdf();
+      const idx = parseInt(el.dataset.i, 10);
+      const pags = (S.pdf && S.pdf.ficha && Array.isArray(S.pdf.ficha.paginas)) ? [...S.pdf.ficha.paginas] : [
+        { tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }
+      ];
+      if (idx < pags.length - 1) {
+        const tmp = pags[idx];
+        pags[idx] = pags[idx + 1];
+        pags[idx + 1] = tmp;
+        S.pdf.ficha = { ...S.pdf.ficha, ...coletado, paginas: pags };
+        render();
+      }
     },
     pdfSalvar: async () => {
       const r = await api('POST', `/api/pdf/${encodeURIComponent(S.pdfSel)}`, coletarPdf());
