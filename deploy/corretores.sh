@@ -14,7 +14,9 @@ rand() { head -c "$1" /dev/urandom | od -An -tx1 | tr -d ' \n'; }
 
 # Lê e valida o arquivo (roda como root: nada fora do formato passa)
 ENTRADAS=()
-declare -A VISTO_NOME=() VISTO_PORTA=() VISTO_DOM=()
+VISTO_NOMES=" "
+VISTO_PORTAS=" "
+VISTO_DOMS=" "
 while IFS= read -r linha || [ -n "$linha" ]; do
   linha="${linha%%#*}"
   read -r nome dominio porta extra <<<"$linha" || true
@@ -23,11 +25,21 @@ while IFS= read -r linha || [ -n "$linha" ]; do
     echo "ERRO: linha inválida em corretores.conf: '$linha'" >&2
     exit 1
   fi
-  if [ -n "${VISTO_NOME[$nome]:-}" ] || [ -n "${VISTO_PORTA[$porta]:-}" ] || [ -n "${VISTO_DOM[$dominio]:-}" ]; then
+  case "$VISTO_NOMES" in *" $nome "*)
     echo "ERRO: nome, porta ou endereço repetido em corretores.conf: '$linha'" >&2
-    exit 1
-  fi
-  VISTO_NOME[$nome]=1; VISTO_PORTA[$porta]=1; VISTO_DOM[$dominio]=1
+    exit 1 ;;
+  esac
+  case "$VISTO_PORTAS" in *" $porta "*)
+    echo "ERRO: nome, porta ou endereço repetido em corretores.conf: '$linha'" >&2
+    exit 1 ;;
+  esac
+  case "$VISTO_DOMS" in *" $dominio "*)
+    echo "ERRO: nome, porta ou endereço repetido em corretores.conf: '$linha'" >&2
+    exit 1 ;;
+  esac
+  VISTO_NOMES="${VISTO_NOMES}${nome} "
+  VISTO_PORTAS="${VISTO_PORTAS}${porta} "
+  VISTO_DOMS="${VISTO_DOMS}${dominio} "
   ENTRADAS+=("$nome $dominio $porta")
 done < "$CONF"
 
