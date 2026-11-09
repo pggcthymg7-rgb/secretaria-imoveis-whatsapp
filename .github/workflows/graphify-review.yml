@@ -61,7 +61,7 @@ jobs:
             if (meu) await github.rest.issues.updateComment({ owner, repo, comment_id: meu.id, body });
             else await github.rest.issues.createComment({ owner, repo, issue_number, body });
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: graphify-out
           path: |
