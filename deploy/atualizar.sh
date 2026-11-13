@@ -12,6 +12,7 @@ APP_DIR="${APP_DIR:-/opt/secretaria}"
 BRANCH="${BRANCH:-main}"
 DATA_DIR="${DATA_DIR:-/var/lib/secretaria}"
 FLAG="$DATA_DIR/atualizar-agora"
+# shellcheck disable=SC2034 # caminho do log, documentado para quem lê o script
 LOG="$DATA_DIR/atualizacao.log"
 registrar() { # resultado para o painel e o WhatsApp mostrarem (BIGA principal e as dos corretores extras)
   local d l
@@ -25,6 +26,7 @@ registrar() { # resultado para o painel e o WhatsApp mostrarem (BIGA principal e
 }
 corretores() { # BIGAs dos corretores extras (deploy/corretores.conf); nunca derruba a atualização
   [ "$(id -u)" = "0" ] && [ -f "$APP_DIR/deploy/corretores.sh" ] || return 0
+  # shellcheck disable=SC2097,SC2098 # repassa o mesmo APP_DIR ao script filho
   APP_DIR="$APP_DIR" DATA_DIR="$DATA_DIR" bash "$APP_DIR/deploy/corretores.sh" "$@" || registrar "AVISO falha ao preparar as BIGAs dos corretores extras"
 }
 rm -f "$FLAG" /var/lib/secretaria-*/atualizar-agora 2>/dev/null || true
