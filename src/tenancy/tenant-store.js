@@ -43,6 +43,17 @@ function validateTenantId(id) {
   return id;
 }
 
+/**
+ * Pasta do tenant DENTRO de `base`. Além da regra do id (só a-z, 0-9 e hífen), confere o caminho
+ * já resolvido: mesmo que a regra mude um dia, nada sai da pasta base (defesa em profundidade).
+ */
+function tenantPath(base, id) {
+  const root = path.resolve(base);
+  const dir = path.resolve(root, validateTenantId(id));
+  if (!dir.startsWith(root + path.sep) || path.dirname(dir) !== root) throw new TenantValidationError('corretorId inválido.');
+  return dir;
+}
+
 function normalizeNome(nome) {
   if (typeof nome !== 'string' || !nome.trim() || nome.length > 80) throw new TenantValidationError('nome é obrigatório (até 80 caracteres).');
   return nome.replace(/[\r\n\t]/g, ' ').trim();
@@ -84,7 +95,7 @@ class TenantStore {
   }
 
   tenantDir(id) {
-    return path.join(this.tenantsDir, validateTenantId(id));
+    return tenantPath(this.tenantsDir, id);
   }
 
   dataDir(id) {
@@ -92,7 +103,7 @@ class TenantStore {
   }
 
   sessionDir(id) {
-    return path.join(this.sessionsDir, validateTenantId(id));
+    return tenantPath(this.sessionsDir, id);
   }
 
   /** Cria ou atualiza o corretor. configIA parcial é mesclado ao que já existia. */
@@ -153,4 +164,4 @@ class TenantStore {
   }
 }
 
-module.exports = { TENANT_ID_RE, RESERVADOS, TenantStore, TenantValidationError, validateTenantId, normalizeConfigIA, CONFIG_FIELDS };
+module.exports = { TENANT_ID_RE, RESERVADOS, tenantPath, TenantStore, TenantValidationError, validateTenantId, normalizeConfigIA, CONFIG_FIELDS };

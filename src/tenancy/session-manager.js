@@ -16,7 +16,7 @@ const path = require('path');
 const { EventEmitter } = require('events');
 const pino = require('pino');
 const { reconnectDelay } = require('../whatsapp-reconexao');
-const { validateTenantId } = require('./tenant-store');
+const { validateTenantId, tenantPath } = require('./tenant-store');
 
 const FORWARDED_EVENTS = ['messaging-history.set', 'chats.upsert', 'contacts.upsert', 'contacts.update', 'groups.upsert', 'call'];
 
@@ -36,7 +36,7 @@ class WhatsAppSessionManager extends EventEmitter {
   }
 
   authDir(tenantId) {
-    return path.join(this.storageDir, validateTenantId(tenantId));
+    return tenantPath(this.storageDir, tenantId);
   }
 
   /**
