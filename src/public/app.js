@@ -199,9 +199,13 @@
     ['ajustes', 'Ajustes', 'Grupos, alertas, backup e segurança', 'config', '🔧'],
     ['corretores', 'Corretores', 'Cadastro e WhatsApp dos corretores da sua equipe', 'config', '👥']
   ];
-  const rotaDe = k => ROUTES.find(r => r[0] === k) || ROUTES[1];
+  // Páginas da estrutura do SaaS: só aparecem para o administrador
+  const SO_ADMIN = new Set(['corretores']);
+  const isAdmin = () => !S.status || S.status.papel !== 'corretor';
+  const rotasVisiveis = () => ROUTES.filter(r => !SO_ADMIN.has(r[0]) || isAdmin());
+  const rotaDe = k => rotasVisiveis().find(r => r[0] === k) || ROUTES[1];
   const grupoDe = k => rotaDe(k === 'geral' ? 'hoje' : k)[3];
-  const paginasDo = g => ROUTES.filter(r => r[3] === g);
+  const paginasDo = g => rotasVisiveis().filter(r => r[3] === g);
 
   let sayTimer = null;
   function say(text) {
@@ -984,7 +988,7 @@
         <div class="stack" id="bkForm"><span class="label">Backup da memória</span><p class="body muted">Um arquivo com carteira, fotos, configurações, contatos conhecidos, radar, vitrine e prospecção. Use para mudar de servidor ou se algo der errado. Todo domingo a BIGA também manda um backup no seu WhatsApp.</p>
           ${toggle('backupSemanalAtivo', c.backupSemanalAtivo !== false, 'Backup semanal no meu WhatsApp')}
           <div class="row tight"><a class="btn-ghost accent" href="/api/backup" download>Baixar backup agora</a><label class="btn-ghost" style="cursor:pointer">Restaurar backup…<input type="file" id="restoreInput" accept=".gz,application/gzip"></label></div></div>
-        <div class="stack" id="sysBox"><span class="label">Sistema</span><p class="body muted">Versão em uso: <b>${esc((S.sistema && S.sistema.versao) || '?')}</b>. A BIGA se atualiza sozinha toda madrugada; aqui você puxa a versão nova na hora, direto do celular.</p>
+        ${isAdmin() ? '' : '<!-- atualização do sistema: só o administrador -->'}<div class="stack" id="sysBox" ${isAdmin() ? '' : 'hidden'}><span class="label">Sistema</span><p class="body muted">Versão em uso: <b>${esc((S.sistema && S.sistema.versao) || '?')}</b>. A BIGA se atualiza sozinha toda madrugada; aqui você puxa a versão nova na hora, direto do celular.</p>
           ${S.sistema && S.sistema.resultados && S.sistema.resultados.length ? `<div class="log">${S.sistema.resultados.map(r => `<div>${esc(r)}</div>`).join('')}</div>` : ''}
           <div class="row tight"><button class="btn-ghost accent" data-action="atualizarAgora" ${S.sistema && !S.sistema.naVM ? 'disabled' : ''}>Atualizar agora</button></div></div>
         <div class="stack"><span class="label">Sessão</span><p class="body muted">Desconectar o WhatsApp apaga a sessão e gera um novo QR Code.</p><div class="row tight"><button class="btn-ghost danger" data-action="resetWa">Desconectar WhatsApp</button><button class="btn-ghost" data-action="logout">Sair do painel</button></div></div>
@@ -1008,7 +1012,7 @@
     const ia = (ed && (ed.efetivo || ed.configIA)) || {};
     const lista = eq.corretores || [];
     shell(`
-      ${header('Corretores<br><span class="muted">da equipe</span>', 'Só você vê esta página', 'Cada corretor tem a própria BIGA, com o WhatsApp, a carteira, o radar e a chave de IA dele, separados dos seus. Eles usam a BIGA pelo WhatsApp (“Mensagem para mim”); o painel é só seu.')}
+      ${header('Corretores<br><span class="muted">da equipe</span>', 'Só você vê esta página', 'Cada corretor tem a própria BIGA, completa e independente: painel com login próprio, WhatsApp, carteira, radar, vitrine e chaves dele, separados dos seus. Só não mexem na estrutura do SaaS (atualizações e equipe), que fica com você.')}
       ${!eq.multiTenant ? `<section class="section"><div class="container"><div class="card reveal"><h2 class="heading-sm warn">Modo equipe desligado</h2><p class="body muted">Este servidor ainda roda só a sua BIGA. Na máquina virtual, a próxima atualização liga o modo equipe (MULTI_TENANT=1) e traz a Laura para cá automaticamente.</p></div></div></section>` : `
       <section class="section"><div class="container stack">
         <span class="label">${lista.length} corretor(es)</span>
@@ -1019,6 +1023,7 @@
             <div class="row tight"><span class="tag iris">${esc(c.corretorId)}</span><span class="tag ${cls}">● ${esc(txt)}</span>${(c.efetivo || {}).hasGeminiApiKey ? '<span class="tag">🧠 IA própria</span>' : '<span class="tag">sem chave de IA</span>'}${(c.efetivo || {}).modoApenasAvisar ? '<span class="tag">só avisa</span>' : ''}</div>
             <h3 class="h2xs">${esc(c.nome)}${w.telefone ? ` <span class="caption">· ${esc(w.nomeWhatsapp || '')} wa.me/${esc(w.telefone)}</span>` : ''}</h3>
             ${w.status === 'CONECTADO' ? `<div class="caption">${w.grupos} grupo(s) na conta · ${w.gruposMonitorados} monitorado(s)</div>` : ''}
+            ${c.painel && (c.painel.url || c.painel.codigoConvite) ? `<div class="caption">${c.painel.url ? `Painel dele(a): <a class="btn-ghost accent" href="${esc(c.painel.url)}" target="_blank" rel="noopener">${esc(c.painel.url.replace(/^https?:\/\//, ''))}</a> · ` : ''}${c.painel.codigoConvite ? `código para criar a senha: <b class="saffron">${esc(c.painel.codigoConvite)}</b>` : 'senha já criada'}</div>` : ''}
             ${w.qrSvg ? `<div class="split rev top"><div class="qr" style="max-width:220px">${w.qrSvg}</div><p class="body muted">Peça para ${esc(c.nome.split(' ')[0])} abrir o WhatsApp › Configurações › Aparelhos conectados › <b>Conectar aparelho</b> e apontar para este código. Ele muda sozinho a cada poucos segundos.</p></div>` : ''}
             <div class="row tight">
               <button class="btn-ghost" data-action="editarCorretor" data-id="${esc(c.corretorId)}">Editar</button>
@@ -1029,6 +1034,7 @@
       </div></section>
       <section class="section"><div class="container"><div class="card stack reveal" id="corretorForm">
         <span class="label">${ed ? `Editar ${esc(ed.nome)}` : 'Cadastrar corretor'}</span>
+        <p class="caption">Configuração inicial: depois o corretor ajusta tudo no painel dele. Salvar aqui de novo sobrescreve o que ele mudou nestes campos.</p>
         <div class="fields wide">
           ${field('nome', 'Nome', ed ? ed.nome : '', { ph: 'Ex: Laura Mendes', attrs: 'maxlength="80" required' })}
           ${field('corretorId', 'Identificador (não muda depois)', ed ? ed.corretorId : '', { ph: 'gerado a partir do nome', attrs: `maxlength="32" pattern="[a-z0-9][a-z0-9-]{1,31}" ${ed ? 'readonly' : ''}` })}
@@ -1078,7 +1084,7 @@
     },
     ajustes: async () => {
       await loadStatus();
-      S.sistema = await api('GET', '/api/sistema').catch(() => null);
+      S.sistema = isAdmin() ? await api('GET', '/api/sistema').catch(() => null) : null;
     },
     corretores: async () => (S.equipe = await api('GET', '/api/equipe'))
   };
@@ -1172,6 +1178,7 @@
     const curtainIn = animate ? playCurtain('go') : Promise.resolve();
     try {
       if (!S.status) await loadStatus();
+      if (SO_ADMIN.has(S.route) && !isAdmin()) S.route = 'inicio'; // corretor não abre páginas do SaaS
       await Promise.all([loaders[S.route](), curtainIn]);
     } catch (err) {
       toast(err.message, true);

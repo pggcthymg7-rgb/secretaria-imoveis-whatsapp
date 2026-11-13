@@ -3,6 +3,7 @@
 # (modo equipe / multi-tenant). Roda como root; chamado pelo deploy/corretores.sh para cada nome
 # em deploy/migrar.conf. Pode rodar quantas vezes quiser: depois de migrado, só garante a antiga desligada.
 #   bash deploy/migrar-corretor.sh laura
+# Ela continua com TUDO dela: painel no mesmo endereço e com a mesma senha, WhatsApp, dados e chaves.
 # Segurança: para a BIGA antiga antes de copiar (a mesma sessão de WhatsApp em 2 processos derruba
 # as duas), faz backup, e se a principal não subir volta tudo como estava.
 # A pasta antiga (/var/lib/secretaria-<nome>) NÃO é apagada: fica como garantia.
@@ -24,21 +25,13 @@ sess="$MAIN_DATA/sessions_storage/$nome"
 porta=$(grep -E '^PORT=' "$MAIN_ENV" 2>/dev/null | tail -1 | cut -d= -f2 || true)
 porta="${porta:-3000}"
 
-caddy_sem_endereco_antigo() {
-  command -v caddy >/dev/null 2>&1 || return 0
-  [ -f "/etc/caddy/corretores/$nome.caddy" ] || return 0
-  rm -f "/etc/caddy/corretores/$nome.caddy"
-  # sem nenhum endereço extra, tira o import (glob vazio pode impedir o Caddy de subir no boot)
-  if ! ls /etc/caddy/corretores/*.caddy >/dev/null 2>&1; then
-    sed -i '\#^import /etc/caddy/corretores/\*.caddy#d' /etc/caddy/Caddyfile 2>/dev/null || true
-  fi
-  if caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
-    systemctl reload caddy 2>/dev/null || systemctl restart caddy || true
-  fi
+endereco_na_principal() {
+  # mesmo endereço de sempre (<nome>.<DOMINIO>), agora apontando para a BIGA principal
+  DATA_DIR="$MAIN_DATA" MAIN_ENV="$MAIN_ENV" bash "$APP_DIR/deploy/caddy-corretores.sh" || true
 }
 desligar_antiga() {
   systemctl disable --now "$svc.service" "$svc-update-now.path" "$svc-backup.timer" >/dev/null 2>&1 || true
-  caddy_sem_endereco_antigo
+  endereco_na_principal
 }
 
 if [ -f "$tenant/config.json" ]; then
@@ -88,6 +81,7 @@ sleep 5
 if command -v journalctl >/dev/null 2>&1 && journalctl -u secretaria --since "-3min" --no-pager 2>/dev/null | grep -q "\[tenant:$nome\] Falha ao religar"; then voltar; fi
 trap - ERR
 
-# 4) antiga desligada de vez (serviço, atualização, backup próprio e endereço do painel antigo)
+# 4) antiga desligada de vez (serviço, atualização e backup próprios); o endereço e a senha do painel
+#    continuam os mesmos, agora servidos pela principal
 desligar_antiga
 echo "✅ $nome agora roda dentro da BIGA principal (dados antigos preservados em $old_data, backup em $bkp)."

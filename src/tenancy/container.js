@@ -39,7 +39,8 @@ const TENANT_PRIVATE_ENV = new Set([
   'GOOGLE_SHEETS_TOKEN',
   'GEMINI_MODEL',
   'GEMINI_BUSCA_MODEL',
-  'MULTI_TENANT'
+  'MULTI_TENANT',
+  'BIGA_PAPEL'
 ]);
 
 /** Campos do configIA que viram variáveis de ambiente do tenant */
@@ -52,27 +53,39 @@ const CONFIG_TO_ENV = {
 };
 
 /** Ambiente do tenant: infraestrutura do hospedeiro (PATH, TZ, proxy...) + só o que é dele */
-function buildTenantEnv({ baseEnv = process.env, dataDir, configIA = {} }) {
+function buildTenantEnv({ baseEnv = process.env, dataDir, configIA = {}, tenantId = '' }) {
   const env = {};
   for (const [k, v] of Object.entries(baseEnv)) if (!TENANT_PRIVATE_ENV.has(k) && v !== undefined) env[k] = String(v);
+  // Cadastro do administrador (configuração inicial) < chaves que o próprio corretor salvou
+  for (const [field, key] of Object.entries(CONFIG_TO_ENV)) {
+    if (typeof configIA[field] === 'string' && configIA[field]) env[key] = configIA[field];
+  }
   // Chaves salvas pelo próprio tenant (painel/assistente gravam em <dataDir>/.env)
   const envFile = path.join(dataDir, '.env');
   if (fs.existsSync(envFile)) {
     const parsed = dotenv.parse(fs.readFileSync(envFile, 'utf-8'));
     for (const [k, v] of Object.entries(parsed)) if (ENV_ALLOWED.has(k)) env[k] = v;
   }
-  for (const [field, key] of Object.entries(CONFIG_TO_ENV)) {
-    if (typeof configIA[field] === 'string' && configIA[field]) env[key] = configIA[field];
-  }
   env.DATA_DIR = dataDir;
+  // Papel fixo: o app do corretor nunca vira administrador do SaaS (ver src/app.js)
+  env.BIGA_PAPEL = 'corretor';
+  const dominio = String(baseEnv.DOMINIO || '').trim().toLowerCase();
+  if (tenantId && dominio) env.PUBLIC_URL = `https://${tenantId}.${dominio}`;
   return env;
 }
 
-/** `process` do tenant: igual ao real, exceto `env` */
-function tenantProcess(env) {
+/**
+ * `process` do tenant: igual ao real, exceto `env` e `exit`.
+ * `exit` NUNCA derruba o processo do SaaS (todos os corretores): recarrega só a BIGA deste tenant.
+ */
+function tenantProcess(env, onExit) {
+  const exit = code => {
+    onExit(code);
+  };
   return new Proxy(process, {
     get(target, key) {
       if (key === 'env') return env;
+      if (key === 'exit' || key === 'reallyExit' || key === 'abort') return exit;
       return Reflect.get(target, key, target);
     },
     set(target, key, value) {
@@ -91,10 +104,28 @@ function isTenantScoped(file) {
  * @param {{ tenantId: string, dataDir: string, env: Record<string,string> }} opts
  * @returns {{ tenantId: string, dataDir: string, env: object, require: (rel: string) => any }}
  */
-function createTenantContainer({ tenantId, dataDir, env }) {
+function createTenantContainer({ tenantId, dataDir, env, onExit = code => console.error(`[tenant:${tenantId}] process.exit(${code}) ignorado`) }) {
   fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-  const proc = tenantProcess(env);
+  const proc = tenantProcess(env, onExit);
   const cache = new Map();
+
+  // Timers do tenant são rastreados: dispose() mata todos (ex.: recarregar após restaurar backup
+  // sem que uma gravação atrasada da instância antiga sobrescreva os dados restaurados).
+  const timers = new Set();
+  let disposed = false;
+  const track = h => (disposed ? (clearTimeout(h), h) : (timers.add(h), h));
+  const tSetTimeout = (fn, ms, ...args) => {
+    const h = setTimeout((...a) => {
+      timers.delete(h);
+      if (typeof fn === 'function') fn(...a);
+    }, ms, ...args);
+    return track(h);
+  };
+  const tSetInterval = (fn, ms, ...args) => track(setInterval(fn, ms, ...args));
+  const tClear = h => {
+    timers.delete(h);
+    clearTimeout(h);
+  };
 
   function load(filename) {
     const cached = cache.get(filename);
@@ -112,8 +143,9 @@ function createTenantContainer({ tenantId, dataDir, env }) {
     req.cache = hostRequire.cache;
     req.main = require.main;
     try {
-      const fn = vm.compileFunction(fs.readFileSync(filename, 'utf-8'), ['exports', 'require', 'module', '__filename', '__dirname', 'process'], { filename });
-      fn.call(mod.exports, mod.exports, req, mod, filename, path.dirname(filename), proc);
+      const params = ['exports', 'require', 'module', '__filename', '__dirname', 'process', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'];
+      const fn = vm.compileFunction(fs.readFileSync(filename, 'utf-8'), params, { filename });
+      fn.call(mod.exports, mod.exports, req, mod, filename, path.dirname(filename), proc, tSetTimeout, tSetInterval, tClear, tClear);
     } catch (err) {
       cache.delete(filename);
       throw err;
@@ -126,7 +158,21 @@ function createTenantContainer({ tenantId, dataDir, env }) {
     tenantId,
     dataDir,
     env,
-    require: rel => load(require.resolve(path.join(SRC_DIR, rel)))
+    require: rel => {
+      if (disposed) throw new Error(`BIGA de ${tenantId} foi recarregada`);
+      return load(require.resolve(path.join(SRC_DIR, rel)));
+    },
+    /** `process` do tenant (env próprio; exit recarrega só esta BIGA) */
+    process: proc,
+    /** Desliga esta instância: todos os timers param e nada novo é agendado */
+    dispose() {
+      disposed = true;
+      for (const h of timers) clearTimeout(h);
+      timers.clear();
+    },
+    get timersAtivos() {
+      return timers.size;
+    }
   };
 }
 
