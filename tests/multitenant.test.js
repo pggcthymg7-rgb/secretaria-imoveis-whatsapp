@@ -255,3 +255,111 @@ test('POST /api/conectar-corretor: token de admin, validação, persistência e 
     await t.shutdown();
   }
 });
+
+// ---------------------------------------------------------------------------------------------
+test('Migração da Laura: dados, sessão do WhatsApp e chaves vão para dentro da BIGA principal', { timeout: 15000 }, async () => {
+  const { migrarCorretor } = require('../scripts/migrar-corretor');
+  const antiga = path.join(tmp, 'mig', 'secretaria-laura');
+  const principal = path.join(tmp, 'mig', 'secretaria');
+  fs.mkdirSync(path.join(antiga, 'fotos'), { recursive: true });
+  fs.mkdirSync(path.join(antiga, 'auth_info_baileys'), { recursive: true });
+  fs.writeFileSync(path.join(antiga, 'auth_info_baileys', 'creds.json'), '{"me":{"id":"5562911110000:1@s.whatsapp.net"}}');
+  fs.writeFileSync(path.join(antiga, 'settings.json'), JSON.stringify({ meuWhatsappAlerta: '5562911110000', humanTraining: 'Jeito da Laura', gruposMonitoradosIds: ['g1@g.us'] }));
+  fs.writeFileSync(path.join(antiga, 'radar.json'), '[]');
+  fs.writeFileSync(path.join(antiga, 'fotos', 'casa.jpg'), 'jpg');
+  fs.writeFileSync(path.join(antiga, 'auth.json'), '{"hash":"senha-do-painel-antigo"}');
+  fs.writeFileSync(path.join(antiga, '.env'), 'GEMINI_API_KEY=KEY_PAINEL_LAURA\n');
+  const envAntigo = path.join(tmp, 'mig', 'secretaria-laura.env');
+  fs.writeFileSync(envAntigo, 'PORT=3001\nAPI_TOKEN=nao-copiar\nGEMINI_API_KEY=KEY_ETC\nGOOGLE_SHEETS_CSV_URL=https://docs.google.com/x.csv\n');
+
+  const r = migrarCorretor({ nome: 'laura', dados: antiga, env: envAntigo, destino: principal });
+  assert.equal(r.resultado, 'migrado');
+  assert.equal(r.sessaoCopiada, true);
+  const tdata = path.join(principal, 'tenants', 'laura', 'data');
+  assert.ok(fs.existsSync(path.join(tdata, 'fotos', 'casa.jpg')));
+  assert.equal(fs.existsSync(path.join(tdata, 'auth.json')), false, 'senha do painel antigo não vem');
+  assert.ok(fs.existsSync(path.join(principal, 'sessions_storage', 'laura', 'creds.json')), 'sessão vem junto: sem novo QR');
+  const env = fs.readFileSync(path.join(tdata, '.env'), 'utf-8');
+  assert.match(env, /GEMINI_API_KEY=KEY_PAINEL_LAURA/, 'chave salva pelo painel dela vence a do /etc');
+  assert.match(env, /GOOGLE_SHEETS_CSV_URL=/);
+  assert.doesNotMatch(env, /API_TOKEN|PORT/);
+  assert.equal(fs.statSync(path.join(tdata, '.env')).mode & 0o777, 0o600);
+  assert.equal(migrarCorretor({ nome: 'laura', dados: antiga, env: envAntigo, destino: principal }).resultado, 'ja-migrado');
+  assert.throws(() => migrarCorretor({ nome: '../x', dados: antiga, destino: principal }), /nome inválido/);
+
+  // Sobe dentro da principal com os dados e a persona dela intactos
+  const t = createTenancy({ baseDir: principal, baileys: fakeBaileys, startScheduler: false });
+  assert.deepEqual(await t.restoreAll(), ['laura']);
+  const ef = t.router.efetivo('laura');
+  assert.equal(ef.meuWhatsappAlerta, '5562911110000');
+  assert.equal(ef.humanTraining, 'Jeito da Laura', 'cadastro migrado não sobrescreve a persona');
+  assert.equal(ef.hasGeminiApiKey, true);
+  assert.equal(t.router.domain('laura').container.env.GEMINI_API_KEY, 'KEY_PAINEL_LAURA');
+  await t.shutdown();
+});
+
+test('Painel /api/equipe: só com login do João; cadastrar, pausar, retomar e novo QR', { timeout: 15000 }, async () => {
+  const express = require('express');
+  const { mountPanelRoutes } = require('../src/tenancy/routes');
+  const app = express();
+  app.use(express.json());
+  app.use('/api', (req, res, next) => (req.headers.cookie === 'joao' ? next() : res.status(401).json({ error: 'Faça login no painel.' })));
+  const t = createTenancy({ baseDir: path.join(tmp, 'painel'), baileys: fakeBaileys, startScheduler: false });
+  mountPanelRoutes(app, t);
+  const server = app.listen(0);
+  const url = `http://127.0.0.1:${server.address().port}/api/equipe`;
+  const call = (method, p = '', body, cookie = 'joao') => fetch(url + p, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  try {
+    assert.equal((await call('GET', '', null, null)).status, 401);
+    assert.equal((await call('POST', '', { corretorId: 'ana', nome: 'Ana' }, null)).status, 401);
+
+    const r = await call('POST', '', { corretorId: 'ana', nome: 'Ana', configIA: { geminiApiKey: 'KEY_ANA', meuWhatsappAlerta: '(62) 99999-0000', modoApenasAvisar: true } });
+    assert.equal(r.status, 201);
+    const c = (await r.json()).corretor;
+    assert.equal(c.configIA.geminiApiKey, undefined);
+    assert.equal(c.efetivo.meuWhatsappAlerta, '62999990000');
+    assert.equal(c.efetivo.modoApenasAvisar, true);
+
+    // Editar sem informar a chave mantém a chave atual
+    assert.equal((await call('POST', '', { corretorId: 'ana', nome: 'Ana Paula', configIA: { geminiApiKey: '' } })).status, 200);
+    assert.equal(t.tenantStore.get('ana').configIA.geminiApiKey, 'KEY_ANA');
+
+    t.sessionManager.getSession('ana').ev.emit('connection.update', { qr: 'QR-ANA' });
+    const lista = await (await call('GET')).json();
+    assert.equal(lista.multiTenant, true);
+    assert.match(lista.corretores[0].whatsapp.qrSvg, /<svg/);
+
+    assert.equal((await (await call('POST', '/ana/pausar')).json()).corretor.whatsapp.status, 'PAUSADO');
+    assert.equal(t.sessionManager.getSession('ana'), null);
+    assert.equal(t.tenantStore.get('ana').ativo, false);
+    assert.deepEqual(await t.restoreAll(), [], 'pausado não religa na partida');
+    assert.equal((await call('POST', '/ana/novo-qr')).status, 400);
+    await call('POST', '/ana/retomar');
+    assert.ok(t.sessionManager.getSession('ana'));
+    const antes = t.sessionManager.getSession('ana');
+    assert.equal((await call('POST', '/ana/novo-qr')).status, 200);
+    assert.notEqual(t.sessionManager.getSession('ana'), antes, 'novo QR = socket novo');
+    assert.equal((await call('POST', '/ana/apagar')).status, 404);
+    assert.equal((await call('POST', '/..%2Fx/pausar')).status, 400);
+    assert.equal((await call('POST', '/zeca/pausar')).status, 404);
+  } finally {
+    server.close();
+    await t.shutdown();
+  }
+});
+
+test('Painel /api/equipe com o modo equipe desligado', async () => {
+  const express = require('express');
+  const { mountPanelRoutes } = require('../src/tenancy/routes');
+  const app = express();
+  app.use(express.json());
+  mountPanelRoutes(app, null);
+  const server = app.listen(0);
+  const url = `http://127.0.0.1:${server.address().port}/api/equipe`;
+  try {
+    assert.deepEqual(await (await fetch(url)).json(), { multiTenant: false, corretores: [] });
+    assert.equal((await fetch(url, { method: 'POST' })).status, 409);
+  } finally {
+    server.close();
+  }
+});

@@ -196,7 +196,8 @@
     ['prospeccao', 'Prospecção', 'Mensagens para contatos escolhidos', 'clientes', '📣'],
     ['cerebro', 'Cérebro', 'Mapa de Goiânia e meu jeito de falar', 'config', '🧠'],
     ['simulador', 'Simulador', 'Teste um pedido antes de valer', 'config', '🧪'],
-    ['ajustes', 'Ajustes', 'Grupos, alertas, backup e segurança', 'config', '🔧']
+    ['ajustes', 'Ajustes', 'Grupos, alertas, backup e segurança', 'config', '🔧'],
+    ['corretores', 'Corretores', 'Cadastro e WhatsApp dos corretores da sua equipe', 'config', '👥']
   ];
   const rotaDe = k => ROUTES.find(r => r[0] === k) || ROUTES[1];
   const grupoDe = k => rotaDe(k === 'geral' ? 'hoje' : k)[3];
@@ -990,6 +991,57 @@
       </div></section>`);
   }
 
+
+  // ------------------------------------------------------------------ CORRETORES (equipe — só o dono do painel)
+  const STATUS_CORRETOR = {
+    CONECTADO: ['enviar', 'Conectado'],
+    AGUARDANDO_QR_CODE: ['avisar', 'Esperando QR Code'],
+    INICIANDO: ['avisar', 'Conectando…'],
+    DESCONECTADO: ['avisar', 'Reconectando…'],
+    PAUSADO: ['', 'Pausado'],
+    NAO_INICIADO: ['', 'Desligado']
+  };
+  const slugCorretor = nome => String(nome || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+  function viewCorretores() {
+    const eq = S.equipe || { multiTenant: false, corretores: [] };
+    const ed = S.corretorEdit || null;
+    const ia = (ed && (ed.efetivo || ed.configIA)) || {};
+    const lista = eq.corretores || [];
+    shell(`
+      ${header('Corretores<br><span class="muted">da equipe</span>', 'Só você vê esta página', 'Cada corretor tem a própria BIGA, com o WhatsApp, a carteira, o radar e a chave de IA dele, separados dos seus. Eles usam a BIGA pelo WhatsApp (“Mensagem para mim”); o painel é só seu.')}
+      ${!eq.multiTenant ? `<section class="section"><div class="container"><div class="card reveal"><h2 class="heading-sm warn">Modo equipe desligado</h2><p class="body muted">Este servidor ainda roda só a sua BIGA. Na máquina virtual, a próxima atualização liga o modo equipe (MULTI_TENANT=1) e traz a Laura para cá automaticamente.</p></div></div></section>` : `
+      <section class="section"><div class="container stack">
+        <span class="label">${lista.length} corretor(es)</span>
+        <div class="list">${lista.length ? lista.map(c => {
+          const w = c.whatsapp || {};
+          const [cls, txt] = STATUS_CORRETOR[w.status] || ['', w.status || '—'];
+          return `<div class="item stack-sm">
+            <div class="row tight"><span class="tag iris">${esc(c.corretorId)}</span><span class="tag ${cls}">● ${esc(txt)}</span>${(c.efetivo || {}).hasGeminiApiKey ? '<span class="tag">🧠 IA própria</span>' : '<span class="tag">sem chave de IA</span>'}${(c.efetivo || {}).modoApenasAvisar ? '<span class="tag">só avisa</span>' : ''}</div>
+            <h3 class="h2xs">${esc(c.nome)}${w.telefone ? ` <span class="caption">· ${esc(w.nomeWhatsapp || '')} wa.me/${esc(w.telefone)}</span>` : ''}</h3>
+            ${w.status === 'CONECTADO' ? `<div class="caption">${w.grupos} grupo(s) na conta · ${w.gruposMonitorados} monitorado(s)</div>` : ''}
+            ${w.qrSvg ? `<div class="split rev top"><div class="qr" style="max-width:220px">${w.qrSvg}</div><p class="body muted">Peça para ${esc(c.nome.split(' ')[0])} abrir o WhatsApp › Configurações › Aparelhos conectados › <b>Conectar aparelho</b> e apontar para este código. Ele muda sozinho a cada poucos segundos.</p></div>` : ''}
+            <div class="row tight">
+              <button class="btn-ghost" data-action="editarCorretor" data-id="${esc(c.corretorId)}">Editar</button>
+              ${c.ativo === false ? `<button class="btn-ghost accent" data-action="acaoCorretor" data-acao="retomar" data-id="${esc(c.corretorId)}">Retomar</button>` : `<button class="btn-ghost" data-action="acaoCorretor" data-acao="novo-qr" data-id="${esc(c.corretorId)}" data-confirm="Desconectar o WhatsApp de ${esc(c.nome)} e gerar um QR Code novo?">Novo QR Code</button><button class="btn-ghost" data-action="acaoCorretor" data-acao="pausar" data-id="${esc(c.corretorId)}" data-confirm="Pausar a BIGA de ${esc(c.nome)}? Ela para de ler grupos e responder até você retomar.">Pausar</button>`}
+            </div>
+          </div>`;
+        }).join('') : '<p class="body ash">Nenhum corretor cadastrado ainda.</p>'}</div>
+      </div></section>
+      <section class="section"><div class="container"><div class="card stack reveal" id="corretorForm">
+        <span class="label">${ed ? `Editar ${esc(ed.nome)}` : 'Cadastrar corretor'}</span>
+        <div class="fields wide">
+          ${field('nome', 'Nome', ed ? ed.nome : '', { ph: 'Ex: Laura Mendes', attrs: 'maxlength="80" required' })}
+          ${field('corretorId', 'Identificador (não muda depois)', ed ? ed.corretorId : '', { ph: 'gerado a partir do nome', attrs: `maxlength="32" pattern="[a-z0-9][a-z0-9-]{1,31}" ${ed ? 'readonly' : ''}` })}
+          ${field('meuWhatsappAlerta', 'WhatsApp de alertas dele(a)', ia.meuWhatsappAlerta, { type: 'tel', ph: 'vazio = “Mensagem para mim” do próprio corretor' })}
+          ${field('geminiApiKey', 'Chave de IA (Gemini)', '', { type: 'password', ph: ia.hasGeminiApiKey ? 'já cadastrada — deixe vazio para manter' : 'opcional', attrs: 'autocomplete="off" maxlength="200"' })}
+          ${field('googleSheetsCsvUrl', 'Planilha da carteira (link CSV)', ia.googleSheetsCsvUrl, { ph: 'https://… (opcional)' })}
+          ${field('humanTraining', 'Jeito de falar (opcional)', ia.humanTraining, { area: true, rows: 3, cls: 'wide', ph: 'regras de resposta do corretor' })}
+        </div>
+        ${toggle('modoApenasAvisar', ia.modoApenasAvisar, 'Só avisar, não enviar sozinha', 'Recomendado nos primeiros dias: a BIGA avisa o corretor em vez de mandar o imóvel direto ao parceiro.')}
+        <div class="row tight"><button class="btn-primary" data-action="salvarCorretor">${ed ? 'Salvar alterações' : 'Cadastrar e gerar QR Code'}</button>${ed ? '<button class="btn-ghost" data-action="cancelarCorretor">Cancelar</button>' : ''}</div>
+      </div></div></section>`}`);
+  }
+
   // ------------------------------------------------------------------ carregamento
   async function loadStatus() {
     S.status = await api('GET', '/api/status');
@@ -1027,10 +1079,11 @@
     ajustes: async () => {
       await loadStatus();
       S.sistema = await api('GET', '/api/sistema').catch(() => null);
-    }
+    },
+    corretores: async () => (S.equipe = await api('GET', '/api/equipe'))
   };
   // Map (e não objeto): a rota vem da URL (#constructor, #__proto__…) e só pode virar página se estiver na lista
-  const views = new Map(Object.entries({ inicio: viewHome, hoje: viewGeral, geral: viewGeral, garimpo: (...a) => viewGarimpo(...a), busca: viewBusca, radar: viewRadar, carteira: viewCarteira, vitrine: viewVitrine, capas: viewCapas, pdf: viewPdf, prospeccao: viewProspeccao, atendimento: viewAtendimento, cerebro: viewCerebro, simulador: viewSimulador, ajustes: viewAjustes }));
+  const views = new Map(Object.entries({ inicio: viewHome, hoje: viewGeral, geral: viewGeral, garimpo: (...a) => viewGarimpo(...a), busca: viewBusca, radar: viewRadar, carteira: viewCarteira, vitrine: viewVitrine, capas: viewCapas, pdf: viewPdf, prospeccao: viewProspeccao, atendimento: viewAtendimento, cerebro: viewCerebro, simulador: viewSimulador, ajustes: viewAjustes, corretores: viewCorretores }));
 
   // Desenha a página atual. Ao TROCAR de página (go) anima a entrada; nas atualizações da mesma
   // página não anima, mantém a rolagem e (manterCampos) o que estava sendo digitado.
@@ -1130,6 +1183,17 @@
     if (animate) playCurtain('out');
   }
 
+  // Corretores: QR Code e status atualizam sozinhos
+  setInterval(async () => {
+    if (!S.authed || document.hidden || S.route !== 'corretores') return;
+    if (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+    try {
+      const antes = JSON.stringify(S.equipe);
+      await loaders.corretores();
+      if (JSON.stringify(S.equipe) !== antes) render({ manterCampos: true });
+    } catch {}
+  }, 5000);
+
   // Atualização automática da visão geral (QR Code, atividade)
   setInterval(async () => {
     if (!S.authed || document.hidden || !['hoje', 'geral'].includes(S.route)) return;
@@ -1170,6 +1234,36 @@
   }
 
   const actions = {
+    salvarCorretor: async () => {
+      const d = formData($('#corretorForm'));
+      const ed = S.corretorEdit;
+      const corretorId = ed ? ed.corretorId : String(d.corretorId || '').trim() || slugCorretor(d.nome);
+      const configIA = { meuWhatsappAlerta: d.meuWhatsappAlerta || '', googleSheetsCsvUrl: d.googleSheetsCsvUrl || '', humanTraining: d.humanTraining || '', modoApenasAvisar: Boolean(d.modoApenasAvisar) };
+      if (d.geminiApiKey) configIA.geminiApiKey = d.geminiApiKey.trim();
+      const r = await api('POST', '/api/equipe', { corretorId, nome: d.nome, configIA });
+      S.corretorEdit = null;
+      await loaders.corretores();
+      render({ manterCampos: false });
+      toast(r.corretor.whatsapp.qrSvg || r.corretor.whatsapp.status !== 'CONECTADO' ? `${r.corretor.nome} salvo(a). O QR Code aparece na lista em instantes.` : `${r.corretor.nome} salvo(a).`);
+    },
+    editarCorretor: el => {
+      const c = ((S.equipe && S.equipe.corretores) || []).find(x => x.corretorId === el.dataset.id);
+      if (!c) return;
+      S.corretorEdit = c;
+      render({ manterCampos: false });
+      $('#corretorForm')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+    cancelarCorretor: () => {
+      S.corretorEdit = null;
+      render({ manterCampos: false });
+    },
+    acaoCorretor: async el => {
+      if (el.dataset.confirm && !confirm(el.dataset.confirm)) return;
+      await api('POST', `/api/equipe/${encodeURIComponent(el.dataset.id)}/${encodeURIComponent(el.dataset.acao)}`);
+      await loaders.corretores();
+      render();
+      toast({ pausar: 'Corretor pausado.', retomar: 'Corretor retomado.', 'novo-qr': 'QR Code novo gerado.' }[el.dataset.acao] || 'Feito.');
+    },
     buscar: async () => {
       const f = formData($('#buscaForm'));
       const { texto, whatsapp, ...filtros } = f;

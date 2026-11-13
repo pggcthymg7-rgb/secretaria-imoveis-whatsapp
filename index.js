@@ -76,16 +76,18 @@ app.get(['/', '/dia-a-dia'], (req, res) => {
   res.type('html').send(fs.readFileSync(INDEX_HTML, 'utf-8').replace(/(\/assets\/[\w-]+\.(?:js|css))"/g, `$1?v=${v}"`));
 });
 
-// Multi-tenant (MULTI_TENANT=1): vários corretores no mesmo processo — ver src/tenancy/.
-// Rotas de administração com ADMIN_TOKEN próprio, antes do login do painel (que é do corretor principal).
+// Multi-tenant (MULTI_TENANT=1): os corretores da equipe rodam neste mesmo processo — ver src/tenancy/.
+// Quem administra a equipe é só o dono deste painel (página Corretores). API opcional com ADMIN_TOKEN.
 const tenancy = process.env.MULTI_TENANT === '1' ? require('./src/tenancy').createTenancy({ baseDir: DATA_DIR }) : null;
-if (tenancy) require('./src/tenancy/routes').mountTenantRoutes(app, { ...tenancy, adminToken: process.env.ADMIN_TOKEN });
+const tenancyRoutes = require('./src/tenancy/routes');
+if (tenancy) tenancyRoutes.mountTenantRoutes(app, { ...tenancy, adminToken: process.env.ADMIN_TOKEN });
 
 app.use('/api', auth.requireAppHeader);
 auth.routes(app);
 
 // Tudo abaixo exige login
 app.use('/api', auth.requireAuth);
+tenancyRoutes.mountPanelRoutes(app, tenancy); // /api/equipe — cadastro dos corretores (só com login do painel)
 app.use('/fotos', auth.requireAuth, express.static(FOTOS_DIR, { index: false, dotfiles: 'deny' }));
 
 const ah = fn => (req, res) => Promise.resolve(fn(req, res)).catch(err => res.status(err.status || 500).json({ error: err.message || 'Erro interno' }));

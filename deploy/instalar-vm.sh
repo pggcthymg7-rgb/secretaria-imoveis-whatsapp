@@ -135,6 +135,8 @@ get_env() { grep -E "^$1=" "$ENV_FILE" | tail -1 | cut -d= -f2- || true; }
 set_env NODE_ENV production
 set_env PORT "$PORT_APP"
 set_env DATA_DIR "$DATA_DIR"
+# Modo equipe: corretores cadastrados no painel (página Corretores) rodam neste mesmo processo
+[ -z "$(get_env MULTI_TENANT)" ] && set_env MULTI_TENANT 1
 set_env PAINEL_SENHA "${PAINEL_SENHA:-}"
 set_env MEU_WHATSAPP_ALERTA "${MEU_WHATSAPP_ALERTA:-}"
 set_env GEMINI_API_KEY "${GEMINI_API_KEY:-}"

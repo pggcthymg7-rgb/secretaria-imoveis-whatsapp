@@ -52,6 +52,25 @@ if [ "$(id -u)" != "0" ]; then
   exit 1
 fi
 
+# Modo equipe: corretores listados em migrar.conf passam a rodar dentro da BIGA principal
+MIGRAR_CONF="${MIGRAR_CONF:-$APP_DIR/deploy/migrar.conf}"
+if [ -f "$MIGRAR_CONF" ] && [ -f "$APP_DIR/deploy/migrar-corretor.sh" ]; then
+  while IFS= read -r linha || [ -n "$linha" ]; do
+    linha="${linha%%#*}"
+    read -r mnome _ <<<"$linha" || true
+    [ -z "${mnome:-}" ] && continue
+    APP_DIR="$APP_DIR" DATA_DIR="$MAIN_DATA" bash "$APP_DIR/deploy/migrar-corretor.sh" "$mnome" </dev/null || echo "AVISO: migração de $mnome falhou (tenta de novo na próxima atualização)" >&2
+  done < "$MIGRAR_CONF"
+fi
+# Quem já roda dentro da principal nunca volta a ter processo próprio
+FILTRADAS=()
+for e in "${ENTRADAS[@]}"; do
+  read -r enome _ <<<"$e"
+  if [ -f "$MAIN_DATA/tenants/$enome/config.json" ]; then echo "$enome já está na BIGA principal: ignorado em corretores.conf" >&2; continue; fi
+  FILTRADAS+=("$e")
+done
+ENTRADAS=("${FILTRADAS[@]}")
+
 CADDY_MUDOU=0
 LISTA_JSON="["
 for e in "${ENTRADAS[@]}"; do
