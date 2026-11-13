@@ -1,7 +1,8 @@
 name: CI
 
 # Roda os testes do projeto (sintaxe + testes) em toda PR e em todo push na main.
-# Grátis e sem limite em repositório público. Os testes usam pasta temporária: nunca tocam em dados reais.
+# Público: grátis e sem limite. Privado (GitHub Pro): ~3 min por execução da franquia de 3.000 min/mês.
+# Os testes usam pasta temporária: nunca tocam em dados reais.
 on:
   pull_request:
   push:
@@ -30,3 +31,18 @@ jobs:
       - run: npm ci --no-audit --no-fund
       # `npm run verify` = checagem de sintaxe (scripts/check.js) + npm test
       - run: npm run verify
+
+  # Scripts que rodam como root na VM sem ninguém olhando (atualização, migração, HTTPS dos corretores):
+  # qualquer aviso do ShellCheck barra a PR.
+  scripts-vm:
+    name: scripts-vm
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Sintaxe (bash -n)
+        run: for f in deploy/*.sh instalar-nuvem.sh; do bash -n "$f"; done
+      - name: ShellCheck
+        run: shellcheck -S warning deploy/*.sh instalar-nuvem.sh

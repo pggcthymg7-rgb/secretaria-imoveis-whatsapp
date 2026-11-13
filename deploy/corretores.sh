@@ -59,6 +59,7 @@ if [ -f "$MIGRAR_CONF" ] && [ -f "$APP_DIR/deploy/migrar-corretor.sh" ]; then
     linha="${linha%%#*}"
     read -r mnome _ <<<"$linha" || true
     [ -z "${mnome:-}" ] && continue
+    # shellcheck disable=SC2097,SC2098 # repassa o mesmo APP_DIR ao script filho
     APP_DIR="$APP_DIR" DATA_DIR="$MAIN_DATA" bash "$APP_DIR/deploy/migrar-corretor.sh" "$mnome" </dev/null || echo "AVISO: migração de $mnome falhou (tenta de novo na próxima atualização)" >&2
   done < "$MIGRAR_CONF"
 fi
