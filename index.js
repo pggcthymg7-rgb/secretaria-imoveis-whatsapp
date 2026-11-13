@@ -76,6 +76,11 @@ app.get(['/', '/dia-a-dia'], (req, res) => {
   res.type('html').send(fs.readFileSync(INDEX_HTML, 'utf-8').replace(/(\/assets\/[\w-]+\.(?:js|css))"/g, `$1?v=${v}"`));
 });
 
+// Multi-tenant (MULTI_TENANT=1): vários corretores no mesmo processo — ver src/tenancy/.
+// Rotas de administração com ADMIN_TOKEN próprio, antes do login do painel (que é do corretor principal).
+const tenancy = process.env.MULTI_TENANT === '1' ? require('./src/tenancy').createTenancy({ baseDir: DATA_DIR }) : null;
+if (tenancy) require('./src/tenancy/routes').mountTenantRoutes(app, { ...tenancy, adminToken: process.env.ADMIN_TOKEN });
+
 app.use('/api', auth.requireAppHeader);
 auth.routes(app);
 
@@ -682,10 +687,11 @@ app.use((err, req, res, next) => res.status(err.status || 500).json({ error: err
 // ---------------------------------------------------------------------------
 // Partida
 // ---------------------------------------------------------------------------
-function shutdown() {
+async function shutdown() {
   try {
     contacts.flush();
     radar.flush();
+    if (tenancy) await tenancy.shutdown();
   } catch {}
   process.exit(0);
 }
@@ -700,6 +706,7 @@ if (require.main === module) {
     if (!auth.isConfigured()) auth.getSetupCode();
     wa.startWhatsAppAgent().catch(err => console.error('Erro ao iniciar WhatsApp:', err));
     scheduler.start(wa.api, wa.addLog);
+    if (tenancy) tenancy.restoreAll().then(ids => console.log(`👥 Multi-tenant: ${ids.length} corretor(es) religado(s).`));
 
     const externalUrl = process.env.RENDER_EXTERNAL_URL;
     if (externalUrl) {
@@ -710,4 +717,4 @@ if (require.main === module) {
   process.on('SIGINT', shutdown);
 }
 
-module.exports = { app };
+module.exports = { app, tenancy };
