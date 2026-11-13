@@ -18,8 +18,10 @@
 ## 2. Arquitetura Atual
 - Node 20 + Express + Baileys (WhatsApp não-oficial) + pdfkit. Persistência em JSON no `DATA_DIR`.
 - 1 processo por corretor na VM Oracle grátis (João :3000, Laura :3001).
-- NOVO (13/11/2026): modo equipe (multi-tenant) no processo do João (`MULTI_TENANT=1`). Painel é SÓ do João: página Configurar › Corretores cadastra, mostra QR, pausa/retoma. Corretores usam a BIGA só pelo WhatsApp.
-- Laura: migra sozinha na próxima atualização da VM (`deploy/migrar.conf` → `deploy/migrar-corretor.sh`): mesma sessão de WhatsApp (sem QR), dados e persona dela; painel/endereço próprio dela deixa de existir. Pasta antiga fica como garantia. Detalhe em `.claude/ENGENHARIA.md` (`src/tenancy/`).
+- NOVO (13/11/2026) — SaaS multi-tenant num processo só (`MULTI_TENANT=1`):
+  - Admin (João): a BIGA dele + Configurar › Corretores (cadastra, convite, QR, pausa). Só ele atualiza o sistema.
+  - Corretor: BIGA completa e independente no endereço `<id>.<DOMINIO>`, com login próprio (convite no 1º acesso). Não acessa a estrutura do SaaS (bloqueio no servidor).
+  - Laura: migra sozinha na próxima atualização da VM, com mesmo endereço, senha, WhatsApp e dados (`deploy/migrar.conf`).
 - Cérebro local (parser + mapa OSM); Gemini só reforça localização; Apify/Serper para portais.
 - Engenharia e mapa do código: `.claude/ENGENHARIA.md`.
 

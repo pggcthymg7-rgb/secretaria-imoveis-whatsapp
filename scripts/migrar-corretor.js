@@ -11,7 +11,7 @@
  * - Sessão do WhatsApp (auth_info_baileys) -> <destino>/sessions_storage/<nome> (não precisa ler QR de novo)
  * - Chaves do corretor (.env do painel dele + /etc/secretaria-<nome>.env, só as permitidas) -> data/.env
  * - config.json é gravado POR ÚLTIMO: a presença dele marca a migração como concluída.
- * Fica de fora o que era do painel/processo antigo: auth.json (senha do painel), logs e gatilhos.
+ * auth.json vem junto: ela entra no painel com a MESMA senha. Ficam de fora logs e gatilhos do processo antigo.
  */
 const fs = require('fs');
 const path = require('path');
@@ -19,7 +19,7 @@ const dotenv = require('dotenv');
 const { ENV_ALLOWED } = require('../src/envfile');
 const { TenantStore, validateTenantId } = require('../src/tenancy/tenant-store');
 
-const NAO_COPIAR = new Set(['auth_info_baileys', 'auth.json', 'atualizar-agora', 'atualizacao.log', 'corretores.json', '.env']);
+const NAO_COPIAR = new Set(['auth_info_baileys', 'atualizar-agora', 'atualizacao.log', 'corretores.json', '.env']);
 
 function lerEnv(file) {
   try {

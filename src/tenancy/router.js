@@ -7,7 +7,7 @@
  *   3. entrega ao domínio DAQUELE corretor (contêiner próprio, ver container.js), que responde
  *      pelo socket obtido em sessionManager.getSession(tenantId).
  */
-const { createTenantContainer, buildTenantEnv } = require('./container');
+const { createTenantContainer, buildTenantEnv, CONFIG_TO_ENV } = require('./container');
 
 /**
  * @typedef {Object} TenantContext
@@ -48,18 +48,21 @@ class WhatsAppRouter {
   buildTenantContext(tenantId) {
     const cfg = this.store.get(tenantId);
     if (!cfg) throw new Error(`Corretor ${tenantId} não cadastrado.`);
-    const ia = cfg.configIA || {};
+    // Configuração que VALE (o corretor pode ter mudado no painel dele depois do cadastro)
+    const { container } = this.domain(tenantId);
+    const env = container.env;
+    const s = container.require('settings').loadSettings();
     return Object.freeze({
       tenantId,
       nome: cfg.nome,
       dataDir: this.store.dataDir(tenantId),
       ia: Object.freeze({
-        geminiApiKey: ia.geminiApiKey || '',
-        geminiModel: ia.geminiModel || '',
-        humanTraining: ia.humanTraining || '',
-        messageTemplate: ia.messageTemplate || ''
+        geminiApiKey: String(env.GEMINI_API_KEY || '').trim(),
+        geminiModel: String(env.GEMINI_MODEL || '').trim(),
+        humanTraining: s.humanTraining || '',
+        messageTemplate: s.messageTemplate || ''
       }),
-      alertas: Object.freeze({ meuWhatsapp: ia.meuWhatsappAlerta || '' })
+      alertas: Object.freeze({ meuWhatsapp: s.meuWhatsappAlerta || '' })
     });
   }
 
@@ -71,22 +74,52 @@ class WhatsAppRouter {
     const cfg = this.store.get(tenantId);
     if (!cfg) throw new Error(`Corretor ${tenantId} não cadastrado.`);
     const old = this.domains.get(tenantId);
-    if (old) {
-      // Config mudou: aplica no domínio já carregado (env + settings), sem perder estado em memória
-      Object.assign(old.container.env, buildTenantEnv({ baseEnv: process.env, dataDir: old.container.dataDir, configIA: cfg.configIA }));
-      this._applySettings(old.container, cfg.configIA);
-      return old;
-    }
+    if (old) return old;
     const dataDir = this.store.dataDir(tenantId);
-    const container = createTenantContainer({ tenantId, dataDir, env: buildTenantEnv({ baseEnv: process.env, dataDir, configIA: cfg.configIA }) });
-    this._applySettings(container, cfg.configIA);
+    const container = createTenantContainer({
+      tenantId,
+      dataDir,
+      env: buildTenantEnv({ baseEnv: process.env, dataDir, configIA: cfg.configIA, tenantId }),
+      onExit: () => setImmediate(() => this.reloadTenant(tenantId).catch(err => console.error(`[tenant:${tenantId}] recarga falhou: ${err.message}`)))
+    });
     const wa = container.require('whatsapp');
-    const domain = { container, wa };
+    const domain = { container, wa, app: null };
     this.domains.set(tenantId, domain);
     const sock = this.sm.getSession(tenantId);
-    if (sock) this._bindSocket(tenantId, sock);
+    if (sock) {
+      this._bindSocket(tenantId, sock);
+      if (this.sm.getStatus(tenantId).status === 'CONECTADO') wa.onConnectionState({ connection: 'open' }).catch(() => {});
+    }
     if (this.startScheduler) container.require('scheduler').start(wa.api, wa.addLog);
     return domain;
+  }
+
+  /**
+   * Configuração inicial vinda do cadastro do administrador: grava NA BIGA do corretor
+   * (.env e settings.json dele). Depois disso o corretor pode mudar tudo no painel dele;
+   * só um novo "salvar" do administrador sobrescreve de novo.
+   */
+  applyConfig(tenantId, configIA = {}) {
+    const { container } = this.domain(tenantId);
+    const keys = {};
+    for (const [field, envKey] of Object.entries(CONFIG_TO_ENV)) if (typeof configIA[field] === 'string' && configIA[field]) keys[envKey] = configIA[field];
+    if (Object.keys(keys).length) container.require('envfile').updateEnvFile(keys);
+    if (configIA.geminiModel) container.env.GEMINI_MODEL = configIA.geminiModel; // não é chave do .env
+    this._applySettings(container, configIA);
+  }
+
+  /** App web (painel + API) da BIGA do corretor — mesmo código do admin, papel 'corretor' */
+  tenantApp(tenantId) {
+    const d = this.domain(tenantId);
+    if (!d.app) d.app = d.container.require('app').app;
+    return d.app;
+  }
+
+  /** Recarrega a BIGA do corretor do disco (ex.: depois de restaurar backup), sem tocar nos outros */
+  async reloadTenant(tenantId) {
+    this.stopTenant(tenantId, { flush: false });
+    if (!this.store.get(tenantId) || this.store.get(tenantId).ativo === false) return null;
+    return this.prepareTenant(tenantId);
   }
 
   domain(tenantId) {
@@ -134,14 +167,17 @@ class WhatsAppRouter {
     return d ? d.wa.getAgentState() : null;
   }
 
-  stopTenant(tenantId) {
+  stopTenant(tenantId, { flush = true } = {}) {
     const d = this.domains.get(tenantId);
     if (!d) return;
     try {
       d.container.require('scheduler').stop();
-      d.container.require('contacts').flush();
-      d.container.require('radar').flush();
+      if (flush) {
+        d.container.require('contacts').flush();
+        d.container.require('radar').flush();
+      }
     } catch {}
+    d.container.dispose();
     this.domains.delete(tenantId);
   }
 

@@ -28,7 +28,8 @@ function requireAdmin(adminToken) {
 // Casos de uso (compartilhados pelo painel e pela API)
 // ---------------------------------------------------------------------------------------------
 /** Cadastra/atualiza o corretor e sobe a sessão de WhatsApp dele */
-async function conectarCorretor({ tenantStore, sessionManager, router }, { corretorId, nome, configIA } = {}) {
+async function conectarCorretor(deps, { corretorId, nome, configIA } = {}) {
+  const { tenantStore, sessionManager, router } = deps;
   validateTenantId(corretorId);
   const prev = tenantStore.get(corretorId);
   const patch = configIA && typeof configIA === 'object' && !Array.isArray(configIA) ? { ...configIA } : configIA ?? {};
@@ -39,6 +40,8 @@ async function conectarCorretor({ tenantStore, sessionManager, router }, { corre
   const record = tenantStore.save(corretorId, { nome, configIA: patch });
   if (record.ativo === false) return { isNew: !prev, record, status: { status: 'PAUSADO' } };
   router.prepareTenant(corretorId);
+  router.applyConfig(corretorId, patch && typeof patch === 'object' ? patch : {});
+  if (!prev && typeof deps.pedirEndereco === 'function') deps.pedirEndereco(corretorId);
   const status = await sessionManager.initializeTenant(corretorId, { nome: record.nome });
   return { isNew: !prev, record, status };
 }
@@ -51,8 +54,16 @@ async function resumoCorretor({ tenantStore, sessionManager, router }, id) {
   const ag = record.ativo === false ? null : router.getAgentState(id);
   const grupos = ag?.connectedGroups || [];
   const pub = TenantStore.publicView(record);
+  const painel = { url: null, codigoConvite: null };
+  const d = record.ativo === false ? null : router.domains.get(id);
+  if (d) {
+    painel.url = d.container.env.PUBLIC_URL || null;
+    const auth = d.container.require('auth');
+    if (!auth.isConfigured()) painel.codigoConvite = auth.getSetupCode();
+  }
   return {
     ...pub,
+    painel,
     // O que está valendo de fato (inclui o que o corretor ajustou pelo WhatsApp); pausado = só o cadastro
     efetivo: (record.ativo !== false && router.efetivo(id)) || { ...pub.configIA, hasGeminiApiKey: Boolean(pub.configIA.hasGeminiApiKey) },
     whatsapp: {

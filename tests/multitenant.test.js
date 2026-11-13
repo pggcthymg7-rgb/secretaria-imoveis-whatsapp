@@ -151,6 +151,7 @@ test('Ponta a ponta: 2 corretores no mesmo processo, cada um responde pela próp
   t.tenantStore.save('bia', { nome: 'Bia', configIA: { geminiApiKey: 'KEY_BIA', geminiModel: 'm-bia' } });
   for (const id of ['ana', 'bia']) {
     const d = t.router.prepareTenant(id);
+    t.router.applyConfig(id, t.tenantStore.get(id).configIA); // cadastro do admin = configuração inicial
     d.container.require('settings').saveSettings({ gruposMonitoradosIds: ['g1@g.us'], firstContactAquecimentoMin: 0, maxPhotosPerMatch: 0 });
   }
   // Só a Ana tem o imóvel na carteira
@@ -277,7 +278,7 @@ test('Migração da Laura: dados, sessão do WhatsApp e chaves vão para dentro 
   assert.equal(r.sessaoCopiada, true);
   const tdata = path.join(principal, 'tenants', 'laura', 'data');
   assert.ok(fs.existsSync(path.join(tdata, 'fotos', 'casa.jpg')));
-  assert.equal(fs.existsSync(path.join(tdata, 'auth.json')), false, 'senha do painel antigo não vem');
+  assert.ok(fs.existsSync(path.join(tdata, 'auth.json')), 'senha do painel dela vem junto (mesmo login)');
   assert.ok(fs.existsSync(path.join(principal, 'sessions_storage', 'laura', 'creds.json')), 'sessão vem junto: sem novo QR');
   const env = fs.readFileSync(path.join(tdata, '.env'), 'utf-8');
   assert.match(env, /GEMINI_API_KEY=KEY_PAINEL_LAURA/, 'chave salva pelo painel dela vence a do /etc');

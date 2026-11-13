@@ -34,8 +34,12 @@ class TenantValidationError extends Error {
   }
 }
 
+// Viram subdomínio (<id>.<DOMINIO>): nomes de infraestrutura ficam reservados
+const RESERVADOS = new Set(['www', 'admin', 'api', 'painel', 'mail', 'smtp', 'ftp', 'app', 'biga', 'root', 'sistema']);
+
 function validateTenantId(id) {
-  if (typeof id !== 'string' || !TENANT_ID_RE.test(id)) throw new TenantValidationError('corretorId inválido (use 2–32 caracteres: a-z, 0-9 e hífen).');
+  if (typeof id !== 'string' || !TENANT_ID_RE.test(id) || id.endsWith('-')) throw new TenantValidationError('corretorId inválido (use 2–32 caracteres: a-z, 0-9 e hífen).');
+  if (RESERVADOS.has(id)) throw new TenantValidationError(`"${id}" é um nome reservado.`);
   return id;
 }
 
@@ -149,4 +153,4 @@ class TenantStore {
   }
 }
 
-module.exports = { TenantStore, TenantValidationError, validateTenantId, normalizeConfigIA, CONFIG_FIELDS };
+module.exports = { TENANT_ID_RE, RESERVADOS, TenantStore, TenantValidationError, validateTenantId, normalizeConfigIA, CONFIG_FIELDS };
