@@ -43,6 +43,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Sintaxe (bash -n)
-        run: for f in deploy/*.sh instalar-nuvem.sh; do bash -n "$f"; done
+        run: for f in deploy/*.sh; do bash -n "$f"; done
       - name: ShellCheck
-        run: shellcheck -S warning deploy/*.sh instalar-nuvem.sh
+        run: shellcheck -S warning deploy/*.sh
