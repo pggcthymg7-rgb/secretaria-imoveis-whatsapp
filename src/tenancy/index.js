@@ -10,8 +10,16 @@ const { WhatsAppRouter } = require('./router');
 
 function createTenancy({ baseDir, baileys, startScheduler = true }) {
   const tenantStore = new TenantStore(baseDir);
-  const sessionManager = new WhatsAppSessionManager({ storageDir: tenantStore.sessionsDir, ...(baileys ? { baileys } : {}) });
-  const router = new WhatsAppRouter({ sessionManager, tenantStore, startScheduler }).attach();
+  let router = null;
+  // Conexão do corretor: vai para o journal da VM e para a Atividade do painel dele(a)
+  const log = (tenantId, msg) => {
+    console.log(`[tenant:${tenantId}] ${msg}`);
+    try {
+      router?.domains.get(tenantId)?.wa.addLog('CONEXAO', msg);
+    } catch {}
+  };
+  const sessionManager = new WhatsAppSessionManager({ storageDir: tenantStore.sessionsDir, log, ...(baileys ? { baileys } : {}) });
+  router = new WhatsAppRouter({ sessionManager, tenantStore, startScheduler }).attach();
 
   /** Religa todos os corretores já cadastrados (partida do processo) */
   async function restoreAll() {

@@ -66,3 +66,19 @@ test('Reconexão logo após ler o QR (515) que falha não para de tentar', { tim
     await sm.stopAll();
   }
 });
+
+test('Queda fora do ciclo do QR aparece no log e no painel com código e motivo', { timeout: 15000 }, async () => {
+  const ctl = fakeBaileys();
+  const logs = [];
+  const sm = new WhatsAppSessionManager({ storageDir: path.join(tmp, 'sm-3'), baileys: ctl.baileys, log: (id, m) => logs.push(`${id}: ${m}`) });
+  try {
+    await sm.initializeTenant('giovana');
+    ctl.sockets[0].ev.emit('connection.update', { connection: 'close', lastDisconnect: { error: { message: 'Connection Failure', output: { statusCode: 405 } } } });
+    assert.ok(logs.some(l => /giovana: Conexão encerrada \(código 405\): Connection Failure/.test(l)), logs.join('\n'));
+    assert.equal(sm.getStatus('giovana').erro, 'código 405: Connection Failure');
+    ctl.sockets[0].ev.emit('connection.update', { connection: 'close', lastDisconnect: { error: { message: 'restart', output: { statusCode: 515 } } } });
+    assert.ok(logs.some(l => /QR Code lido/.test(l)));
+  } finally {
+    await sm.stopAll();
+  }
+});

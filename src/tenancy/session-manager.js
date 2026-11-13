@@ -102,6 +102,7 @@ class WhatsAppSessionManager extends EventEmitter {
         this.emit('qr', { tenantId, qr });
       }
       if (connection === 'open') {
+        this.log(tenantId, 'Conectado ao WhatsApp.');
         session.qr = null;
         session.status = 'CONECTADO';
         session.attempts = 0;
@@ -110,6 +111,11 @@ class WhatsAppSessionManager extends EventEmitter {
       if (connection === 'close') {
         session.qr = null;
         session.status = 'DESCONECTADO';
+        const motivo = lastDisconnect?.error?.message || 'sem detalhe';
+        if (statusCode === DisconnectReason.restartRequired) this.log(tenantId, 'QR Code lido! Terminando de conectar...');
+        else this.log(tenantId, `Conexão encerrada (código ${statusCode ?? '-'}): ${motivo}`);
+        // Quedas que não são do ciclo normal do QR ficam visíveis no painel até conectar
+        if (![DisconnectReason.restartRequired, DisconnectReason.timedOut].includes(statusCode)) session.erro = `código ${statusCode ?? '-'}: ${motivo}`;
         if (statusCode === DisconnectReason.loggedOut) {
           this.log(tenantId, 'Sessão encerrada no celular. Um novo QR Code será gerado.');
           fs.rmSync(authDir, { recursive: true, force: true });
