@@ -27,3 +27,7 @@ busca_historico.json
 
 # Graphify local (gerado no CI)
 graphify-out/
+
+# Multi-tenant: dados, chaves e sessões de WhatsApp por corretor
+tenants/
+sessions_storage/

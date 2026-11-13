@@ -127,8 +127,9 @@ function buildHumanContextualParts(messageText, senderName, humanTraining = '', 
 // ---------------------------------------------------------------------------
 // Gemini (opcional): só ajuda a identificar nomes de lugares que o mapa não conhece
 // ---------------------------------------------------------------------------
-async function aiExtractPlaces(messageText) {
-  const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+async function aiExtractPlaces(messageText, tenant = null) {
+  // Multi-tenant: chave/modelo vêm do TenantContext do corretor; modo clássico: do .env
+  const apiKey = String(tenant?.ia?.geminiApiKey ?? process.env.GEMINI_API_KEY ?? '').trim();
   if (!apiKey || apiKey === 'coloque_sua_chave_aqui') return null;
   const ai = new GoogleGenAI({ apiKey });
   const prompt = `Você lê pedidos de imóveis em grupos de corretores de Goiânia-GO.
@@ -138,7 +139,7 @@ Responda apenas JSON: {"lugares":[{"nome":"texto exatamente como aparece","tipo"
 TEXTO:
 """${String(messageText).slice(0, 2000)}"""`;
   const call = ai.models.generateContent({
-    model: process.env.GEMINI_MODEL || (await require('./gemini-modelo').escolherModelo(apiKey)),
+    model: tenant?.ia?.geminiModel || process.env.GEMINI_MODEL || (await require('./gemini-modelo').escolherModelo(apiKey)),
     contents: prompt,
     config: { responseMimeType: 'application/json', temperature: 0 }
   });
@@ -189,7 +190,9 @@ function getIndex(inventory, settings) {
 }
 
 /**
- * Função principal chamada para cada mensagem de grupo e pelo Simulador
+ * Função principal chamada para cada mensagem de grupo e pelo Simulador.
+ * options.tenant (TenantContext, ver src/tenancy/router.js) traz a configuração de IA do corretor;
+ * sem ele, vale a configuração do processo (.env), como no modo de 1 corretor por processo.
  */
 async function analyzeMessageAndMatch(messageText, senderName, inventory, options = {}) {
   if (!messageText || messageText.trim().length < 6) {
@@ -211,7 +214,7 @@ async function analyzeMessageAndMatch(messageText, senderName, inventory, option
   let usedEngine = 'Motor de regras + Mapa de Goiânia';
   if (options.useAi !== false && settings.usarIaGemini !== false) {
     try {
-      const aiPlaces = await aiExtractPlaces(messageText);
+      const aiPlaces = await aiExtractPlaces(messageText, options.tenant || null);
       if (aiPlaces) {
         usedEngine += ' + Gemini (lugares)';
         if (mergeAiPlaces(criteria, aiPlaces, messageText, index)) criteria.resumo += ' · (IA reforçou a localização)';
