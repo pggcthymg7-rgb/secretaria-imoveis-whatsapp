@@ -14,16 +14,19 @@ function createTenancy({ baseDir, baileys, startScheduler = true }) {
   /** Religa todos os corretores já cadastrados (partida do processo) */
   async function restoreAll() {
     const ids = tenantStore.list();
+    const religados = [];
     for (const id of ids) {
       try {
         const cfg = tenantStore.get(id);
+        if (cfg.ativo === false) continue; // pausado pelo João no painel
         router.prepareTenant(id);
         await sessionManager.initializeTenant(id, { nome: cfg.nome });
+        religados.push(id);
       } catch (err) {
         console.error(`[tenant:${id}] Falha ao religar: ${err.message}`);
       }
     }
-    return ids;
+    return religados;
   }
 
   async function shutdown() {

@@ -114,6 +114,21 @@ class WhatsAppRouter {
     await wa.onMessagesUpsert({ messages, type }, ctx);
   }
 
+  /** Configuração que está valendo no domínio do tenant (settings.json + env), para o painel */
+  efetivo(tenantId) {
+    const d = this.domains.get(tenantId);
+    if (!d) return null;
+    const s = d.container.require('settings').loadSettings();
+    const env = d.container.env;
+    return {
+      meuWhatsappAlerta: s.meuWhatsappAlerta || '',
+      modoApenasAvisar: Boolean(s.modoApenasAvisar),
+      humanTraining: s.humanTraining || '',
+      googleSheetsCsvUrl: env.GOOGLE_SHEETS_CSV_URL || '',
+      hasGeminiApiKey: Boolean(String(env.GEMINI_API_KEY || '').trim())
+    };
+  }
+
   getAgentState(tenantId) {
     const d = this.domains.get(tenantId);
     return d ? d.wa.getAgentState() : null;

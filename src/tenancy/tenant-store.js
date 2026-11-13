@@ -103,11 +103,21 @@ class TenantStore {
       corretorId: id,
       nome: clean.nome,
       configIA: { ...(prev?.configIA || {}), ...clean.configIA },
+      ativo: prev?.ativo !== false,
       criadoEm: prev?.criadoEm || now,
       atualizadoEm: now
     };
     writePrivateJson(path.join(dir, 'config.json'), record);
     return record;
+  }
+
+  /** Liga/desliga o corretor (desligado não é religado na partida do processo) */
+  setAtivo(id, ativo) {
+    const rec = this.get(id);
+    if (!rec) return null;
+    const next = { ...rec, ativo: Boolean(ativo), atualizadoEm: new Date().toISOString() };
+    writePrivateJson(path.join(this.tenantDir(id), 'config.json'), next);
+    return next;
   }
 
   /** @returns {null | { corretorId: string, nome: string, configIA: object, criadoEm: string, atualizadoEm: string }} */
