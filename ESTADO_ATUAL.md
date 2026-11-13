@@ -18,6 +18,7 @@
 ## 2. Arquitetura Atual
 - Node 20 + Express + Baileys (WhatsApp não-oficial) + pdfkit. Persistência em JSON no `DATA_DIR`.
 - 1 processo por corretor na VM Oracle grátis (João :3000, Laura :3001).
+- NOVO (13/11/2026): modo multi-tenant no mesmo processo, desligado por padrão (`MULTI_TENANT=1` + `ADMIN_TOKEN`). Corretor entra via `POST /api/conectar-corretor` (sem .env/bash). João segue no modo clássico; migrar a Laura é o próximo passo. Detalhe em `.claude/ENGENHARIA.md` (`src/tenancy/`).
 - Cérebro local (parser + mapa OSM); Gemini só reforça localização; Apify/Serper para portais.
 - Engenharia e mapa do código: `.claude/ENGENHARIA.md`.
 

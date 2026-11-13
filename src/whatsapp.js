@@ -32,6 +32,7 @@ const metrics = require('./metrics');
 const prospeccao = require('./prospeccao');
 const assistant = require('./assistant');
 const { handleIncomingCalls, handlePrivateDailyMessage, extractText } = require('./atendimento-diario');
+const { reconnectDelay } = require('./whatsapp-reconexao');
 
 const logger = pino({ level: 'silent' });
 
@@ -303,7 +304,7 @@ async function sendOffers(targetJid, phoneKey, senderName, originalText, propert
   return sentIds;
 }
 
-async function handleGroupMessage(msg, remoteJid) {
+async function handleGroupMessage(msg, remoteJid, tenant = null) {
   const text = extractText(msg);
   if (!text || text.trim().length < 8) return;
 
@@ -326,7 +327,7 @@ async function handleGroupMessage(msg, remoteJid) {
   const phoneKey = phone || contacts.keyOf(participantJid);
 
   const inventory = await loadInventory();
-  const analysis = await analyzeMessageAndMatch(text, senderName, inventory);
+  const analysis = await analyzeMessageAndMatch(text, senderName, inventory, tenant ? { tenant } : {});
   if (!analysis.isLookingForProperty) return;
 
   metrics.inc('pedidos_lidos');
@@ -660,19 +661,6 @@ async function importarConversaExportada(msg) {
 // ---------------------------------------------------------------------------
 // Conexão
 // ---------------------------------------------------------------------------
-/**
- * Espera antes de reconectar.
- * - 515 (restartRequired): vem logo depois de ler o QR Code — o WhatsApp pede para reconectar
- *   para terminar o pareamento. Precisa ser quase na hora (1 s), senão o celular desiste do aparelho.
- * - 408 (QR Code venceu sem ser lido) e aguardando QR: espera curta, para o QR novo aparecer logo.
- * - Demais quedas: espera crescente (3 s, 6 s, 12 s… até 60 s) para não martelar o servidor.
- */
-function reconnectDelay(statusCode, attempts, semSessao = false) {
-  if (statusCode === DisconnectReason.restartRequired) return 1000; // 1 s: só o tempo de gravar a sessão nova no disco
-  if (semSessao || statusCode === DisconnectReason.timedOut) return 3000;
-  return Math.min(60000, 3000 * 2 ** Math.min(attempts, 5));
-}
-
 function scheduleReconnect(statusCode) {
   if (reconnectTimer) return;
   reconnectAttempts++;
@@ -682,6 +670,167 @@ function scheduleReconnect(statusCode) {
     reconnectTimer = null;
     startWhatsAppAgent().catch(err => addLog('CONEXAO', `Erro ao reconectar: ${err.message}`));
   }, delay);
+}
+
+// ---------------------------------------------------------------------------
+// Eventos do WhatsApp -> domínio. Usados pelo modo clássico (startWhatsAppAgent, 1 corretor
+// por processo) e pelo modo multi-tenant (src/tenancy: o WhatsAppSessionManager dono do socket
+// emite os eventos e o WhatsAppRouter entrega aqui, já com o TenantContext).
+// ---------------------------------------------------------------------------
+/** Estado da conexão visto pelo painel/domínio (QR, conectado, grupos) */
+async function onConnectionState({ connection, qr } = {}) {
+  if (qr) {
+    latestQrCode = qr;
+    connectionStatus = 'AGUARDANDO_QR_CODE';
+  }
+  if (connection === 'close') {
+    latestQrCode = null;
+    connectionStatus = 'DESCONECTADO';
+  } else if (connection === 'open') {
+    latestQrCode = null;
+    connectionStatus = 'CONECTADO';
+    connectedAt = Date.now();
+    reconnectAttempts = 0;
+    addLog('CONEXAO', '✅ Conectada ao WhatsApp.');
+    contacts.markKnown(sock.user?.id, sock.user?.lid);
+    await refreshGroups();
+    addLog('GRUPOS', `${connectedGroups.length} grupos na conta.`);
+  }
+}
+
+// Histórico e agenda -> todos viram contatos conhecidos
+// Busca inteligente: anúncios do histórico (pareamento e pedidos de histórico)
+function onHistorySet({ chats, contacts: cts, messages } = {}) {
+  processarHistorico(messages).catch(err => addLog('ERRO', `Histórico: ${err.message}`));
+  for (const c of chats || []) if (c.id && !c.id.endsWith('@g.us') && c.id !== 'status@broadcast') contacts.markKnown(c.id, c.pnJid, c.lidJid);
+  for (const c of cts || []) {
+    contacts.upsertContact({ ...c, agenda: Boolean(c.name) });
+    contacts.markKnown(c.id, c.lid, c.phoneNumber);
+  }
+  for (const m of messages || []) {
+    const j = m.key?.remoteJid;
+    if (j && !j.endsWith('@g.us') && j !== 'status@broadcast') contacts.markKnown(j, m.key.remoteJidAlt);
+  }
+}
+
+function onChatsUpsert(chats) {
+  for (const c of chats || []) if (c.id && !c.id.endsWith('@g.us') && c.id !== 'status@broadcast' && c.conversationTimestamp) contacts.markKnown(c.id);
+}
+
+function onContacts(list) {
+  for (const c of list || []) {
+    contacts.upsertContact({ ...c, agenda: Boolean(c.name) });
+    if (c.name) contacts.markKnown(c.id, c.lid, c.phoneNumber); // salvo na agenda = conhecido
+  }
+}
+
+async function onCall(calls) {
+  await handleIncomingCalls(sock, calls, addLog, { resolvePhone: j => resolvePhone(j), onEvent: () => metrics.inc('ligacoes_perdidas') });
+}
+
+/**
+ * Mensagens novas. `tenant` (TenantContext) chega no modo multi-tenant e segue até o cérebro;
+ * no modo clássico é null e tudo funciona como antes (configuração do .env/settings.json).
+ */
+async function onMessagesUpsert({ messages, type } = {}, tenant = null) {
+  for (const msg of messages) {
+    try {
+      if (msg.key && !msg.message && msg.key.fromMe && !String(msg.key.remoteJid || '').endsWith('@g.us') && msg.messageStubType === 2) {
+        addLog('ASSISTENTE', 'Recebi uma mensagem sua que ainda não consegui ler (aparelho recém-conectado). Se for comando, mande de novo em 1 minuto.');
+      }
+      if (!msg.message || !msg.key) continue;
+      const remoteJid = msg.key.remoteJid || '';
+      if (!remoteJid || remoteJid === 'status@broadcast' || remoteJid.endsWith('@newsletter') || remoteJid.endsWith('@broadcast')) continue;
+      if (msg.key.id && sentByBot.has(msg.key.id)) continue;
+      const isGroup = remoteJid.endsWith('@g.us');
+
+      // Mensagens suas (de qualquer aparelho) ensinam quem você já conhece
+      if (msg.key.fromMe && !isGroup) contacts.markKnown(remoteJid, msg.key.remoteJidAlt);
+      // Comando seu no "Mensagem para mim" que chega marcado como "append" (entregue com atraso) ainda vale se for recente
+      const recente = Number(msg.messageTimestamp || 0) * 1000 > Date.now() - 120000;
+      const comandoAtrasado = type === 'append' && msg.key.fromMe && !isGroup && recente;
+      if (type !== 'notify' && !comandoAtrasado) {
+        if (msg.key.fromMe && !isGroup && COMANDO_DIAG.test(extractText(msg).trim())) addLog('ASSISTENTE', `Comando "${extractText(msg).trim()}" chegou como mensagem antiga (${type}) e foi ignorado. Mande de novo.`);
+        continue;
+      }
+      if (msg.key.id) {
+        if (processedIds.has(msg.key.id)) continue;
+        remember(processedIds, msg.key.id);
+      }
+
+      const ownerChat = !isGroup && (await isOwnerChatAsync(msg));
+      if (ownerChat && loadSettings().assistenteAtivo === false && COMANDO_DIAG.test(extractText(msg).trim())) addLog('ASSISTENTE', 'Comando recebido, mas a assistente está DESLIGADA em Ajustes.');
+      if (!ownerChat && msg.key.fromMe && !isGroup && COMANDO_DIAG.test(extractText(msg).trim())) {
+        addLog('ASSISTENTE', `Comando "${extractText(msg).trim()}" num chat que não reconheci como "Mensagem para mim" (${contacts.isLid(remoteJid) ? 'código interno' : 'número ' + contacts.keyOf(remoteJid)}; eu sou ${selfPhone() || '?'}).`);
+      }
+      if (comandoAtrasado && !ownerChat) continue;
+      if (ownerChat && loadSettings().assistenteAtivo !== false) {
+        if (msg.message.documentMessage || msg.message.documentWithCaptionMessage) {
+          try {
+            const r = await importarConversaExportada(msg);
+            if (r) {
+              await sendText(remoteJid, `${assistant.BOT} 📥 Conversa "${r.grupo}" lida: ${r.lidas} mensagens, *${r.anuncios} anúncios* guardados para a *busca*.`);
+              continue;
+            }
+          } catch (err) {
+            await sendText(remoteJid, `${assistant.BOT} Não consegui ler o arquivo: ${err.message}`);
+            continue;
+          }
+        }
+        const text = extractText(msg);
+        if (text.startsWith(assistant.BOT) || /^(🚨|✅ \*ENVIEI|🤔 \*CONFIRA|📊 \*RESUMO|🔔|💾|⛏️|🎯 \*QUEM PROCURA)/.test(text)) continue;
+        const hasImage = Boolean(msg.message.imageMessage || msg.message.ephemeralMessage?.message?.imageMessage);
+        await assistant.handleOwnerMessage(
+          { sendText, sendImage, sendPdf },
+          { chatJid: remoteJid, text, hasImage, downloadImage: () => downloadImageToFotos(msg) },
+          { approveAlert, oferecerImovel, log: addLog, sendBackup, importarHistorico: onFim => importarHistoricoGrupos({ onFim }), estadoImportacao, listarGrupos: () => connectedGroups }
+        );
+        continue;
+      }
+
+      if (!isGroup) {
+        await handlePrivateDailyMessage(sock, msg, addLog, {
+          connectedAt,
+          resolvePhone: j => resolvePhone(j),
+          onEvent: () => metrics.inc('novas_conversas'),
+          onPrivateText: async (jid, alt, text) => {
+            const tel = await resolvePhone(jid, alt);
+            if (!tel || !prospeccao.handleReply(tel, text)) return false;
+            await sendText(jid, 'Tudo certo, não envio mais mensagens desse tipo. Obrigado!');
+            addLog('PROSPECCAO', `🚫 ${tel} pediu para sair da prospecção.`);
+            return true;
+          }
+        });
+        continue;
+      }
+
+      anotarAncora(msg);
+      guardarAnuncioDoGrupo(msg).catch(err => addLog('ERRO', `Memória de anúncios: ${err.message}`));
+      if (msg.key.fromMe) continue;
+      await handleGroupMessage(msg, remoteJid, tenant);
+    } catch (err) {
+      addLog('ERRO', `Erro ao processar mensagem: ${err.message}`);
+    }
+  }
+}
+
+/** Eventos do Baileys (exceto conexão) -> handlers de domínio acima */
+const DOMAIN_EVENTS = {
+  'messaging-history.set': onHistorySet,
+  'chats.upsert': onChatsUpsert,
+  'contacts.upsert': onContacts,
+  'contacts.update': onContacts,
+  'groups.upsert': () => refreshGroups(),
+  call: onCall,
+  'messages.upsert': payload => onMessagesUpsert(payload)
+};
+
+// Modo multi-tenant: o socket pertence ao WhatsAppSessionManager; aqui só o usamos.
+let externalReset = null;
+/** Usa um socket criado fora deste módulo (WhatsAppSessionManager.getSession(tenantId)) */
+function useSocket(externalSock, { reset = null } = {}) {
+  sock = externalSock || null;
+  externalReset = reset;
 }
 
 async function startWhatsAppAgent() {
@@ -700,14 +849,11 @@ async function startWhatsAppAgent() {
     if (current !== sock) return;
     const { connection, lastDisconnect, qr } = update;
     if (qr) {
-      latestQrCode = qr;
-      connectionStatus = 'AGUARDANDO_QR_CODE';
       console.log('\n📱 ESCANEIE O QR CODE (ou abra o painel e faça login):');
       qrcode.generate(qr, { small: true });
     }
+    await onConnectionState(update);
     if (connection === 'close') {
-      latestQrCode = null;
-      connectionStatus = 'DESCONECTADO';
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const loggedOut = statusCode === DisconnectReason.loggedOut;
       addLog('CONEXAO', `Conexão encerrada (código ${statusCode}).${loggedOut ? ' Sessão encerrada no celular.' : ' Reconectando...'}`);
@@ -720,137 +866,15 @@ async function startWhatsAppAgent() {
       }
       if (statusCode === DisconnectReason.restartRequired) addLog('CONEXAO', 'QR Code lido! Terminando de conectar...');
       scheduleReconnect(statusCode);
-    } else if (connection === 'open') {
-      latestQrCode = null;
-      connectionStatus = 'CONECTADO';
-      connectedAt = Date.now();
-      reconnectAttempts = 0;
-      addLog('CONEXAO', '✅ Conectada ao WhatsApp.');
-      contacts.markKnown(sock.user?.id, sock.user?.lid);
-      await refreshGroups();
-      addLog('GRUPOS', `${connectedGroups.length} grupos na conta.`);
     }
   });
 
-  // Histórico e agenda -> todos viram contatos conhecidos
-  // Busca inteligente: anúncios do histórico (pareamento e pedidos de histórico)
-  sock.ev.on('messaging-history.set', ({ messages }) => {
-    processarHistorico(messages).catch(err => addLog('ERRO', `Histórico: ${err.message}`));
-  });
-
-  sock.ev.on('messaging-history.set', ({ chats, contacts: cts, messages }) => {
-    for (const c of chats || []) if (c.id && !c.id.endsWith('@g.us') && c.id !== 'status@broadcast') contacts.markKnown(c.id, c.pnJid, c.lidJid);
-    for (const c of cts || []) {
-      contacts.upsertContact({ ...c, agenda: Boolean(c.name) });
-      contacts.markKnown(c.id, c.lid, c.phoneNumber);
-    }
-    for (const m of messages || []) {
-      const j = m.key?.remoteJid;
-      if (j && !j.endsWith('@g.us') && j !== 'status@broadcast') contacts.markKnown(j, m.key.remoteJidAlt);
-    }
-  });
-  sock.ev.on('chats.upsert', chats => {
-    for (const c of chats || []) if (c.id && !c.id.endsWith('@g.us') && c.id !== 'status@broadcast' && c.conversationTimestamp) contacts.markKnown(c.id);
-  });
-  const onContacts = list => {
-    for (const c of list || []) {
-      contacts.upsertContact({ ...c, agenda: Boolean(c.name) });
-      if (c.name) contacts.markKnown(c.id, c.lid, c.phoneNumber); // salvo na agenda = conhecido
-    }
-  };
-  sock.ev.on('contacts.upsert', onContacts);
-  sock.ev.on('contacts.update', onContacts);
-  sock.ev.on('groups.upsert', () => refreshGroups());
-
-  sock.ev.on('call', async calls => {
-    await handleIncomingCalls(sock, calls, addLog, { resolvePhone: j => resolvePhone(j), onEvent: () => metrics.inc('ligacoes_perdidas') });
-  });
-
-  sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    for (const msg of messages) {
-      try {
-        if (msg.key && !msg.message && msg.key.fromMe && !String(msg.key.remoteJid || '').endsWith('@g.us') && msg.messageStubType === 2) {
-          addLog('ASSISTENTE', 'Recebi uma mensagem sua que ainda não consegui ler (aparelho recém-conectado). Se for comando, mande de novo em 1 minuto.');
-        }
-        if (!msg.message || !msg.key) continue;
-        const remoteJid = msg.key.remoteJid || '';
-        if (!remoteJid || remoteJid === 'status@broadcast' || remoteJid.endsWith('@newsletter') || remoteJid.endsWith('@broadcast')) continue;
-        if (msg.key.id && sentByBot.has(msg.key.id)) continue;
-        const isGroup = remoteJid.endsWith('@g.us');
-
-        // Mensagens suas (de qualquer aparelho) ensinam quem você já conhece
-        if (msg.key.fromMe && !isGroup) contacts.markKnown(remoteJid, msg.key.remoteJidAlt);
-        // Comando seu no "Mensagem para mim" que chega marcado como "append" (entregue com atraso) ainda vale se for recente
-        const recente = Number(msg.messageTimestamp || 0) * 1000 > Date.now() - 120000;
-        const comandoAtrasado = type === 'append' && msg.key.fromMe && !isGroup && recente;
-        if (type !== 'notify' && !comandoAtrasado) {
-          if (msg.key.fromMe && !isGroup && COMANDO_DIAG.test(extractText(msg).trim())) addLog('ASSISTENTE', `Comando "${extractText(msg).trim()}" chegou como mensagem antiga (${type}) e foi ignorado. Mande de novo.`);
-          continue;
-        }
-        if (msg.key.id) {
-          if (processedIds.has(msg.key.id)) continue;
-          remember(processedIds, msg.key.id);
-        }
-
-        const ownerChat = !isGroup && (await isOwnerChatAsync(msg));
-        if (ownerChat && loadSettings().assistenteAtivo === false && COMANDO_DIAG.test(extractText(msg).trim())) addLog('ASSISTENTE', 'Comando recebido, mas a assistente está DESLIGADA em Ajustes.');
-        if (!ownerChat && msg.key.fromMe && !isGroup && COMANDO_DIAG.test(extractText(msg).trim())) {
-          addLog('ASSISTENTE', `Comando "${extractText(msg).trim()}" num chat que não reconheci como "Mensagem para mim" (${contacts.isLid(remoteJid) ? 'código interno' : 'número ' + contacts.keyOf(remoteJid)}; eu sou ${selfPhone() || '?'}).`);
-        }
-        if (comandoAtrasado && !ownerChat) continue;
-        if (ownerChat && loadSettings().assistenteAtivo !== false) {
-          if (msg.message.documentMessage || msg.message.documentWithCaptionMessage) {
-            try {
-              const r = await importarConversaExportada(msg);
-              if (r) {
-                await sendText(remoteJid, `${assistant.BOT} 📥 Conversa "${r.grupo}" lida: ${r.lidas} mensagens, *${r.anuncios} anúncios* guardados para a *busca*.`);
-                continue;
-              }
-            } catch (err) {
-              await sendText(remoteJid, `${assistant.BOT} Não consegui ler o arquivo: ${err.message}`);
-              continue;
-            }
-          }
-          const text = extractText(msg);
-          if (text.startsWith(assistant.BOT) || /^(🚨|✅ \*ENVIEI|🤔 \*CONFIRA|📊 \*RESUMO|🔔|💾|⛏️|🎯 \*QUEM PROCURA)/.test(text)) continue;
-          const hasImage = Boolean(msg.message.imageMessage || msg.message.ephemeralMessage?.message?.imageMessage);
-          await assistant.handleOwnerMessage(
-            { sendText, sendImage, sendPdf },
-            { chatJid: remoteJid, text, hasImage, downloadImage: () => downloadImageToFotos(msg) },
-            { approveAlert, oferecerImovel, log: addLog, sendBackup, importarHistorico: onFim => importarHistoricoGrupos({ onFim }), estadoImportacao, listarGrupos: () => connectedGroups }
-          );
-          continue;
-        }
-
-        if (!isGroup) {
-          await handlePrivateDailyMessage(sock, msg, addLog, {
-            connectedAt,
-            resolvePhone: j => resolvePhone(j),
-            onEvent: () => metrics.inc('novas_conversas'),
-            onPrivateText: async (jid, alt, text) => {
-              const tel = await resolvePhone(jid, alt);
-              if (!tel || !prospeccao.handleReply(tel, text)) return false;
-              await sendText(jid, 'Tudo certo, não envio mais mensagens desse tipo. Obrigado!');
-              addLog('PROSPECCAO', `🚫 ${tel} pediu para sair da prospecção.`);
-              return true;
-            }
-          });
-          continue;
-        }
-
-        anotarAncora(msg);
-        guardarAnuncioDoGrupo(msg).catch(err => addLog('ERRO', `Memória de anúncios: ${err.message}`));
-        if (msg.key.fromMe) continue;
-        await handleGroupMessage(msg, remoteJid);
-      } catch (err) {
-        addLog('ERRO', `Erro ao processar mensagem: ${err.message}`);
-      }
-    }
-  });
+  for (const [name, handler] of Object.entries(DOMAIN_EVENTS)) sock.ev.on(name, handler);
 }
 
 /** Desconecta e apaga a sessão (gera novo QR Code) */
 async function resetSession() {
+  if (externalReset) return externalReset(); // multi-tenant: quem apaga/reconecta é o WhatsAppSessionManager
   try {
     if (sock) await sock.logout();
   } catch {}
@@ -888,6 +912,10 @@ module.exports = {
   approveAlert,
   oferecerImovel,
   api,
+  useSocket,
+  onConnectionState,
+  onMessagesUpsert,
+  DOMAIN_EVENTS,
   importarHistoricoGrupos,
   estadoImportacao,
   _test: { brazilVariants, isOwnerChat, isOwnerChatAsync, reconnectDelay, processarHistorico, guardarAnuncioDoGrupo }
