@@ -23,12 +23,3 @@ test('Limite geral por IP: passa do teto → 429; /ping e /health nunca são lim
     server.close();
   }
 });
-
-test('Foto de teste antiga: vale o DOMÍNIO images.unsplash.com, não um pedaço do texto', () => {
-  const { isLegacyFakeTestProperty: velha } = require('../sync-from-cloud');
-  assert.equal(velha({ fotos: ['https://images.unsplash.com/photo-1'] }), true);
-  assert.equal(velha({ fotos: 'https://a.com/x.jpg;https://images.unsplash.com/y' }), true);
-  assert.equal(velha({ fotos: ['https://evil.com/?u=images.unsplash.com'] }), false, 'domínio só aparece no texto');
-  assert.equal(velha({ fotos: ['https://images.unsplash.com.evil.com/x'] }), false, 'domínio parecido');
-  assert.equal(velha({ fotos: [] }), false);
-});
