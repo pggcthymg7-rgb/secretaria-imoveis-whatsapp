@@ -10,7 +10,7 @@
  * - Sessão: cookie HttpOnly + SameSite=Strict assinado com HMAC (expira em 30 dias).
  * - Tentativas de login limitadas por IP.
  * - API_TOKEN (opcional): acesso por cabeçalho Authorization: Bearer <token>
- *   para scripts (ex: sync-from-cloud.js).
+ *   para scripts.
  * ============================================================================
  */
 const crypto = require('crypto');

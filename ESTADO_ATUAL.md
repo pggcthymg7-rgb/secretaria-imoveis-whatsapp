@@ -1,40 +1,17 @@
-# ESTADO ATUAL — Memória Ponte (atualizado 06/11/2026)
+# ESTADO ATUAL — Memória Ponte (atualizado 13/11/2026)
 
-## 1. Mercado
-- Praça piloto: Goiânia-GO (corretores autônomos em grupos de WhatsApp).
-- Dor: pedidos se perdem em grupos lotados; material de divulgação manual.
-- Ponta Fase 3: condomínios fechados alto padrão (piloto Jardins Itália).
-- 1. 650.000 a 700.000 Corretores Ativos (COFECI-CRECI): O estoque regulatório bruto no Brasil em 2026, representando um crescimento acumulado de 40% no quinquênio e a base para o cálculo do TAM regulatório (gerando um potencial bruto de R$ 1,702 bilhão/ano).
-2. 412.736 Profissionais Ocupados (IBGE / PNAD Contínua): O número real de agentes imobiliários efetivamente ocupados no país (sendo 71% autônomos, ou cerca de 293.042 profissionais), métrica essencial para evitar a superestimativa do TAM efetivo (calculado em R$ 1,060 bilhão/ano).
-3. 43.000 Corretores e ~4.800 PJs em Goiás (CRECI-GO): O contingente da 5ª Região, que cresceu 44% em cinco anos (com 40% de participação feminina), sustentando um mercado regional de software de R$ 89,5 milhões/ano.
-4. R$ 8,25 Bilhões de VGV Total em Goiânia (2024): O volume consolidado da capital goiana — o 3º maior mercado imobiliário do Brasil —, impulsionado por 11.419 unidades lançadas e 11.797 vendidas, com destaque para os 53 condomínios horizontais fechados e o luxo vertical.
-5. R$ 371 Milhões de TAM Qualificado Nacional / R$ 89,5 Milhões em Goiás: O potencial de receita anual (ARR) focado estritamente no segmento de médio e alto padrão e na praça prioritária de Goiânia.
-6. R$ 0,0350 a R$ 0,3217 (Custo por Mensagem na API da Meta): O impacto tarifário vigente desde outubro de 2026 para mensagens de serviço/utilidade (após a franquia de 1.000 gratuitas) e de marketing, tornando a eficiência conversacional (FCR) um fator direto de COGS.
-7. 51% dos Leads Fora do Horário Comercial: O percentual de contatos que chegam à noite e nos fins de semana (com pico de 18% concentrados na segunda-feira), evidenciando a dependência de agentes de IA 24/7 no WhatsApp.
-8. 67% das Transações com Negociação de Preço ou Permuta: A proporção de compras efetivadas que envolvem desconto, repasse de ágio ou permutas cruzadas (especialmente em loteamentos de alto padrão), exigindo automação avançada além de chatbots de triagem básica.
-9. +80.000 Corretores na Rede Homer: O patamar de profissionais cadastrados na maior plataforma nacional de co-broking e parcerias, ilustrando a liquidez digital e a necessidade de blindagem contra o "atravessamento".
-10. LTV/CAC > 5,0x e Payback Abaixo de 6 Meses: As métricas de saúde financeira de elite (benchmark SaaS B2B) obtidas quando a PropTech abandona o SMB puro de baixo ticket e adota planos B2B estruturados (R$ 490 a R$ 1.200/mês) ancorados em contratos anuais e IA integrada.
-
-## 2. Arquitetura Atual
+## 1. Arquitetura
 - Node 20 + Express + Baileys (WhatsApp não-oficial) + pdfkit. Persistência em JSON no `DATA_DIR`.
-- 1 processo por corretor na VM Oracle grátis (João :3000, Laura :3001).
+- VM Oracle grátis. Corretor extra com processo próprio (opcional): `deploy/corretores.conf`.
 - NOVO (13/11/2026) — SaaS multi-tenant num processo só (`MULTI_TENANT=1`):
   - Admin (João): a BIGA dele + Configurar › Corretores (cadastra, convite, QR, pausa). Só ele atualiza o sistema.
   - Corretor: BIGA completa e independente no endereço `<id>.<DOMINIO>`, com login próprio (convite no 1º acesso). Não acessa a estrutura do SaaS (bloqueio no servidor).
-  - Laura: migra sozinha na próxima atualização da VM, com mesmo endereço, senha, WhatsApp e dados (`deploy/migrar.conf`).
-  - GitHub Pro: CI barra PR com teste falhando ou script da VM com aviso (ShellCheck); CODEOWNERS e modelo de PR. Repo ainda PÚBLICO (data room exposto): para privar, rode antes `deploy/chave-deploy.sh` na VM.
+  - Laura: já roda dentro da BIGA principal (mesmo endereço, senha, WhatsApp e dados).
+  - GitHub Pro: CI barra PR com teste falhando ou script da VM com aviso (ShellCheck); CODEOWNERS e modelo de PR. Repo ainda PÚBLICO: para privar, rode antes `deploy/chave-deploy.sh` na VM.
 - Cérebro local (parser + mapa OSM); Gemini só reforça localização; Apify/Serper para portais.
 - Engenharia e mapa do código: `.claude/ENGENHARIA.md`.
 
-## 3. Unit Economics
-- Planos: R$ 97 Radar · R$ 197 Designer · R$ 997 Imobiliária. Meta: margem bruta > 75%.
-- COGS teto R$ 97 ≈ R$ 24. Gemini ≈ US$ 0,3–0,9/corretor/mês. Apify US$ 0,16/busca → precisa teto por plano.
-
-## 4. Go-to-Market / Compliance
-- LGPD: Corretor = Controlador, Biga = Operadora. Garimpo só fontes públicas.
-- COFECI/CRECI: Biga é SaaS, sem intermediação. Risco Meta: Baileys → migração futura para Cloud API.
-
-## 5. Status Atual — resumo técnico (10 linhas)
+## 2. Status Atual — resumo técnico (10 linhas)
 1. Radar, Carteira, match reverso, Vitrine, Atendimento e Garimpo em produção (2 corretores).
 2. Designer: ficha PDF e capas prontas; falta aplicar paleta Biga (#0D0D0D/#FFFFFF/#D4AF37) e Plus Jakarta Sans.
 3. Painel protegido (senha, HMAC, CSRF, CSP, rate-limit); `npm run verify` é o gate.
@@ -45,49 +22,3 @@
 8. Proposta: Postgres + PostGIS multi-tenant (RLS) com pedidos/anuncios/imoveis/matches/eventos_merito/condominios.
 9. Dedup global de mensagens de grupo (hash) evita processar o mesmo pedido N vezes.
 10. Próximo passo sugerido: tetos por plano + cache Gemini (Fase 1), depois migração para Postgres.
-
-Detalhe: `data_room_biga/02_PRODUTO_E_COMPLIANCE/02.1_Auditoria_Tecnica_e_Roadmap_3_Fases.md`.
-
-## 6. Data Room — Etapa 1/4 Financeiro (APROVADA 06/11/2026)
-1. Arquivo: `data_room_biga/03_FINANCEIRO_E_PRECOS/03_Unit_Economics_Custos_IA_e_Precos.md`.
-2. Premissas: R$ 5,50/US$; Simples 6%; gateway 3,99%; Biga paga todas as APIs (cenário conservador, hoje é BYOK).
-3. Margem bruta: Radar 76,4% (COGS R$ 21,52) · Designer 76,0% (R$ 44,39) · Imobiliária 78,3% (R$ 203,68, 8 assentos).
-4. Uso justo: Radar 100 buscas SERP/1.500 pedidos IA, sem Apify · Designer 200 buscas/5 Apify/200 artes · Imob. 8 assentos + 20 Apify.
-5. Acima do limite: cai para o cérebro local + add-ons (R$ 19/50 buscas · R$ 49/10 Apify · R$ 29/100 artes · R$ 79/assento).
-6. Obrigatório: Flash-Lite fixo no matcher (Flash derruba o Radar para 70,9%) e fim do padrão Apify 20/dia.
-7. Break-even: OPEX R$ 21 mil → 134 contratos (80/40/14) = 232 corretores; MRR R$ 29,6 mil.
-8. Fase 2 autofinanciada (+R$ 25 mil/mês): 291 contratos = 501 corretores; MRR R$ 63,9 mil.
-9. Fase 2: taxa fixa por parceria (nunca % da comissão, por risco COFECI) + pacotes de proprietário R$ 297/597 + relatório de demanda R$ 2,5 mil.
-10. Fase 3: setup de R$ 45 mil por condomínio dividido entre associação e corretores fundadores; recorrência R$ 9,85 mil/mês; payback de 5,3 meses.
-
-## 7. Data Room — Etapa 2/4 Vendas (APROVADA 06/11/2026)
-1. Arquivo: `data_room_biga/04_VENDAS_E_CRESCIMENTO/04_Go_to_Market_CAC_LTV_e_Metas.md`.
-2. Canais: Indicação 35% · selo "feito com Biga" 25% · Eventos 15% · Meta Ads 15% · Venda consultiva Imob. 10%; CAC ponderado R$ 269.
-3. Churn (premissa): Radar 6% · Designer 4% · Imob. 2,5% → ponderado 5,05%; LTV/CAC 17,4×; payback 1,7 mês.
-4. Funil Radar: lead → teste 25% → ativado (1º match em 7 dias) 70% → pago 40% = 7%; North Star = matches/corretor/semana.
-5. Plano anual só no Pix com 10% de desconto (margem ≥ 77%); no cartão, proibido (Radar cai para cerca de 72%).
-6. Metas: break-even em M8 (151 contratos) · resultado positivo em M9 · 291 contratos em M14 · Fase 2 autofinanciada em M16.
-7. Caixa até o break-even: pico de −R$ 95,5 mil → captação mínima de R$ 120 mil (insumo para a Sala do Investidor).
-8. A Imobiliária é 10% dos contratos e 47% da MC; sem ela, o break-even vai para 225 contratos e o pico de caixa para R$ 162 mil.
-9. Compliance do GTM: sem disparo em massa nos grupos; prospecção só com opt-in ou indicação; venda sempre como SaaS, sem intermediação.
-10. 90 dias: Embaixadores, selo nas peças + página de teste, instrumentar funil e coortes no painel.
-
-## 8. Data Room — Etapa 3/4 Mercado (APROVADA 06/11/2026)
-1. Arquivo: `data_room_biga/01_MERCADO_E_PESQUISA/01_Mercado_TAM_SAM_SOM_e_Concorrencia.md` (fontes públicas citadas).
-2. Dados: ~650 mil corretores no Brasil (Cofeci 2025); 39.622 em Goiás (CRECI-GO, ago/2024, +7,21% em 12 meses).
-3. Receita média por corretor de R$ 127,60/mês (mix do break-even) → TAM R$ 995 mi/ano · SAM Goiás R$ 30,3 mi · SAM Goiânia R$ 16,7 mi.
-4. SOM em 18 meses: 682 corretores, ARR de R$ 1,05 mi = 6,3% do SAM Goiânia (abaixo do teto de 10%).
-5. Premissas a validar: 50% dos registrados atuantes, 55% em Goiânia, 30 condomínios horizontais de alto padrão.
-6. Concorrência: CRMs (iMobzi R$ 129, ImobNuvem R$ 99, Kenlo/Jetimob sob consulta) não leem a demanda dos grupos.
-7. Posicionamento: "os CRMs organizam o que o corretor já tem; a Biga traz o que ele está perdendo".
-8. Pesquisa primária pendente: ativos por município (CRECI-GO), 30 entrevistas de disposição a pagar, lista de condomínios.
-9. Ordem combinada: Etapa 4 = Sala do Investidor (05). Marketing (06) fica fora das 4 etapas, salvo nova ordem.
-
-## 9. Data Room — Etapa 4/4 Sala do Investidor (APROVADA 06/11/2026)
-1. Arquivo: `data_room_biga/05_SALA_DO_INVESTIDOR/05_Tese_Captacao_e_Uso_dos_Recursos.md`.
-2. Rodada proposta: pré-seed de R$ 600 mil em mútuo conversível (LC 182/2021); cap de R$ 6,0 mi post-money; desconto de 20%; ~10% de diluição.
-3. Mínimo viável: R$ 120 mil (só o caixa até o break-even). Múltiplo implícito: 5,7× a receita anual do M18.
-4. Uso: 20% caixa até o BE · 25% Fase 2 antecipada (M6) · 10% Cloud API + Postgres · 25% aceleração comercial · 7,5% piloto 3D · 5% jurídico/pesquisa · 7,5% reserva.
-5. Marcos: M1 tetos/cache · M6 100 contratos + fim do Baileys · M8 break-even · M9 Fase 2 · M12 piloto 3D · M14–M18 Seed.
-6. Riscos principais: Meta/Baileys, custo de LLM, churn, dependência da Imobiliária (47% da MC), praça única.
-7. Pendências da diligência: pasta 06 (deck/marca/vídeo), jurídico (cap table, PI, INPI), Termos/Privacidade/DPA.
