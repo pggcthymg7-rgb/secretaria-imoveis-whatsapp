@@ -52,17 +52,6 @@ if [ "$(id -u)" != "0" ]; then
   exit 1
 fi
 
-# Modo equipe: corretores listados em migrar.conf passam a rodar dentro da BIGA principal
-MIGRAR_CONF="${MIGRAR_CONF:-$APP_DIR/deploy/migrar.conf}"
-if [ -f "$MIGRAR_CONF" ] && [ -f "$APP_DIR/deploy/migrar-corretor.sh" ]; then
-  while IFS= read -r linha || [ -n "$linha" ]; do
-    linha="${linha%%#*}"
-    read -r mnome _ <<<"$linha" || true
-    [ -z "${mnome:-}" ] && continue
-    # shellcheck disable=SC2097,SC2098 # repassa o mesmo APP_DIR ao script filho
-    APP_DIR="$APP_DIR" DATA_DIR="$MAIN_DATA" bash "$APP_DIR/deploy/migrar-corretor.sh" "$mnome" </dev/null || echo "AVISO: migração de $mnome falhou (tenta de novo na próxima atualização)" >&2
-  done < "$MIGRAR_CONF"
-fi
 # HTTPS do painel de cada corretor da equipe (<id>.<DOMINIO>): agora e sempre que o app pedir
 if [ -f "$APP_DIR/deploy/caddy-corretores.sh" ] && [ -d /etc/systemd/system ]; then
   printf '%s\n' "[Unit]" "Description=Endereço HTTPS de corretor novo da BIGA" "[Path]" "PathExists=$MAIN_DATA/caddy-sincronizar" "Unit=secretaria-caddy-sync.service" "[Install]" "WantedBy=multi-user.target" > /etc/systemd/system/secretaria-caddy-sync.path
