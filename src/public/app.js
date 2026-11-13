@@ -1001,6 +1001,7 @@
     CONECTADO: ['enviar', 'Conectado'],
     AGUARDANDO_QR_CODE: ['avisar', 'Esperando QR Code'],
     INICIANDO: ['avisar', 'Conectando…'],
+    ERRO: ['avisar', 'Erro ao conectar — tentando de novo'],
     DESCONECTADO: ['avisar', 'Reconectando…'],
     PAUSADO: ['', 'Pausado'],
     NAO_INICIADO: ['', 'Desligado']
@@ -1024,6 +1025,7 @@
             <h3 class="h2xs">${esc(c.nome)}${w.telefone ? ` <span class="caption">· ${esc(w.nomeWhatsapp || '')} wa.me/${esc(w.telefone)}</span>` : ''}</h3>
             ${w.status === 'CONECTADO' ? `<div class="caption">${w.grupos} grupo(s) na conta · ${w.gruposMonitorados} monitorado(s)</div>` : ''}
             ${c.painel && (c.painel.url || c.painel.codigoConvite) ? `<div class="caption">${c.painel.url ? `Painel dele(a): <a class="btn-ghost accent" href="${esc(c.painel.url)}" target="_blank" rel="noopener">${esc(c.painel.url.replace(/^https?:\/\//, ''))}</a> · ` : ''}${c.painel.codigoConvite ? `código para criar a senha: <b class="saffron">${esc(c.painel.codigoConvite)}</b>` : 'senha já criada'}</div>` : ''}
+            ${w.erro ? `<div class="caption warn">Motivo: ${esc(w.erro)}</div>` : ''}
             ${w.qrSvg ? `<div class="split rev top"><div class="qr" style="max-width:220px">${w.qrSvg}</div><p class="body muted">Peça para ${esc(c.nome.split(' ')[0])} abrir o WhatsApp › Configurações › Aparelhos conectados › <b>Conectar aparelho</b> e apontar para este código. Ele muda sozinho a cada poucos segundos.</p></div>` : ''}
             <div class="row tight">
               <button class="btn-ghost" data-action="editarCorretor" data-id="${esc(c.corretorId)}">Editar</button>

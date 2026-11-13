@@ -68,6 +68,7 @@ async function resumoCorretor({ tenantStore, sessionManager, router }, id) {
     efetivo: (record.ativo !== false && router.efetivo(id)) || { ...pub.configIA, hasGeminiApiKey: Boolean(pub.configIA.hasGeminiApiKey) },
     whatsapp: {
       status: st.status,
+      erro: st.erro || null,
       telefone: ag?.self?.phone || '',
       nomeWhatsapp: ag?.self?.name || '',
       grupos: grupos.length,

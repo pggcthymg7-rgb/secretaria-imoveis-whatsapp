@@ -50,10 +50,27 @@ class WhatsAppSessionManager extends EventEmitter {
       existing.config = { ...existing.config, ...config };
       return this.getStatus(tenantId);
     }
-    const session = { tenantId, config, sock: null, status: 'INICIANDO', qr: null, attempts: 0, timer: null, stopped: false };
+    const session = { tenantId, config, sock: null, status: 'INICIANDO', qr: null, erro: null, attempts: 0, timer: null, stopped: false };
     this.sessions.set(tenantId, session);
-    await this._connect(session);
+    await this._tryConnect(session);
     return this.getStatus(tenantId);
+  }
+
+  /**
+   * Abre a conexão sem nunca deixar o corretor travado em "Conectando…": se falhar
+   * (pasta sem permissão, disco cheio, rede), mostra o motivo no painel e tenta de novo.
+   */
+  async _tryConnect(session) {
+    try {
+      await this._connect(session);
+    } catch (err) {
+      if (session.stopped) return;
+      session.status = 'ERRO';
+      session.erro = err.message;
+      session.qr = null;
+      this.log(session.tenantId, `Erro ao conectar: ${err.message}`);
+      this._scheduleReconnect(session);
+    }
   }
 
   async _connect(session) {
@@ -78,6 +95,7 @@ class WhatsAppSessionManager extends EventEmitter {
       if (!isCurrent()) return;
       const { connection, qr, lastDisconnect } = update;
       const statusCode = lastDisconnect?.error?.output?.statusCode;
+      if (qr || connection === 'open') session.erro = null;
       if (qr) {
         session.qr = qr;
         session.status = 'AGUARDANDO_QR_CODE';
@@ -119,7 +137,7 @@ class WhatsAppSessionManager extends EventEmitter {
     session.timer = setTimeout(() => {
       session.timer = null;
       if (session.stopped) return;
-      this._connect(session).catch(err => this.log(session.tenantId, `Erro ao reconectar: ${err.message}`));
+      this._tryConnect(session);
     }, delay);
     if (session.timer.unref) session.timer.unref();
   }
@@ -131,8 +149,8 @@ class WhatsAppSessionManager extends EventEmitter {
 
   getStatus(tenantId) {
     const s = this.sessions.get(tenantId);
-    if (!s) return { tenantId, status: 'NAO_INICIADO', qr: null };
-    return { tenantId, status: s.status, qr: s.qr };
+    if (!s) return { tenantId, status: 'NAO_INICIADO', qr: null, erro: null };
+    return { tenantId, status: s.status, qr: s.qr, erro: s.erro };
   }
 
   listTenants() {
