@@ -58,12 +58,14 @@ const { execFileSync, spawnSync } = require('child_process');
 const os = require('os');
 const ROOT = path.join(__dirname, '..');
 
-test('corretores.conf é válido: a Laura tem BIGA própria em endereço e porta próprios', () => {
+test('corretores.conf é válido e a Laura foi para dentro da BIGA principal (modo equipe)', () => {
   const out = execFileSync('bash', [path.join(ROOT, 'deploy/corretores.sh'), '--checar'], { env: { ...process.env, APP_DIR: ROOT }, encoding: 'utf-8' });
-  const linhas = out.trim().split('\n').map(l => l.split(' '));
-  const laura = linhas.find(l => l[0] === 'laura');
-  assert.deepEqual(laura, ['laura', 'laura.147-15-87-168.sslip.io', '3001']);
+  const linhas = out.trim().split('\n').filter(Boolean).map(l => l.split(' '));
+  assert.equal(linhas.find(l => l[0] === 'laura'), undefined, 'Laura não tem mais processo/porta próprios');
   assert.ok(linhas.every(l => l[2] !== '3000'), 'porta 3000 é da BIGA principal');
+  const migrar = fs.readFileSync(path.join(ROOT, 'deploy/migrar.conf'), 'utf-8').split('\n').map(l => l.replace(/#.*/, '').trim()).filter(Boolean);
+  assert.ok(migrar.includes('laura'), 'Laura listada para migração automática na próxima atualização da VM');
+  assert.ok(migrar.every(n => /^[a-z][a-z0-9]{1,19}$/.test(n)));
 });
 
 test('corretores.sh recusa linhas perigosas ou repetidas (roda como root)', () => {

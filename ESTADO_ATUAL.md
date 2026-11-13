@@ -18,6 +18,11 @@
 ## 2. Arquitetura Atual
 - Node 20 + Express + Baileys (WhatsApp não-oficial) + pdfkit. Persistência em JSON no `DATA_DIR`.
 - 1 processo por corretor na VM Oracle grátis (João :3000, Laura :3001).
+- NOVO (13/11/2026) — SaaS multi-tenant num processo só (`MULTI_TENANT=1`):
+  - Admin (João): a BIGA dele + Configurar › Corretores (cadastra, convite, QR, pausa). Só ele atualiza o sistema.
+  - Corretor: BIGA completa e independente no endereço `<id>.<DOMINIO>`, com login próprio (convite no 1º acesso). Não acessa a estrutura do SaaS (bloqueio no servidor).
+  - Laura: migra sozinha na próxima atualização da VM, com mesmo endereço, senha, WhatsApp e dados (`deploy/migrar.conf`).
+  - GitHub Pro: CI barra PR com teste falhando ou script da VM com aviso (ShellCheck); CODEOWNERS e modelo de PR. Repo ainda PÚBLICO (data room exposto): para privar, rode antes `deploy/chave-deploy.sh` na VM.
 - Cérebro local (parser + mapa OSM); Gemini só reforça localização; Apify/Serper para portais.
 - Engenharia e mapa do código: `.claude/ENGENHARIA.md`.
 

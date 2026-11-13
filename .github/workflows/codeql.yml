@@ -1,7 +1,10 @@
 name: CodeQL
 
 # Scanner de segurança do GitHub (injeção, rota sem proteção, regex perigosa, segredo no código…).
-# Grátis e sem limite em repositório público. Resultado: aba Security › Code scanning e check na PR.
+# Grátis em repositório público. Em repositório PRIVADO o code scanning exige GitHub Code Security
+# (não vem no Pro): o job fica pulado (conta como aprovado) até você criar a variável CODEQL_PRIVADO=true
+# em Settings › Secrets and variables › Actions › Variables, depois de ligar o Code Security.
+# Resultado: aba Security › Code scanning e check na PR.
 # Se o "default setup" do CodeQL estiver ligado em Settings › Code security, desligue-o (os dois juntos dão erro).
 on:
   pull_request:
@@ -20,6 +23,7 @@ concurrency:
 jobs:
   analisar:
     name: analisar
+    if: github.event.repository.private != true || vars.CODEQL_PRIVADO == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

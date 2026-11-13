@@ -1,0 +1,8 @@
+# Dono de tudo: recebe o pedido de revisão automaticamente em toda PR.
+# Áreas críticas (rodam como root na VM ou isolam os dados de cada corretor) listadas à parte
+# para ficar explícito — se um dia entrar outra pessoa no time, ela não aprova sozinha.
+*                     @pggcthymg7-rgb
+/deploy/              @pggcthymg7-rgb
+/src/tenancy/         @pggcthymg7-rgb
+/src/auth.js          @pggcthymg7-rgb
+/.github/             @pggcthymg7-rgb

@@ -52,6 +52,34 @@ if [ "$(id -u)" != "0" ]; then
   exit 1
 fi
 
+# Modo equipe: corretores listados em migrar.conf passam a rodar dentro da BIGA principal
+MIGRAR_CONF="${MIGRAR_CONF:-$APP_DIR/deploy/migrar.conf}"
+if [ -f "$MIGRAR_CONF" ] && [ -f "$APP_DIR/deploy/migrar-corretor.sh" ]; then
+  while IFS= read -r linha || [ -n "$linha" ]; do
+    linha="${linha%%#*}"
+    read -r mnome _ <<<"$linha" || true
+    [ -z "${mnome:-}" ] && continue
+    # shellcheck disable=SC2097,SC2098 # repassa o mesmo APP_DIR ao script filho
+    APP_DIR="$APP_DIR" DATA_DIR="$MAIN_DATA" bash "$APP_DIR/deploy/migrar-corretor.sh" "$mnome" </dev/null || echo "AVISO: migração de $mnome falhou (tenta de novo na próxima atualização)" >&2
+  done < "$MIGRAR_CONF"
+fi
+# HTTPS do painel de cada corretor da equipe (<id>.<DOMINIO>): agora e sempre que o app pedir
+if [ -f "$APP_DIR/deploy/caddy-corretores.sh" ] && [ -d /etc/systemd/system ]; then
+  printf '%s\n' "[Unit]" "Description=Endereço HTTPS de corretor novo da BIGA" "[Path]" "PathExists=$MAIN_DATA/caddy-sincronizar" "Unit=secretaria-caddy-sync.service" "[Install]" "WantedBy=multi-user.target" > /etc/systemd/system/secretaria-caddy-sync.path
+  printf '%s\n' "[Unit]" "Description=Publica os endereços HTTPS dos corretores da BIGA" "[Service]" "Type=oneshot" "Environment=DATA_DIR=$MAIN_DATA" "ExecStart=/usr/bin/env bash $APP_DIR/deploy/caddy-corretores.sh" > /etc/systemd/system/secretaria-caddy-sync.service
+  systemctl daemon-reload || true
+  systemctl enable --now secretaria-caddy-sync.path >/dev/null 2>&1 || true
+  DATA_DIR="$MAIN_DATA" bash "$APP_DIR/deploy/caddy-corretores.sh" </dev/null || echo "AVISO: endereços HTTPS dos corretores não atualizados" >&2
+fi
+# Quem já roda dentro da principal nunca volta a ter processo próprio
+FILTRADAS=()
+for e in "${ENTRADAS[@]}"; do
+  read -r enome _ <<<"$e"
+  if [ -f "$MAIN_DATA/tenants/$enome/config.json" ]; then echo "$enome já está na BIGA principal: ignorado em corretores.conf" >&2; continue; fi
+  FILTRADAS+=("$e")
+done
+ENTRADAS=("${FILTRADAS[@]}")
+
 CADDY_MUDOU=0
 LISTA_JSON="["
 for e in "${ENTRADAS[@]}"; do
