@@ -364,3 +364,10 @@ test('Painel /api/equipe com o modo equipe desligado', async () => {
     server.close();
   }
 });
+
+test('tenantPath: pasta do corretor nunca sai da pasta base', () => {
+  const { tenantPath } = require('../src/tenancy/tenant-store');
+  const base = path.join(tmp, 'base');
+  assert.equal(tenantPath(base, 'ana'), path.join(base, 'ana'));
+  for (const bad of ['..', '../x', 'a/../../etc', '/etc', 'a\\b', '.', 'A', '', 'ana/', 'www']) assert.throws(() => tenantPath(base, bad), /inválido|reservado/, bad);
+});
