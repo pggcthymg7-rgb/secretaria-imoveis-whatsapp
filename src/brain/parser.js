@@ -490,8 +490,9 @@ function detectTone(norm) {
  * Função principal: lê a mensagem e devolve todos os critérios estruturados
  */
 function parseRequest(rawText, ctx = {}) {
-  const norm = normalize(rawText);
-  const intent = detectIntent(norm, rawText);
+  const safeText = typeof rawText === 'string' ? rawText.slice(0, 100000) : rawText == null ? '' : String(rawText).slice(0, 100000);
+  const norm = normalize(safeText);
+  const intent = detectIntent(norm, safeText);
   const negocio = detectNegocio(norm);
   const semPermuta = stripPermutaClause(norm); // o imóvel oferecido em permuta não é o procurado
 
@@ -506,7 +507,7 @@ function parseRequest(rawText, ctx = {}) {
   const lazer = detectLazer(semPermuta);
   const idade = detectIdade(semPermuta);
   const tom = detectTone(norm);
-  const local = detectLocations(rawText, ctx);
+  const local = detectLocations(safeText, ctx);
 
   // Alternativas na mesma mensagem: "Em condomínio: de 4 a 5 mil m² / Fora de condomínio: até 20 mil m²"
   const alternativas = [];

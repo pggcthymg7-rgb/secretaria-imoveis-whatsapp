@@ -102,3 +102,43 @@ test('Simulador funciona logado', async () => {
 test('Dados de teste ficaram na pasta temporária', () => {
   assert.ok(fs.existsSync(path.join(tmp, 'imoveis.csv')));
 });
+
+test('Agente 2: cookie malformado, CSRF com Bearer inválido, upload mágico e config URL/horário', async () => {
+  // Cookie com % inválido não causa 500 URIError
+  const rSess = await fetch(base + '/api/session', { headers: { cookie: 'sec_sid=%ZZ; outro=%E0%A4%A' } });
+  assert.equal(rSess.status, 200);
+
+  // Bearer inválido não pode burlar verificação CSRF (x-secretaria) quando há cookie de sessão válido
+  const rCsrf = await fetch(base + '/api/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', cookie, authorization: 'Bearer token-falso-123' },
+    body: JSON.stringify({ pausado: true })
+  });
+  assert.equal(rCsrf.status, 403);
+
+  // Upload com mimetype image/jpeg mas sem magic bytes de imagem é recusado e removido do disco
+  const beforeFotos = fs.existsSync(path.join(tmp, 'fotos')) ? fs.readdirSync(path.join(tmp, 'fotos')).length : 0;
+  const fdBad = new FormData();
+  fdBad.append('photos', new Blob(['<html><script>alert(1)</script></html>'], { type: 'image/jpeg' }), 'disguised.jpg');
+  const rUpload = await fetch(base + '/api/upload-photos', { method: 'POST', headers: { 'x-secretaria': '1', cookie }, body: fdBad });
+  assert.equal(rUpload.status, 400);
+  const afterFotos = fs.existsSync(path.join(tmp, 'fotos')) ? fs.readdirSync(path.join(tmp, 'fotos')).length : 0;
+  assert.equal(afterFotos, beforeFotos, 'arquivo inválido não fica salvo em fotos');
+
+  // Config recusa URL com credenciais/userinfo e horário inválido
+  const rUrl = await fetch(base + '/api/config', {
+    method: 'POST',
+    headers: H(),
+    body: JSON.stringify({ googleSheetsUrl: 'https://docs.google.com:pass@evil.com/sheet' })
+  });
+  assert.equal(rUrl.status, 400);
+
+  const rHora = await fetch(base + '/api/config', {
+    method: 'POST',
+    headers: H(),
+    body: JSON.stringify({ resumoDiarioHorario: '25:99' })
+  });
+  assert.equal(rHora.status, 200);
+  const st = await (await fetch(base + '/api/status', { headers: H() })).json();
+  assert.notEqual(st.config.resumoDiarioHorario, '25:99');
+});

@@ -124,24 +124,26 @@ const doTexto = (t, re) => {
 
 /** Um registro do robô do ZAP/VivaReal -> item bruto do relatório (a trava e o filtro de preço rodam depois) */
 function normalizar(reg, portal) {
-  const link = String(pega(reg, 'url', 'link', 'listingUrl') || '');
-  const editor = String(pega(reg, 'publisherType', 'advertiserType', 'publisher') || '');
-  const imobiliaria = pega(reg, 'agencyName', 'advertiserName', 'publisherName');
+  const safe = reg && typeof reg === 'object' ? reg : {};
+  const rawLink = String(pega(safe, 'url', 'link', 'listingUrl') || '');
+  const link = /^https?:\/\//i.test(rawLink) ? rawLink : '';
+  const editor = String(pega(safe, 'publisherType', 'advertiserType', 'publisher') || '');
+  const imobiliaria = pega(safe, 'agencyName', 'advertiserName', 'publisherName');
   const particular = /owner|proprietar|particular|private|individual/i.test(editor);
   const profissional = /agenc|imobili|profession|broker|real.?estate|company|corretor/i.test(editor);
-  const quartos = pega(reg, 'bedrooms', 'bedroomsCount') || 0;
-  const suites = pega(reg, 'suites', 'suitesCount') || 0;
-  const vagas = pega(reg, 'parkingSpaces', 'parking') || 0;
+  const quartos = pega(safe, 'bedrooms', 'bedroomsCount') || 0;
+  const suites = pega(safe, 'suites', 'suitesCount') || 0;
+  const vagas = pega(safe, 'parkingSpaces', 'parking') || 0;
   return {
-    titulo: String(pega(reg, 'title', 'name') || '').slice(0, 140),
+    titulo: String(pega(safe, 'title', 'name') || '').slice(0, 140),
     link,
     portalDominio: DOMINIO_DO_PORTAL[portal],
-    preco: pega(reg, 'priceBRL', 'price', 'salePrice', 'rentPrice') || 0,
-    area_m2: pega(reg, 'usableArea', 'area', 'totalArea') || 0,
+    preco: pega(safe, 'priceBRL', 'price', 'salePrice', 'rentPrice') || 0,
+    area_m2: pega(safe, 'usableArea', 'area', 'totalArea') || 0,
     quartos,
     suites,
     vagas,
-    bairro: String(pega(reg, 'neighborhood', 'bairro') || (reg.address && reg.address.neighborhood) || '').slice(0, 60),
+    bairro: String(pega(safe, 'neighborhood', 'bairro') || (safe.address && safe.address.neighborhood) || '').slice(0, 60),
     anunciante: particular ? 'Particular' : String(imobiliaria || '').slice(0, 80),
     tipo_anunciante: particular ? 'particular' : profissional || imobiliaria ? 'profissional' : 'desconhecido',
     resumo: `${quartos || '?'} quartos${suites ? `, ${suites} suítes` : ''}${vagas ? `, ${vagas} vagas` : ''}`
@@ -150,15 +152,17 @@ function normalizar(reg, portal) {
 
 /** Um registro do robô da OLX -> item bruto. Quartos/área: campo do robô, senão o título, senão o endereço do anúncio. */
 function normalizarOlx(reg) {
-  const link = String(pega(reg, 'url', 'link') || '');
-  const titulo = String(pega(reg, 'title', 'subject') || '');
+  const safe = reg && typeof reg === 'object' ? reg : {};
+  const rawLink = String(pega(safe, 'url', 'link') || '');
+  const link = /^https?:\/\//i.test(rawLink) ? rawLink : '';
+  const titulo = String(pega(safe, 'title', 'subject') || '');
   const end = lerEndereco(link);
-  const quartos = numeroDe(pega(reg, 'rooms', 'bedrooms')) || doTexto(titulo, /\b(\d{1,2}) ?(?:quartos?|qts?|dorm)/) || end.quartos || 0;
-  const area = numeroDe(pega(reg, 'size', 'area', 'usableArea')) || doTexto(titulo, /\b(\d{2,4}) ?m(?:2|²)/) || end.area || 0;
+  const quartos = numeroDe(pega(safe, 'rooms', 'bedrooms')) || doTexto(titulo, /\b(\d{1,2}) ?(?:quartos?|qts?|dorm)/) || end.quartos || 0;
+  const area = numeroDe(pega(safe, 'size', 'area', 'usableArea')) || doTexto(titulo, /\b(\d{2,4}) ?m(?:2|²)/) || end.area || 0;
   const suites = doTexto(titulo, /\b(\d{1,2}) ?suites?\b/);
-  const vagas = numeroDe(pega(reg, 'garageSpaces', 'parkingSpaces'));
-  const neg = pega(reg, 'isBusiness', 'professionalAd');
-  const vendedor = reg.seller && typeof reg.seller === 'object' ? reg.seller : {};
+  const vagas = numeroDe(pega(safe, 'garageSpaces', 'parkingSpaces'));
+  const neg = pega(safe, 'isBusiness', 'professionalAd');
+  const vendedor = safe.seller && typeof safe.seller === 'object' ? safe.seller : {};
   const negocio = neg === undefined ? (vendedor.isBusiness ?? vendedor.professional) : neg;
   const profissional = negocio === true || negocio === 'true';
   const particular = negocio === false || negocio === 'false';
@@ -166,7 +170,7 @@ function normalizarOlx(reg) {
     titulo: titulo.slice(0, 140),
     link,
     portalDominio: 'olx.com.br',
-    preco: numeroDe(pega(reg, 'price', 'priceValue')) || numeroDe(reg.priceDisplay) || end.preco || 0,
+    preco: numeroDe(pega(safe, 'price', 'priceValue')) || numeroDe(safe.priceDisplay) || end.preco || 0,
     area_m2: area,
     quartos,
     suites,
@@ -223,7 +227,7 @@ async function buscarApify({ criterios, dominios, env = process.env, fetcher = f
         const r = await rodar({ nomeAtor: olx ? ator(env, 'APIFY_ACTOR_OLX', ACTOR_OLX_PADRAO) : ator(env, 'APIFY_ACTOR', ACTOR_PADRAO), corpo: olx ? corpoOlx(criterios, env) : corpoDaConsulta(criterios, portal, env), t, fetcher });
         if (!r.ok) return erros.push({ portal, status: r.status, mensagem: r.mensagem });
         cobertos.push(DOMINIO_DO_PORTAL[portal]);
-        for (const reg of r.registros) {
+        for (const reg of Array.isArray(r.registros) ? r.registros : []) {
           if (olx) {
             if (!naCidade(reg, criterios)) continue; // anúncio de outro estado/cidade (o robô busca por texto)
             const it = normalizarOlx(reg);

@@ -57,11 +57,20 @@ function ehPaginaDeAnuncio(url) {
 // ---------------------------------------------------------------------------
 /** Termos do pedido: local (condomínio/edifício ou bairro), tipo, cidade */
 function termosDoPedido(c) {
-  const f = c.filtros || {};
-  const local = f.local || f.bairro || (c.local.condominios[0] && c.local.condominios[0].name) || (c.local.edificios[0] && c.local.edificios[0].name) || c.local.bairros[0] || '';
-  const tipo = (c.tipos && c.tipos[0]) || '';
-  const cidade = (c.local.cidades.find(x => x !== 'Goiânia') || 'Goiânia').trim();
-  return { local, tipo, cidade, aluguel: c.transacao === 'ALUGUEL', quartos: c.quartos_min || 0 };
+  const safe = c && typeof c === 'object' ? c : {};
+  const f = safe.filtros || {};
+  const loc = safe.local && typeof safe.local === 'object' ? safe.local : {};
+  const local =
+    f.local ||
+    f.bairro ||
+    (Array.isArray(loc.condominios) && loc.condominios[0] && loc.condominios[0].name) ||
+    (Array.isArray(loc.edificios) && loc.edificios[0] && loc.edificios[0].name) ||
+    (Array.isArray(loc.bairros) && loc.bairros[0]) ||
+    '';
+  const tipo = (Array.isArray(safe.tipos) && safe.tipos[0]) || '';
+  const cidades = Array.isArray(loc.cidades) ? loc.cidades : [];
+  const cidade = (cidades.find(x => x !== 'Goiânia') || 'Goiânia').trim();
+  return { local, tipo, cidade, aluguel: safe.transacao === 'ALUGUEL', quartos: safe.quartos_min || 0 };
 }
 
 /**
@@ -214,10 +223,14 @@ async function buscarAnuncios({ criterios, dominios, env = process.env, fetcher 
             continue;
           }
           const chave = (() => {
-            const u = new URL(x.url);
-            return `${u.hostname.replace(/^www\./, '')}${u.pathname.replace(/\/+$/, '')}`.toLowerCase();
+            try {
+              const u = new URL(x.url);
+              return `${u.hostname.replace(/^www\./, '')}${u.pathname.replace(/\/+$/, '')}`.toLowerCase();
+            } catch {
+              return '';
+            }
           })();
-          if (vistos.has(chave)) continue;
+          if (!chave || vistos.has(chave)) continue;
           vistos.add(chave);
           dg.anuncios++;
           catalogo.push({ id: catalogo.length + 1, portal: PORTAIS[portal], dominio: portal, url: x.url, titulo: String(x.titulo || '').slice(0, 160), conteudo: String(x.conteudo || '').replace(/\s+/g, ' ').slice(0, 500) });

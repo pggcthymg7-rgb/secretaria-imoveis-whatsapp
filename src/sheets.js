@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { parse } = require('csv-parse/sync');
 
 const { CSV_PATH } = require('./paths');
@@ -176,7 +177,7 @@ function optionalNumber(v) {
 function sanitizePhotoRef(ref) {
   const r = normalizeImageUrl(ref);
   if (!r) return '';
-  if (/^https?:\/\//i.test(r)) return r.slice(0, 600);
+  if (/^https?:\/\//i.test(r)) return r.replace(/[\s\r\n\0]/g, '').slice(0, 600);
   return path.basename(r).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
 }
 
@@ -184,6 +185,7 @@ function sanitizePhotoRef(ref) {
  * Padroniza um objeto de imóvel garantindo que todos os campos estejam no formato ideal
  */
 function normalizePropertyRecord(row, idx = 0) {
+  if (!row || typeof row !== 'object') row = {};
   const id = String(row.id || idx + 1).trim().replace(/[^0-9A-Za-z_-]/g, '').slice(0, 20) || String(idx + 1);
   const tipo = cleanText(row.tipo || 'Apartamento', 40);
   const setor = sanitizeSetor(cleanText(row.setor || row.bairro || '', 80));
@@ -278,21 +280,33 @@ function serializeCsv(properties) {
 
 async function saveAllPropertiesToSpreadsheet(properties) {
   const job = writeQueue.then(async () => {
-    const tmp = `${LOCAL_CSV_PATH}.tmp`;
-    fs.writeFileSync(tmp, serializeCsv(properties), 'utf-8');
-    fs.renameSync(tmp, LOCAL_CSV_PATH);
+    const dir = path.dirname(LOCAL_CSV_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const tmp = `${LOCAL_CSV_PATH}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+    try {
+      fs.writeFileSync(tmp, serializeCsv(properties), 'utf-8');
+      fs.renameSync(tmp, LOCAL_CSV_PATH);
+    } catch (err) {
+      try { fs.rmSync(tmp, { force: true }); } catch {}
+      throw err;
+    }
     cachedProperties = properties;
     lastFetchTime = Date.now();
 
     const webhookUrl = (process.env.GOOGLE_SHEETS_WEBHOOK_URL || '').trim();
-    if (webhookUrl && webhookUrl.startsWith('https://script.google.com/')) {
+    let parsedHook = null;
+    if (webhookUrl) {
+      try { parsedHook = new URL(webhookUrl); } catch {}
+    }
+    if (parsedHook && parsedHook.protocol === 'https:' && !parsedHook.username && !parsedHook.password && parsedHook.hostname === 'script.google.com') {
       try {
-        await fetch(webhookUrl, {
+        const res = await fetch(webhookUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'SYNC_ALL', headers: CSV_HEADERS, properties, token: process.env.GOOGLE_SHEETS_TOKEN || '' }),
           signal: AbortSignal.timeout(15000)
         });
+        if (!res.ok) console.error(`⚠️ Aviso ao sincronizar com Google Sheets Webhook: HTTP ${res.status}`);
       } catch (err) {
         console.error('⚠️ Aviso ao sincronizar com Google Sheets Webhook:', err.message);
       }
@@ -329,6 +343,7 @@ async function loadAllProperties(forceRefresh = false) {
       const response = await fetch(sheetsUrl, { signal: AbortSignal.timeout(15000) });
       if (response.ok) {
         const csvText = await response.text();
+        if (csvText.length > 20 * 1024 * 1024) throw new Error('Planilha Google maior que 20 MB');
         const imported = parseCsvContent(csvText);
         if (imported.length > 0) {
           await saveAllPropertiesToSpreadsheet(imported);

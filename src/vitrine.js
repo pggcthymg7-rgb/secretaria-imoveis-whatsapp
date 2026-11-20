@@ -51,6 +51,7 @@ function getState() {
 }
 
 function sanitizeConfig(input = {}) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return { ...state.config };
   const c = { ...state.config };
   if (input.ativo !== undefined) c.ativo = Boolean(input.ativo);
   if (Array.isArray(input.horarios)) {
@@ -60,7 +61,9 @@ function sanitizeConfig(input = {}) {
   if (input.porHorario !== undefined) c.porHorario = Math.min(MAX_FOTO, Math.max(0, parseInt(input.porHorario, 10) || 0));
   if (input.porHorarioTexto !== undefined) c.porHorarioTexto = Math.min(MAX_TEXTO, Math.max(0, parseInt(input.porHorarioTexto, 10) || 0));
   if (c.porHorario + c.porHorarioTexto === 0) c.porHorario = 1;
-  if (Array.isArray(input.diasSemana)) c.diasSemana = input.diasSemana.map(Number).filter(d => d >= 0 && d <= 6);
+  if (Array.isArray(input.diasSemana)) {
+    c.diasSemana = [...new Set(input.diasSemana.map(n => parseInt(n, 10)).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))];
+  }
   return c;
 }
 
@@ -83,13 +86,16 @@ function defaultPostText(prop) {
 }
 
 // só vale post PRÓPRIO do objeto: com id "__proto__" ou "constructor" o código antigo mexia em Object.prototype
-const temPost = id => Object.prototype.hasOwnProperty.call(state.posts, id);
+const UNSAFE_POST_ID = id => !id || id === '__proto__' || id === 'constructor' || id === 'prototype';
+const temPost = id => !UNSAFE_POST_ID(String(id)) && Object.prototype.hasOwnProperty.call(state.posts, id);
 
 function upsertPost(prop, { texto, foto, status } = {}) {
-  const prev = (temPost(prop.id) && state.posts[prop.id]) || {};
+  const id = String(prop?.id || '');
+  if (UNSAFE_POST_ID(id)) return null;
+  const prev = (temPost(id) && state.posts[id]) || {};
   const fotoFinal = foto !== undefined ? foto : prev.foto || (prop.fotos || [])[0] || '';
   const changedContent = (texto !== undefined && texto !== prev.texto) || (foto !== undefined && foto !== prev.foto);
-  state.posts[prop.id] = {
+  state.posts[id] = {
     texto: String(texto !== undefined ? texto : prev.texto || defaultPostText(prop)).slice(0, MAX_TEXTO_POST),
     foto: String(fotoFinal || '').slice(0, 600),
     // conteúdo alterado volta para "pendente" até você aprovar de novo
@@ -100,7 +106,7 @@ function upsertPost(prop, { texto, foto, status } = {}) {
     envios: prev.envios || 0
   };
   save();
-  return state.posts[prop.id];
+  return state.posts[id];
 }
 
 function setStatus(propId, status) {
@@ -116,7 +122,9 @@ function setStatus(propId, status) {
 }
 
 function removePost(propId) {
-  if (temPost(propId)) delete state.posts[propId];
+  const id = String(propId || '');
+  if (UNSAFE_POST_ID(id)) return;
+  if (temPost(id)) delete state.posts[id];
   save();
 }
 

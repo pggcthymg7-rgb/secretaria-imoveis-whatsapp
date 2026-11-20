@@ -12,8 +12,14 @@ const { TenantStore, validateTenantId } = require('./tenant-store');
 
 const MIN_ADMIN_TOKEN = 32;
 const digest = v => crypto.createHash('sha256').update(String(v)).digest();
-const ah = fn => (req, res) => Promise.resolve(fn(req, res)).catch(err => res.status(err.status || 500).json({ error: err.status ? err.message : 'Erro interno' }));
+const ah = fn => (req, res) =>
+  Promise.resolve(fn(req, res)).catch(err => {
+    const status = Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 500;
+    if (status >= 500) console.error('[tenancy-routes]', err?.message || err);
+    res.status(status).json({ error: status < 500 && err?.message ? err.message : 'Erro interno' });
+  });
 const notFound = () => Object.assign(new Error('Corretor não encontrado.'), { status: 404 });
+const plainBody = b => (b && typeof b === 'object' && !Array.isArray(b) ? b : {});
 
 function requireAdmin(adminToken) {
   const expected = digest(adminToken);
@@ -116,7 +122,7 @@ function mountPanelRoutes(app, tenancy) {
     return;
   }
   app.post('/api/equipe', ah(async (req, res) => {
-    const { isNew, record } = await conectarCorretor(tenancy, req.body || {});
+    const { isNew, record } = await conectarCorretor(tenancy, plainBody(req.body));
     res.status(isNew ? 201 : 200).json({ ok: true, corretor: await resumoCorretor(tenancy, record.corretorId) });
   }));
   const acoes = { pausar: pausarCorretor, retomar: retomarCorretor, 'novo-qr': novoQrCorretor };
@@ -143,7 +149,7 @@ function mountTenantRoutes(app, tenancy) {
   const admin = [limiter, requireAdmin(adminToken)];
 
   app.post('/api/conectar-corretor', ...admin, ah(async (req, res) => {
-    const { isNew, record, status } = await conectarCorretor(tenancy, req.body || {});
+    const { isNew, record, status } = await conectarCorretor(tenancy, plainBody(req.body));
     res.status(isNew ? 201 : 200).json({ ok: true, corretor: TenantStore.publicView(record), whatsapp: { status: status.status } });
   }));
 

@@ -36,8 +36,10 @@ function add(entry) {
 
 function update(code, patch) {
   const it = items.find(i => i.code === String(code).toUpperCase());
-  if (it) {
-    Object.assign(it, patch);
+  if (it && patch && typeof patch === 'object' && !Array.isArray(patch)) {
+    for (const [k, v] of Object.entries(patch)) {
+      if (k !== '__proto__' && k !== 'constructor' && k !== 'prototype') it[k] = v;
+    }
     persist();
   }
   return it;
@@ -79,6 +81,10 @@ function demand(days = 30) {
 }
 
 function flush() {
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
   writeJson(FILE, items);
 }
 

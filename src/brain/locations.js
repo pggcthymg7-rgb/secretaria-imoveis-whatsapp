@@ -14,26 +14,47 @@
  * ============================================================================
  */
 const { buildEntries, REGIOES, GOIANIA_CENTER } = require('./gazetteer');
-const { normalize, hasPhrase, fuzzyContains, fuzzyFind, tokens, haversineKm } = require('./text');
+const { normalize, hasPhrase, fuzzyContains, tokens, allowedTypos, editDistance, escapeRegex, haversineKm } = require('./text');
 
 const fs = require('fs');
 const path = require('path');
 
 const BASE = buildEntries();
+const BASE_ENTRIES = [...BASE.bairros, ...BASE.condominios, ...BASE.marcos, ...BASE.cidades];
+const BASE_BAIRRO_BY_NAME = new Map(BASE.bairros.map(b => [normalize(b.name), b]));
+const BASE_ALIASES_NORM = BASE_ENTRIES.flatMap(e => e.aliases.map(a => normalize(a)));
+
+/** Cache compartilhado em memória por caminho+mtime+tamanho (evita releitura/duplicação por tenant) */
+function getSharedOsmStore() {
+  try {
+    if (!global.__bigaOsmJsonCache) global.__bigaOsmJsonCache = new Map();
+    return global.__bigaOsmJsonCache;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Mapa complementar do OpenStreetMap (bairros, condomínios e edifícios com nome).
  * Usa DATA_DIR/mapa-osm.json (atualizado toda semana na VM) ou o arquivo que vem no projeto.
  */
-let osmCache = { file: null, mtime: 0, data: null };
+let osmCache = { file: null, mtime: 0, size: 0, data: null };
 function loadOsm() {
   const candidates = [process.env.DATA_DIR && path.join(process.env.DATA_DIR, 'mapa-osm.json'), path.join(__dirname, 'data', 'mapa-osm.json')].filter(Boolean);
+  const shared = getSharedOsmStore();
   for (const f of candidates) {
     try {
-      const st = fs.statSync(f);
-      if (osmCache.file === f && osmCache.mtime === st.mtimeMs) return osmCache.data;
-      const data = JSON.parse(fs.readFileSync(f, 'utf-8'));
-      osmCache = { file: f, mtime: st.mtimeMs, data };
+      const resolved = path.resolve(f);
+      const st = fs.statSync(resolved);
+      if (osmCache.file === resolved && osmCache.mtime === st.mtimeMs && osmCache.size === st.size) return osmCache.data;
+      const fromShared = shared && shared.get(resolved);
+      if (fromShared && fromShared.mtime === st.mtimeMs && fromShared.size === st.size) {
+        osmCache = { file: resolved, mtime: st.mtimeMs, size: st.size, data: fromShared.data };
+        return fromShared.data;
+      }
+      const data = JSON.parse(fs.readFileSync(resolved, 'utf-8'));
+      osmCache = { file: resolved, mtime: st.mtimeMs, size: st.size, data };
+      if (shared) shared.set(resolved, { mtime: st.mtimeMs, size: st.size, data });
       return data;
     } catch {}
   }
@@ -42,12 +63,15 @@ function loadOsm() {
 
 function osmVersion() {
   const d = loadOsm();
-  return d ? `${osmCache.file}:${osmCache.mtime}` : 'sem-osm';
+  return d ? `${osmCache.file}:${osmCache.mtime}:${osmCache.size}` : 'sem-osm';
 }
 
+let cachedOsmEntries = { ver: null, list: [] };
 function osmEntries(existingAliases) {
   const d = loadOsm();
   if (!d) return [];
+  const ver = `${osmCache.file}:${osmCache.mtime}:${osmCache.size}`;
+  if (existingAliases === BASE_ALIASES_NORM && cachedOsmEntries.ver === ver) return cachedOsmEntries.list;
   const out = [];
   const known = new Set(existingAliases);
   const add = (kind, item, extraAliases = []) => {
@@ -75,6 +99,7 @@ function osmEntries(existingAliases) {
     const sem = n.replace(/^(edificio|ed|residencial|condominio)\s+/, '');
     add('edificio', e, sem !== n && (sem.split(' ').length >= 2 || sem.length >= 7) ? [sem] : []);
   }
+  if (existingAliases === BASE_ALIASES_NORM) cachedOsmEntries = { ver, list: out };
   return out;
 }
 
@@ -118,24 +143,27 @@ function titleRegion(r) {
   return k.charAt(0).toUpperCase() + k.slice(1);
 }
 
+let defaultIndexCache = { ver: null, index: null };
+
 /**
  * Monta o índice de busca juntando o mapa base + lugares cadastrados pelo corretor + carteira
  */
 function buildIndex({ extraPlaces = [], inventory = [] } = {}) {
-  const entries = [
-    ...BASE.bairros,
-    ...BASE.condominios,
-    ...BASE.marcos,
-    ...BASE.cidades
-  ];
+  const extras = Array.isArray(extraPlaces) ? extraPlaces : [];
+  const inv = Array.isArray(inventory) ? inventory : [];
+  const ver = osmVersion();
+  if (!extras.length && !inv.length && defaultIndexCache.ver === ver && defaultIndexCache.index) {
+    return defaultIndexCache.index;
+  }
 
-  const bairroByName = new Map(BASE.bairros.map(b => [normalize(b.name), b]));
+  const entries = [...BASE_ENTRIES];
+  const bairroByName = new Map(BASE_BAIRRO_BY_NAME);
   // Mapa aberto (OSM): acrescenta só o que o mapa base ainda não conhece
-  const osm = osmEntries(entries.flatMap(e => e.aliases.map(a => normalize(a))));
+  const osm = osmEntries(BASE_ALIASES_NORM);
   entries.push(...osm);
   for (const e of osm) if (e.kind === 'bairro' && !bairroByName.has(normalize(e.name))) bairroByName.set(normalize(e.name), e);
 
-  for (const p of extraPlaces) {
+  for (const p of extras) {
     if (!p || !p.name) continue;
     const kind = ['bairro', 'condominio', 'edificio', 'marco', 'cidade'].includes(p.kind) ? p.kind : 'edificio';
     const ref = p.bairro ? bairroByName.get(normalize(p.bairro)) : null;
@@ -154,7 +182,8 @@ function buildIndex({ extraPlaces = [], inventory = [] } = {}) {
   }
 
   // Nomes de edifícios/condomínios cadastrados nos imóveis também viram vocabulário conhecido
-  for (const prop of inventory) {
+  for (const prop of inv) {
+    if (!prop || typeof prop !== 'object') continue;
     const ed = String(prop.edificio || '').trim();
     if (ed.length >= 3) {
       entries.push({ kind: 'edificio', name: ed, region: prop.regiao || null, aliases: [ed], fromInventory: true });
@@ -169,11 +198,24 @@ function buildIndex({ extraPlaces = [], inventory = [] } = {}) {
   for (const e of entries) {
     for (const a of e.aliases) {
       const an = normalize(a);
-      if (an.length >= 3) aliasList.push({ alias: an, entry: e });
+      if (an.length < 3) continue;
+      const pWords = tokens(an);
+      if (!pWords.length) continue;
+      aliasList.push({
+        alias: an,
+        entry: e,
+        pWords,
+        k: pWords.length,
+        target: pWords.join(' '),
+        maxTypos: allowedTypos(an),
+        phraseRx: new RegExp(`(?:^|[^a-z0-9])${escapeRegex(an)}(?:$|[^a-z0-9])`)
+      });
     }
   }
   aliasList.sort((x, y) => y.alias.length - x.alias.length);
-  return { entries, aliasList, bairroByName };
+  const built = { entries, aliasList, bairroByName };
+  if (!extras.length && !inv.length) defaultIndexCache = { ver, index: built };
+  return built;
 }
 
 function neighborsOf(point, radiusKm, index = null) {
@@ -229,7 +271,8 @@ function extractUnknownNames(scanText) {
  * Descobre todas as localizações pedidas no texto
  */
 function detectLocations(rawText, ctx = {}) {
-  const index = ctx.index || buildIndex(ctx);
+  const safeCtx = ctx && typeof ctx === 'object' ? ctx : {};
+  const index = safeCtx.index || buildIndex(safeCtx);
   const full = normalize(rawText);
   let scan = ` ${stripPermutaClause(full)} `;
 
@@ -270,12 +313,68 @@ function detectLocations(rawText, ctx = {}) {
   if (result.qualquer) scan = scan.replace(QUALQUER_RX, ' ');
 
   // 3) Lugares conhecidos (do mais longo para o mais curto, consumindo o texto para evitar duplicidade)
-  for (const { alias, entry } of index.aliasList) {
-    if (entry.osm && alias.length < 10 && !hasPhrase(scan, alias)) continue;
-    const words = scan.split(/\s+/).filter(Boolean);
-    const clean = words.map(w => w.replace(/[^a-z0-9]/g, ''));
-    const k = tokens(alias).length;
-    const pos = fuzzyFind(clean.join(' '), alias);
+  let words = [];
+  let clean = [];
+  let textWords = [];
+  let wordSet = null;
+  let byFirstChar = null;
+  let scanDirty = true;
+
+  const refreshScanIndex = () => {
+    words = scan.split(/\s+/).filter(Boolean);
+    clean = words.map(w => w.replace(/[^a-z0-9]/g, ''));
+    textWords = clean.filter(Boolean);
+    wordSet = new Set(textWords);
+    byFirstChar = new Map();
+    for (let i = 0; i < textWords.length; i++) {
+      const ch = textWords[i][0];
+      let arr = byFirstChar.get(ch);
+      if (!arr) {
+        arr = [];
+        byFirstChar.set(ch, arr);
+      }
+      arr.push(i);
+    }
+    scanDirty = false;
+  };
+
+  for (const item of index.aliasList) {
+    const { alias, entry } = item;
+    if (entry.osm && alias.length < 10) {
+      if (!scan.includes(alias)) continue;
+      if (item.phraseRx ? !item.phraseRx.test(scan) : !hasPhrase(scan, alias)) continue;
+    }
+    if (scanDirty) refreshScanIndex();
+    const pWords = item.pWords || tokens(alias);
+    const k = item.k || pWords.length;
+    if (!k || textWords.length < k) continue;
+    const target = item.target || pWords.join(' ');
+    const maxTypos = item.maxTypos !== undefined ? item.maxTypos : allowedTypos(alias);
+    if (maxTypos === 0) {
+      let hasAll = true;
+      for (let j = 0; j < k; j++) {
+        if (!wordSet.has(pWords[j])) { hasAll = false; break; }
+      }
+      if (!hasAll) continue;
+    }
+    const candidates = byFirstChar.get(pWords[0][0]);
+    if (!candidates || !candidates.length) continue;
+
+    let pos = -1;
+    for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
+      const i = candidates[cIdx];
+      if (i + k > textWords.length) break;
+      let okFirst = true;
+      for (let j = 1; j < k; j++) {
+        if (textWords[i + j][0] !== pWords[j][0]) { okFirst = false; break; }
+      }
+      if (!okFirst) continue;
+      const window = k === 1 ? textWords[i] : textWords.slice(i, i + k).join(' ');
+      if (window === target) { pos = i; break; }
+      if (maxTypos === 0) continue;
+      if (Math.abs(window.length - target.length) > maxTypos) continue;
+      if (editDistance(window, target) <= maxTypos) { pos = i; break; }
+    }
     if (pos < 0) continue;
 
     // evita "centro" de "centro de lazer"/"centro comercial"
@@ -313,6 +412,7 @@ function detectLocations(rawText, ctx = {}) {
         return wordCount >= pos && wordCount < pos + k ? '_' : part;
       })
       .join('');
+    scanDirty = true;
   }
 
   // "Goiânia" sozinha não restringe nada (a carteira é de Goiânia por padrão), exceto se for a única cidade com outras

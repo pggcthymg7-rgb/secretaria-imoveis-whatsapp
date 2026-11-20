@@ -11,6 +11,7 @@ CADDYFILE="${CADDYFILE:-/etc/caddy/Caddyfile}"
 rm -f "$MAIN_DATA/caddy-sincronizar" 2>/dev/null || true
 command -v caddy >/dev/null 2>&1 || exit 0
 [ -d "$MAIN_DATA/tenants" ] || exit 0
+[ -f "$CADDYFILE" ] || exit 0
 dominio=$(grep -E '^DOMINIO=' "$MAIN_ENV" 2>/dev/null | tail -1 | cut -d= -f2- || true)
 porta=$(grep -E '^PORT=' "$MAIN_ENV" 2>/dev/null | tail -1 | cut -d= -f2 || true)
 porta="${porta:-3000}"
@@ -19,6 +20,7 @@ porta="${porta:-3000}"
 
 mkdir -p "$CADDY_DIR"
 backup=$(mktemp -d)
+trap 'rm -rf "$backup"' EXIT
 cp -a "$CADDY_DIR/." "$backup/" 2>/dev/null || true
 cp -a "$CADDYFILE" "$backup/Caddyfile.orig" 2>/dev/null || true
 mudou=0
@@ -30,11 +32,12 @@ for d in "$MAIN_DATA"/tenants/*/; do
   [ -f "$d/config.json" ] || continue
   novo=$(printf '%s.%s {\n\tencode gzip\n\treverse_proxy 127.0.0.1:%s\n\theader {\n\t\tStrict-Transport-Security "max-age=31536000"\n\t\t-Server\n\t}\n}\n' "$id" "$dominio" "$porta")
   if [ "$(cat "$CADDY_DIR/$id.caddy" 2>/dev/null)" != "$novo" ]; then
-    printf '%s' "$novo" > "$CADDY_DIR/$id.caddy"
+    tmp_caddy="$CADDY_DIR/.${id}.caddy.tmp.$$"
+    printf '%s' "$novo" > "$tmp_caddy" && mv "$tmp_caddy" "$CADDY_DIR/$id.caddy"
     mudou=1
   fi
 done
-if ls "$CADDY_DIR"/*.caddy >/dev/null 2>&1 && ! grep -q "^import $CADDY_DIR/\*.caddy" "$CADDYFILE"; then
+if compgen -G "$CADDY_DIR/*.caddy" >/dev/null 2>&1 && ! grep -q "^import $CADDY_DIR/\*.caddy" "$CADDYFILE"; then
   printf '\nimport %s/*.caddy\n' "$CADDY_DIR" >> "$CADDYFILE"
   mudou=1
 fi
@@ -50,4 +53,3 @@ if [ "$mudou" = 1 ]; then
     echo "AVISO: configuração do Caddy inválida; mantida a anterior" >&2
   fi
 fi
-rm -rf "$backup"

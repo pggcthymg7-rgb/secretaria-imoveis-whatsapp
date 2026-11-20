@@ -29,18 +29,20 @@ class WhatsAppRouter {
     this.sm = sessionManager;
     this.store = tenantStore;
     this.startScheduler = startScheduler;
-    /** @type {Map<string, { container: object, wa: object }>} */
+    /** @type {Map<string, { container: object, wa: object, app: any }>} */
     this.domains = new Map();
+    /** @type {Map<string, Promise<any>>} */
+    this._reloads = new Map();
     this._attached = false;
   }
 
   attach() {
     if (this._attached) return this;
     this._attached = true;
-    this.sm.on('socket', ({ tenantId, sock }) => this._safe(tenantId, () => this._bindSocket(tenantId, sock)));
-    this.sm.on('connection', ({ tenantId, connection, qr }) => this._safe(tenantId, () => this.domain(tenantId).wa.onConnectionState({ connection, qr })));
-    this.sm.on('message', payload => this._safe(payload.tenantId, () => this.onMessage(payload)));
-    this.sm.on('event', ({ tenantId, name, payload }) => this._safe(tenantId, () => this.domain(tenantId).wa.DOMAIN_EVENTS[name]?.(payload)));
+    this.sm.on('socket', ({ tenantId, sock }) => this._safeActive(tenantId, () => this._bindSocket(tenantId, sock)));
+    this.sm.on('connection', ({ tenantId, connection, qr }) => this._safeActive(tenantId, () => this.domain(tenantId).wa.onConnectionState({ connection, qr })));
+    this.sm.on('message', payload => this._safeActive(payload.tenantId, () => this.onMessage(payload)));
+    this.sm.on('event', ({ tenantId, name, payload }) => this._safeActive(tenantId, () => this.domain(tenantId).wa.DOMAIN_EVENTS[name]?.(payload)));
     return this;
   }
 
@@ -73,6 +75,7 @@ class WhatsAppRouter {
   prepareTenant(tenantId) {
     const cfg = this.store.get(tenantId);
     if (!cfg) throw new Error(`Corretor ${tenantId} não cadastrado.`);
+    if (cfg.ativo === false) throw new Error(`Corretor ${tenantId} está pausado.`);
     const old = this.domains.get(tenantId);
     if (old) return old;
     const dataDir = this.store.dataDir(tenantId);
@@ -117,9 +120,17 @@ class WhatsAppRouter {
 
   /** Recarrega a BIGA do corretor do disco (ex.: depois de restaurar backup), sem tocar nos outros */
   async reloadTenant(tenantId) {
-    this.stopTenant(tenantId, { flush: false });
-    if (!this.store.get(tenantId) || this.store.get(tenantId).ativo === false) return null;
-    return this.prepareTenant(tenantId);
+    if (this._reloads.has(tenantId)) return this._reloads.get(tenantId);
+    const p = (async () => {
+      this.stopTenant(tenantId, { flush: false });
+      const cfg = this.store.get(tenantId);
+      if (!cfg || cfg.ativo === false) return null;
+      return this.prepareTenant(tenantId);
+    })().finally(() => {
+      if (this._reloads.get(tenantId) === p) this._reloads.delete(tenantId);
+    });
+    this._reloads.set(tenantId, p);
+    return p;
   }
 
   domain(tenantId) {
@@ -172,13 +183,24 @@ class WhatsAppRouter {
     if (!d) return;
     try {
       d.container.require('scheduler').stop();
-      if (flush) {
-        d.container.require('contacts').flush();
-        d.container.require('radar').flush();
-      }
     } catch {}
+    if (flush) {
+      for (const [mod, fn] of [['contacts', 'flush'], ['radar', 'flush'], ['metrics', 'flush']]) {
+        try { d.container.require(mod)[fn]?.(); } catch {}
+      }
+      try { d.container.require('anuncios').persist?.(true); } catch {}
+    }
+    if (d.app) {
+      try { d.container.require('app').shutdown?.(); } catch {}
+    }
     d.container.dispose();
     this.domains.delete(tenantId);
+  }
+
+  async _safeActive(tenantId, fn) {
+    const cfg = this.store.get(tenantId);
+    if (!cfg || cfg.ativo === false) return;
+    return this._safe(tenantId, fn);
   }
 
   async _safe(tenantId, fn) {

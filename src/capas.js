@@ -124,9 +124,11 @@ function salvar(entrada) {
 
 function apagar(modeloId) {
   const antes = state.modelos.length;
+  const padraoAntes = state.padrao;
   state.modelos = state.modelos.filter(x => x.id !== String(modeloId));
   if (state.padrao === String(modeloId)) state.padrao = null;
-  writeJson(FILE, state);
+  const mudou = antes !== state.modelos.length || padraoAntes !== state.padrao;
+  if (mudou) writeJson(FILE, state);
   return antes !== state.modelos.length;
 }
 

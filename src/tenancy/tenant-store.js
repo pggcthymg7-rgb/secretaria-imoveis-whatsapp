@@ -9,6 +9,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const TENANT_ID_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 const httpsUrl = v => /^https:\/\/[^\s]+$/i.test(v);
@@ -37,6 +38,10 @@ class TenantValidationError extends Error {
 // Viram subdomínio (<id>.<DOMINIO>): nomes de infraestrutura ficam reservados
 const RESERVADOS = new Set(['www', 'admin', 'api', 'painel', 'mail', 'smtp', 'ftp', 'app', 'biga', 'root', 'sistema']);
 
+function isValidTenantId(id) {
+  return typeof id === 'string' && TENANT_ID_RE.test(id) && !id.endsWith('-') && !RESERVADOS.has(id);
+}
+
 function validateTenantId(id) {
   if (typeof id !== 'string' || !TENANT_ID_RE.test(id) || id.endsWith('-')) throw new TenantValidationError('corretorId inválido (use 2–32 caracteres: a-z, 0-9 e hífen).');
   if (RESERVADOS.has(id)) throw new TenantValidationError(`"${id}" é um nome reservado.`);
@@ -64,8 +69,8 @@ function normalizeConfigIA(raw = {}) {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new TenantValidationError('configIA deve ser um objeto.');
   const out = {};
   for (const [field, value] of Object.entries(raw)) {
+    if (!Object.hasOwn(CONFIG_FIELDS, field)) throw new TenantValidationError(`configIA.${field} não é um campo aceito.`);
     const spec = CONFIG_FIELDS[field];
-    if (!spec) throw new TenantValidationError(`configIA.${field} não é um campo aceito.`);
     const [type, max, check] = spec;
     if (typeof value !== type) throw new TenantValidationError(`configIA.${field} deve ser ${type}.`);
     const v = type === 'string' ? value.trim() : value;
@@ -79,9 +84,21 @@ function normalizeConfigIA(raw = {}) {
 }
 
 function writePrivateJson(file, data) {
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 });
-  fs.renameSync(tmp, file);
+  const dir = path.dirname(file);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 });
+    fs.renameSync(tmp, file);
+    try {
+      fs.chmodSync(file, 0o600);
+    } catch {}
+  } catch (err) {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {}
+    throw err;
+  }
 }
 
 class TenantStore {
@@ -137,6 +154,7 @@ class TenantStore {
 
   /** @returns {null | { corretorId: string, nome: string, configIA: object, criadoEm: string, atualizadoEm: string }} */
   get(id) {
+    if (!isValidTenantId(id)) return null;
     const file = path.join(this.tenantDir(id), 'config.json');
     try {
       return JSON.parse(fs.readFileSync(file, 'utf-8'));
@@ -148,7 +166,7 @@ class TenantStore {
   list() {
     return fs
       .readdirSync(this.tenantsDir)
-      .filter(id => TENANT_ID_RE.test(id) && fs.existsSync(path.join(this.tenantsDir, id, 'config.json')))
+      .filter(id => isValidTenantId(id) && fs.existsSync(path.join(this.tenantsDir, id, 'config.json')))
       .sort();
   }
 
@@ -164,4 +182,4 @@ class TenantStore {
   }
 }
 
-module.exports = { TENANT_ID_RE, RESERVADOS, tenantPath, TenantStore, TenantValidationError, validateTenantId, normalizeConfigIA, CONFIG_FIELDS };
+module.exports = { TENANT_ID_RE, RESERVADOS, tenantPath, TenantStore, TenantValidationError, validateTenantId, isValidTenantId, normalizeConfigIA, CONFIG_FIELDS };

@@ -56,5 +56,5 @@ test('Painel: editor de capas carregado antes do app, rota "capas" no grupo Imó
   // o editor roda no navegador: sem erro de sintaxe e com as peças principais
   const js = fs.readFileSync(path.join(pub, 'capas.js'), 'utf8');
   new Function(js); // eslint-disable-line no-new-func
-  for (const peca of ['escalaX', 'escalaY', 'EyeDropper', 'loteGerar', 'fonts.googleapis.com', 'ancora']) assert.ok(js.includes(peca), peca);
+  for (const peca of ['escalaX', 'escalaY', 'EyeDropper', 'loteGerar', 'fonts.googleapis.com', 'ancora', 'safeFont', 'loteGerando']) assert.ok(js.includes(peca), peca);
 });

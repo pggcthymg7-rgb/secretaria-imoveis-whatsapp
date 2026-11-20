@@ -19,10 +19,85 @@ const CACHE_PDF_DIR = path.join(DATA_DIR, 'cache_pdf_16x9');
 const CACHE_FOTOS_DIR = path.join(DATA_DIR, 'cache_fotos_16x9');
 const ARQUIVO_KIT = 'kit_marca.json';
 const ARQUIVO_FICHAS_16X9 = 'fichas_16x9.json';
+const TETO_CACHE_PDF_BYTES = 100 * 1024 * 1024; // 100 MB
+const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 // Fila serial local para garantir concurrency = 1 por processo
 let filaPromise = Promise.resolve();
 const debounceTimers = new Map();
+
+function isForbiddenKey(k) {
+  return FORBIDDEN_KEYS.has(String(k));
+}
+
+function sanitizePlain(obj) {
+  const out = {};
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return out;
+  for (const k of Object.keys(obj)) {
+    if (!isForbiddenKey(k)) out[k] = obj[k];
+  }
+  return out;
+}
+
+function sanitizeId(id) {
+  const s = String(id ?? '').replace(/[^\w-]/g, '_').replace(/^_+|_+$/g, '').slice(0, 64);
+  return s || 'sem_id';
+}
+
+function isSafePathInside(baseDir, candidate) {
+  if (!baseDir || !candidate || typeof candidate !== 'string') return false;
+  const baseResolved = path.resolve(baseDir);
+  const candResolved = path.resolve(candidate);
+  if (candResolved !== baseResolved && !candResolved.startsWith(baseResolved + path.sep)) return false;
+  try {
+    if (fs.existsSync(candResolved)) {
+      const realBase = fs.realpathSync(baseResolved);
+      const realCand = fs.realpathSync(candResolved);
+      return realCand === realBase || realCand.startsWith(realBase + path.sep);
+    }
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+function validarLogoPath(logoPath) {
+  if (!logoPath || typeof logoPath !== 'string') return null;
+  const trimmed = logoPath.trim();
+  if (!trimmed) return null;
+  if (isSafePathInside(DATA_DIR, trimmed) || isSafePathInside(FOTOS_DIR, trimmed)) return path.resolve(trimmed);
+  return null;
+}
+
+function limparCachePdfSeNecessario(dirCache = CACHE_PDF_DIR, tetoBytes = TETO_CACHE_PDF_BYTES) {
+  if (!fs.existsSync(dirCache)) return;
+  try {
+    const agora = Date.now();
+    const arquivos = [];
+    for (const nome of fs.readdirSync(dirCache)) {
+      const p = path.join(dirCache, nome);
+      try {
+        const stat = fs.statSync(p);
+        if (!stat.isFile()) continue;
+        if (nome.endsWith('.tmp')) {
+          if (agora - stat.mtimeMs > 5 * 60 * 1000) fs.unlinkSync(p);
+          continue;
+        }
+        if (nome.endsWith('.pdf')) arquivos.push({ path: p, size: stat.size, mtime: stat.mtimeMs });
+      } catch {}
+    }
+    let total = arquivos.reduce((s, a) => s + a.size, 0);
+    if (total <= tetoBytes) return;
+    arquivos.sort((a, b) => a.mtime - b.mtime);
+    for (const a of arquivos) {
+      if (total <= tetoBytes * 0.75) break;
+      try {
+        fs.unlinkSync(a.path);
+        total -= a.size;
+      } catch {}
+    }
+  } catch {}
+}
 
 function calcularHashInsumos(obj) {
   return crypto.createHash('sha256').update(JSON.stringify(obj)).digest('hex').slice(0, 16);
@@ -48,20 +123,27 @@ function carregarKit() {
 
 function salvarKit(dados) {
   const kitAtual = carregarKit();
-  const novoKit = { ...kitAtual, ...dados };
+  const limpos = sanitizePlain(dados);
+  if ('logoPath' in limpos) limpos.logoPath = validarLogoPath(limpos.logoPath);
+  const novoKit = { ...kitAtual, ...limpos };
   writeJson(ARQUIVO_KIT, novoKit);
   return novoKit;
 }
 
 function carregarFichas16x9() {
-  return readJson(ARQUIVO_FICHAS_16X9, {});
+  const raw = readJson(ARQUIVO_FICHAS_16X9, {});
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
 }
 
 function salvarFicha16x9(idImovel, dados) {
+  const id = String(idImovel ?? '');
+  if (!id || isForbiddenKey(id)) throw Object.assign(new Error('Imóvel inválido.'), { status: 400 });
+  const limpos = sanitizePlain(dados);
   const todas = carregarFichas16x9();
-  todas[String(idImovel)] = { ...(todas[String(idImovel)] || {}), ...dados };
+  const atual = Object.prototype.hasOwnProperty.call(todas, id) && todas[id] && typeof todas[id] === 'object' ? todas[id] : {};
+  todas[id] = { ...atual, ...limpos };
   writeJson(ARQUIVO_FICHAS_16X9, todas);
-  return todas[String(idImovel)];
+  return todas[id];
 }
 
 /**
@@ -162,8 +244,17 @@ async function despacharParaWorker(tarefaPayload, timeoutMs = 15000) {
       }
     });
 
+    worker.on('messageerror', (err) => {
+      if (!finalizado) {
+        finalizado = true;
+        clearTimeout(timer);
+        worker.terminate().catch(() => {});
+        reject(err);
+      }
+    });
+
     worker.on('exit', (code) => {
-      if (!finalizado && code !== 0) {
+      if (!finalizado) {
         finalizado = true;
         clearTimeout(timer);
         reject(new Error(`Worker finalizou abruptamente com código ${code}`));
@@ -179,28 +270,48 @@ async function despacharParaWorker(tarefaPayload, timeoutMs = 15000) {
  * @returns {Promise<{buffer: Buffer, nomeArquivo: string, isFallback: boolean}>}
  */
 async function gerarPdfComFallback(propriedade, opcoes = {}) {
-  const id = String(propriedade.id);
+  if (!propriedade || typeof propriedade !== 'object') throw new Error('Imóvel inválido');
+  const idRaw = String(propriedade.id ?? '');
+  if (!idRaw || isForbiddenKey(idRaw)) throw new Error('ID do imóvel inválido');
+  const safeId = sanitizeId(idRaw);
+
   const kit = carregarKit();
   const fichasNovas = carregarFichas16x9();
-  const fichaEditada = { ...(fichasNovas[id] || {}), ...(opcoes.ficha || {}) };
+  const fichaSalva = Object.prototype.hasOwnProperty.call(fichasNovas, idRaw) ? fichasNovas[idRaw] : {};
+  const fichaEditada = { ...(fichaSalva || {}), ...(opcoes.ficha || {}) };
 
   const modelo = opcoes.modelo || fichaEditada.modelo || kit.modelo || 'A';
   const paleta = opcoes.paleta || fichaEditada.paleta || kit.paletaPadrao || 'principal';
   const dados = comporDadosImovel(propriedade, fichaEditada, kit);
   const fotosCaminhos = resolverFotosLocais(propriedade, fichaEditada);
+  const logoSeguro = validarLogoPath(kit.logoPath);
+  const coresAtivas = paleta === 'segunda' ? kit.cores2 : kit.cores1;
 
-  // Chave de cache do PDF pronto
-  const hashInsumos = calcularHashInsumos({ id, dados, fotosCaminhos, modelo, paleta, kitCores: kit.cores1, kitFonte: kit.fonte });
+  // Chave de cache do PDF pronto (inclui marca, paleta efetiva, logo e páginas)
+  const hashInsumos = calcularHashInsumos({
+    id: safeId,
+    dados,
+    fotosCaminhos,
+    modelo,
+    paleta,
+    kitMarca: kit.marca,
+    kitCores: coresAtivas,
+    kitFonte: kit.fonte,
+    logoPath: logoSeguro,
+    paginas: opcoes.paginas || null
+  });
   fs.mkdirSync(CACHE_PDF_DIR, { recursive: true });
-  const pdfCachePath = path.join(CACHE_PDF_DIR, `ficha_${id}_${hashInsumos}.pdf`);
+  const pdfCachePath = path.join(CACHE_PDF_DIR, `ficha_${safeId}_${hashInsumos}.pdf`);
+  if (!isSafePathInside(CACHE_PDF_DIR, pdfCachePath)) throw new Error('Caminho de cache inválido');
 
-  const nomePdf = `${(dados.edificio || `Imovel_${id}`).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w]+/g, '_').slice(0, 50)}_${id}.pdf`;
+  const nomePdf = `${(dados.edificio || `Imovel_${safeId}`).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w]+/g, '_').slice(0, 50)}_${safeId}.pdf`;
 
   // Se o PDF em cache já existir, entrega imediatamente
   if (!opcoes.forcar && fs.existsSync(pdfCachePath)) {
     try {
       const bufferCache = fs.readFileSync(pdfCachePath);
       if (bufferCache.length > 500 && bufferCache.slice(0, 4).toString() === '%PDF') {
+        try { const now = new Date(); fs.utimesSync(pdfCachePath, now, now); } catch {}
         return { buffer: bufferCache, nomeArquivo: nomePdf, isFallback: false };
       }
     } catch {}
@@ -217,8 +328,8 @@ async function gerarPdfComFallback(propriedade, opcoes = {}) {
         paleta,
         kit: {
           marca: kit.marca,
-          logoPath: kit.logoPath,
-          cores: paleta === 'segunda' ? kit.cores2 : kit.cores1,
+          logoPath: logoSeguro,
+          cores: coresAtivas,
           fonte: kit.fonte
         },
         dados,
@@ -230,10 +341,11 @@ async function gerarPdfComFallback(propriedade, opcoes = {}) {
 
       const resultado = await despacharParaWorker(payload, 15000);
       const bufferGerado = fs.readFileSync(pdfCachePath);
+      limparCachePdfSeNecessario(CACHE_PDF_DIR);
       return { buffer: bufferGerado, nomeArquivo: nomePdf, isFallback: false, avisos: resultado.avisos };
     } catch (errWorker) {
       // FALLBACK AUTOMÁTICO PARA A FICHA A4 CLÁSSICA
-      console.warn(`[AVISO] [PDF-16:9-FALLBACK] Falha ao gerar PDF 16:9 para o imóvel #${id}: ${errWorker.message}. Revertendo para ficha A4 clássica.`);
+      console.warn(`[AVISO] [PDF-16:9-FALLBACK] Falha ao gerar PDF 16:9 para o imóvel #${safeId}: ${errWorker.message}. Revertendo para ficha A4 clássica.`);
       try {
         const fichaA4 = require('../pdf-ficha');
         const fA4 = fichaA4.ficha(propriedade);
@@ -257,10 +369,14 @@ async function gerarPdfComFallback(propriedade, opcoes = {}) {
 function invalidarCache(idImovel) {
   if (!fs.existsSync(CACHE_PDF_DIR)) return;
   try {
-    const prefixo = `ficha_${idImovel}_`;
+    const safeId = sanitizeId(idImovel);
+    const prefixo = `ficha_${safeId}_`;
     for (const f of fs.readdirSync(CACHE_PDF_DIR)) {
       if (f.startsWith(prefixo)) {
-        try { fs.unlinkSync(path.join(CACHE_PDF_DIR, f)); } catch {}
+        const full = path.join(CACHE_PDF_DIR, f);
+        if (isSafePathInside(CACHE_PDF_DIR, full)) {
+          try { fs.unlinkSync(full); } catch {}
+        }
       }
     }
   } catch {}
@@ -268,13 +384,20 @@ function invalidarCache(idImovel) {
 
 /** Agenda pré-geração em background com debounce */
 function agendarPreGeracao(propriedade, delayMs = 2000) {
-  const id = String(propriedade.id);
+  if (!propriedade || typeof propriedade !== 'object') return;
+  const id = sanitizeId(propriedade.id);
   if (debounceTimers.has(id)) clearTimeout(debounceTimers.get(id));
   const t = setTimeout(() => {
     debounceTimers.delete(id);
     gerarPdfComFallback(propriedade, { forcar: true }).catch(() => {});
   }, delayMs);
+  if (typeof t.unref === 'function') t.unref();
   debounceTimers.set(id, t);
+}
+
+function shutdown() {
+  for (const t of debounceTimers.values()) clearTimeout(t);
+  debounceTimers.clear();
 }
 
 module.exports = {
@@ -287,6 +410,10 @@ module.exports = {
   gerarPdfComFallback,
   invalidarCache,
   agendarPreGeracao,
+  limparCachePdfSeNecessario,
+  validarLogoPath,
+  sanitizeId,
+  shutdown,
   CACHE_PDF_DIR,
   CACHE_FOTOS_DIR,
   ARQUIVO_KIT,

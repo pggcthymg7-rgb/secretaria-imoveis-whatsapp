@@ -112,3 +112,17 @@ test('Painel carrega app.js/app.css com a versão (depois de "atualizar" o celul
     server.close();
   }
 });
+
+test('Agente 7: todos scripts deploy/*.sh têm sintaxe bash válida e corretores.sh tolera conf vazio sob set -u', () => {
+  const deployDir = path.join(ROOT, 'deploy');
+  for (const f of fs.readdirSync(deployDir).filter(x => x.endsWith('.sh'))) {
+    const res = spawnSync('bash', ['-n', path.join(deployDir, f)], { encoding: 'utf-8' });
+    assert.equal(res.status, 0, `${f}: ${res.stderr}`);
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'conf-vazio-'));
+  const f = path.join(dir, 'vazio.conf');
+  fs.writeFileSync(f, '# apenas comentários\n\n');
+  const check = spawnSync('bash', [path.join(deployDir, 'corretores.sh'), '--checar'], { env: { ...process.env, CORRETORES_CONF: f }, encoding: 'utf-8' });
+  assert.equal(check.status, 0, check.stderr);
+  assert.equal(check.stdout.trim(), '');
+});

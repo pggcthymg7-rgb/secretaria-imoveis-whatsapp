@@ -122,9 +122,9 @@ set_env() { # set_env CHAVE VALOR  (só grava se VALOR não for vazio)
   if grep -q "^${key}=" "$ENV_FILE"; then
     local tmp
     tmp=$(mktemp)
-    grep -v "^${key}=" "$ENV_FILE" > "$tmp"
+    grep -v "^${key}=" "$ENV_FILE" > "$tmp" || true
     printf '%s=%s\n' "$key" "$val" >> "$tmp"
-    cat "$tmp" > "$ENV_FILE"
+    cat "$tmp" > "$ENV_FILE" || { rm -f "$tmp"; return 1; }
     rm -f "$tmp"
   else
     printf '%s=%s\n' "$key" "$val" >> "$ENV_FILE"
@@ -194,10 +194,15 @@ EOF
 # Backup diário local (14 dias) — inclui a sessão do WhatsApp, fica só nesta máquina
 cat > /usr/local/bin/secretaria-backup <<EOF
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
+umask 077
 mkdir -p $BACKUP_DIR
-tar -czf $BACKUP_DIR/secretaria-\$(date +%Y%m%d-%H%M).tar.gz -C $DATA_DIR .
-chmod 600 $BACKUP_DIR/*.tar.gz
+stamp=\$(date +%Y%m%d-%H%M)
+tmp="$BACKUP_DIR/secretaria-\$stamp.tar.gz.tmp"
+dest="$BACKUP_DIR/secretaria-\$stamp.tar.gz"
+tar -czf "\$tmp" -C $DATA_DIR .
+chmod 600 "\$tmp"
+mv "\$tmp" "\$dest"
 ls -1t $BACKUP_DIR/secretaria-*.tar.gz | tail -n +15 | xargs -r rm -f
 EOF
 chmod 755 /usr/local/bin/secretaria-backup
@@ -290,6 +295,7 @@ if [ "$HTTPS" = "1" ]; then
     apt-get update -y -qq
     apt-get install -y -qq caddy >/dev/null
   fi
+  mkdir -p /etc/caddy
   cat > /etc/caddy/Caddyfile <<EOF
 $DOMINIO {
 	encode gzip

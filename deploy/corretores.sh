@@ -44,7 +44,7 @@ while IFS= read -r linha || [ -n "$linha" ]; do
 done < "$CONF"
 
 if [ "$MODO" = "--checar" ]; then
-  printf '%s\n' "${ENTRADAS[@]}"
+  if [ "${#ENTRADAS[@]}" -gt 0 ]; then printf '%s\n' "${ENTRADAS[@]}"; fi
   exit 0
 fi
 if [ "$(id -u)" != "0" ]; then
@@ -62,15 +62,19 @@ if [ -f "$APP_DIR/deploy/caddy-corretores.sh" ] && [ -d /etc/systemd/system ]; t
 fi
 # Quem já roda dentro da principal nunca volta a ter processo próprio
 FILTRADAS=()
-for e in "${ENTRADAS[@]}"; do
-  read -r enome _ <<<"$e"
-  if [ -f "$MAIN_DATA/tenants/$enome/config.json" ]; then echo "$enome já está na BIGA principal: ignorado em corretores.conf" >&2; continue; fi
-  FILTRADAS+=("$e")
-done
-ENTRADAS=("${FILTRADAS[@]}")
+if [ "${#ENTRADAS[@]}" -gt 0 ]; then
+  for e in "${ENTRADAS[@]}"; do
+    read -r enome _ <<<"$e"
+    if [ -f "$MAIN_DATA/tenants/$enome/config.json" ]; then echo "$enome já está na BIGA principal: ignorado em corretores.conf" >&2; continue; fi
+    FILTRADAS+=("$e")
+  done
+fi
+ENTRADAS=()
+if [ "${#FILTRADAS[@]}" -gt 0 ]; then ENTRADAS=("${FILTRADAS[@]}"); fi
 
 CADDY_MUDOU=0
 LISTA_JSON="["
+if [ "${#ENTRADAS[@]}" -gt 0 ]; then
 for e in "${ENTRADAS[@]}"; do
   read -r nome dominio porta <<<"$e"
   svc="secretaria-$nome"
@@ -83,6 +87,7 @@ for e in "${ENTRADAS[@]}"; do
   mkdir -p "$data/fotos" "$bkp"
   chown -R "$user:$user" "$data"
   chmod 750 "$data"
+  chmod 700 "$bkp"
 
   # Configuração própria (senha do painel é criada por ela no 1º acesso com o código abaixo)
   touch "$envf"; chown root:"$user" "$envf"; chmod 640 "$envf"
@@ -165,12 +170,14 @@ UNIT
 
   # Convite para o João ver no WhatsApp dele (comando "corretores"); o código some quando ela cria a senha
   codigo=""
-  grep -q '"hash"' "$data/auth.json" 2>/dev/null || codigo=$(grep '^SETUP_CODE=' "$envf" | cut -d= -f2)
+  grep -q '"hash"' "$data/auth.json" 2>/dev/null || codigo=$(grep '^SETUP_CODE=' "$envf" | tail -1 | cut -d= -f2 || true)
   LISTA_JSON+="{\"nome\":\"$nome\",\"url\":\"https://$dominio\",\"codigo\":\"$codigo\"},"
 done
+fi
 LISTA_JSON="${LISTA_JSON%,}]"
 
-systemctl daemon-reload
+if command -v systemctl >/dev/null 2>&1; then systemctl daemon-reload; fi
+if [ "${#ENTRADAS[@]}" -gt 0 ]; then
 for e in "${ENTRADAS[@]}"; do
   read -r nome _ <<<"$e"
   systemctl enable --now "secretaria-$nome-update-now.path" "secretaria-$nome-backup.timer" >/dev/null 2>&1 || true
@@ -179,6 +186,7 @@ for e in "${ENTRADAS[@]}"; do
     systemctl restart "secretaria-$nome.service" || echo "AVISO: BIGA de $nome não iniciou (journalctl -u secretaria-$nome -n 50)" >&2
   fi
 done
+fi
 
 # (o instalar-vm.sh reescreve o Caddyfile: a linha de import é recolocada sempre que faltar)
 if [ -f /etc/caddy/Caddyfile ] && [ "${#ENTRADAS[@]}" -gt 0 ] && ! grep -q '^import /etc/caddy/corretores/\*.caddy' /etc/caddy/Caddyfile; then

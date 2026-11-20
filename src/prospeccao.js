@@ -36,6 +36,7 @@ let busy = false;
 function save() {
   const days = Object.keys(state.enviosPorDia).sort();
   while (days.length > 30) delete state.enviosPorDia[days.shift()];
+  if (state.campanhas.length > 200) state.campanhas.length = 200;
   writeJson(FILE, state);
 }
 
@@ -49,8 +50,9 @@ function normalizePhone(raw) {
 function parseContactsInput(text) {
   // aceita "Nome;telefone", "telefone,Nome", "telefone" — um por linha
   const out = [];
-  for (const line of String(text || '').split(/\r?\n/)) {
-    const l = line.trim();
+  const lines = String(text || '').split(/\r?\n/, 5000);
+  for (const line of lines) {
+    const l = line.trim().slice(0, 300);
     if (!l) continue;
     const phoneMatch = l.match(/\+?\(?\d[\d\s().-]{8,}\d/);
     if (!phoneMatch) continue;
@@ -120,6 +122,7 @@ function deleteCampaign(id) {
 }
 
 function updateConfig(input = {}) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return { ...state.config };
   const c = { ...state.config };
   const num = (v, min, max, def) => Math.min(max, Math.max(min, parseInt(v, 10) || def));
   if (input.intervaloMinSeg !== undefined) c.intervaloMinSeg = num(input.intervaloMinSeg, 20, 3600, 60);
@@ -127,7 +130,7 @@ function updateConfig(input = {}) {
   if (input.limiteDiario !== undefined) c.limiteDiario = num(input.limiteDiario, 1, 300, 40);
   if (input.horaInicio && hhmmToMinutes(input.horaInicio) !== null) c.horaInicio = input.horaInicio;
   if (input.horaFim && hhmmToMinutes(input.horaFim) !== null) c.horaFim = input.horaFim;
-  if (Array.isArray(input.diasSemana)) c.diasSemana = input.diasSemana.map(Number).filter(d => d >= 0 && d <= 6);
+  if (Array.isArray(input.diasSemana)) c.diasSemana = [...new Set(input.diasSemana.map(n => parseInt(n, 10)).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))];
   if (input.rodapeSair !== undefined) c.rodapeSair = Boolean(input.rodapeSair);
   state.config = c;
   save();
@@ -156,6 +159,7 @@ function withinWindow() {
   const now = nowParts();
   const a = hhmmToMinutes(state.config.horaInicio);
   const b = hhmmToMinutes(state.config.horaFim);
+  if (a === null || b === null) return false;
   return state.config.diasSemana.includes(now.weekday) && now.minutes >= a && now.minutes <= b;
 }
 

@@ -41,7 +41,7 @@ function paginasPadrao(nFotos) {
  * @returns {doc, info} doc é um PDFDocument já finalizado (doc.end() chamado)
  */
 function gerar(PDFDocument, QRCode, e) {
-  const M = MODELOS[e.modelo];
+  const M = Object.prototype.hasOwnProperty.call(MODELOS, e.modelo) ? MODELOS[e.modelo] : null;
   if (!M) throw new Error('modelo desconhecido: ' + e.modelo);
   const d = { ...VAZIO, ...e.dados };
   const kit = { ...(e.kit || {}) };

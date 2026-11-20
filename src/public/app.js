@@ -13,7 +13,17 @@
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
   const brl = v => (Number(v) ? Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }) : '—');
-  const fotoUrl = f => (/^https?:\/\//i.test(f) ? f : `/fotos/${encodeURIComponent(f)}`);
+  const fotoUrl = f => {
+    const s = String(f || '').trim();
+    return /^https?:\/\//i.test(s) ? s : `/fotos/${encodeURIComponent(s)}`;
+  };
+  const safeHref = u => (/^https?:\/\//i.test(String(u || '').trim()) ? String(u).trim() : '#');
+  const safeWaPhone = s => String(s || '').replace(/\D/g, '');
+  const safeQrSvg = s => {
+    const v = String(s || '').trim();
+    return /^<svg\b[^>]*>[\s\S]*<\/svg>$/i.test(v) && !/<script\b|<foreignObject\b|\son[a-z]+\s*=|javascript:/i.test(v) ? v : '';
+  };
+  const hasOwn = (o, k) => Boolean(o) && Object.prototype.hasOwnProperty.call(o, k);
   const when = ts => (ts ? new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
   const root = $('#root');
 
@@ -26,7 +36,12 @@
         opts.body = JSON.stringify(body);
       }
     }
-    const r = await fetch(url, opts);
+    let r;
+    try {
+      r = await fetch(url, opts);
+    } catch {
+      throw new Error('Sem conexão com o servidor. Tente novamente.');
+    }
     let data = {};
     try {
       data = await r.json();
@@ -43,20 +58,24 @@
   let toastTimer;
   function toast(msg, err = false) {
     const t = $('#toast');
+    if (!t) return;
     t.textContent = msg;
     t.className = `show${err ? ' err' : ''}`;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (t.className = ''), 3200);
   }
 
-  const S = { authed: false, configured: true, route: 'geral', status: null, inventory: [], radar: null, vitrine: null, prosp: null, contatos: [], cerebro: null, editing: null, sim: null, selContacts: new Set(), filtro: '' };
+  const S = { authed: false, configured: true, route: 'geral', status: null, inventory: [], radar: null, vitrine: null, prosp: null, contatos: [], cerebro: null, editing: null, sim: null, selContacts: new Set(), filtro: '', _navSeq: 0 };
 
   // ------------------------------------------------------------------ partículas de fundo
   function ambient() {
     const c = $('#particles');
+    if (!c) return;
     const ctx = c.getContext('2d');
+    if (!ctx) return;
     const colors = ['#5266eb', '#ededf3', '#8b97f0'];
     let w, h, parts;
+    let rafId = null;
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     function reset() {
       w = c.width = innerWidth * devicePixelRatio;
@@ -65,6 +84,8 @@
       parts = Array.from({ length: n }, () => ({ x: Math.random() * w, y: Math.random() * h, r: (0.6 + Math.random() * 1.6) * devicePixelRatio, vy: (0.04 + Math.random() * 0.12) * devicePixelRatio, vx: (Math.random() - 0.5) * 0.06 * devicePixelRatio, c: colors[(Math.random() * colors.length) | 0], a: 0.12 + Math.random() * 0.3 }));
     }
     function frame() {
+      rafId = null;
+      if (document.hidden && !reduce) return;
       ctx.clearRect(0, 0, w, h);
       for (const p of parts) {
         if (!reduce) {
@@ -79,8 +100,11 @@
         ctx.fill();
       }
       ctx.globalAlpha = 1;
-      if (!reduce) requestAnimationFrame(frame);
+      if (!reduce) rafId = requestAnimationFrame(frame);
     }
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && !reduce && !rafId) rafId = requestAnimationFrame(frame);
+    });
     addEventListener('resize', reset);
     reset();
     frame();
@@ -102,7 +126,8 @@
   };
   const header = (titulo, rotulo, texto) =>
     `<section class="page-head"><div class="container split"><h1 class="display reveal">${titulo}</h1><div class="intro reveal"><span class="label">${esc(rotulo)}</span><p class="body-lg muted">${texto}</p></div></div></section>`;
-  const decisionTag = d => ({ ENVIAR: '<span class="tag enviar">● enviado</span>', AVISAR: '<span class="tag avisar">● conferir</span>', SILENCIO: '<span class="tag">● sem imóvel</span>' }[d] || `<span class="tag">${esc(d)}</span>`);
+  const DECISION_TAGS = { ENVIAR: '<span class="tag enviar">● enviado</span>', AVISAR: '<span class="tag avisar">● conferir</span>', SILENCIO: '<span class="tag">● sem imóvel</span>' };
+  const decisionTag = d => (hasOwn(DECISION_TAGS, d) ? DECISION_TAGS[d] : `<span class="tag">${esc(d)}</span>`);
 
   // Busca nos grupos: filtra na própria tela (não perde o que você marcou)
   const groupSearch = (key, total) =>
@@ -137,6 +162,8 @@
   // ------------------------------------------------------------------ LOGIN
   function viewLogin() {
     const setup = !S.configured;
+    stopSay();
+    detachArt();
     root.innerHTML = `
       <main class="login">
         <div class="home"><div class="sky">${ART.skySVG()}</div></div>
@@ -208,19 +235,25 @@
   const paginasDo = g => rotasVisiveis().filter(r => r[3] === g);
 
   let sayTimer = null;
+  let sayEndTimer = null;
+  function stopSay() {
+    clearInterval(sayTimer);
+    clearTimeout(sayEndTimer);
+  }
   function say(text) {
     const el = $('#say');
     const stage = $('#stage');
+    stopSay();
     if (!el) return;
-    clearInterval(sayTimer);
+    const msg = String(text ?? '');
     let i = 0;
     el.textContent = '';
     if (stage) stage.classList.add('talking');
     sayTimer = setInterval(() => {
-      el.textContent = text.slice(0, ++i);
-      if (i >= text.length) {
+      el.textContent = msg.slice(0, ++i);
+      if (i >= msg.length) {
         clearInterval(sayTimer);
-        if (stage) setTimeout(() => stage.classList.remove('talking'), 300);
+        if (stage) sayEndTimer = setTimeout(() => stage.classList.remove('talking'), 300);
       }
     }, 22);
   }
@@ -231,6 +264,7 @@
     const st = S.status || {};
     const conn = st.connectionStatus === 'CONECTADO';
     const paused = st.config && st.config.pausado;
+    stopSay();
     detachArt();
     root.innerHTML = `
       <nav class="nav"><div class="bar">
@@ -252,6 +286,8 @@
     const conn = st.connectionStatus === 'CONECTADO';
     const paused = st.config && st.config.pausado;
     const saud = st.daily?.currentPeriodGreeting || 'Olá';
+    const qr = safeQrSvg(st.qrSvg);
+    stopSay();
     detachArt();
     root.innerHTML = `
       <main class="home page-enter">
@@ -265,14 +301,14 @@
             <div class="hello">${esc(saud)}${st.self?.name ? ', ' + esc(st.self.name.split(' ')[0]) : ''}</div>
             <h1 class="display">Eu sou a BIGA.</h1>
             <p class="sub">${conn ? (paused ? 'Estou pausada. Toque em Hoje para me retomar.' : 'Estou de olho nos grupos, nas ligações e nas conversas novas. Para onde vamos?') : 'Preciso que você conecte o WhatsApp para eu começar.'}</p>
-            ${!conn && st.qrSvg ? `<div class="card" style="display:flex;gap:20px;align-items:center;margin-bottom:20px;flex-wrap:wrap"><div class="qr" style="width:180px">${st.qrSvg}</div><p class="body muted" style="flex:1;min-width:180px">WhatsApp › Configurações › Aparelhos conectados › <b>Conectar aparelho</b> e aponte para o código.</p></div>` : ''}
+            ${!conn && qr ? `<div class="card" style="display:flex;gap:20px;align-items:center;margin-bottom:20px;flex-wrap:wrap"><div class="qr" style="width:180px">${qr}</div><p class="body muted" style="flex:1;min-width:180px">WhatsApp › Configurações › Aparelhos conectados › <b>Conectar aparelho</b> e aponte para o código.</p></div>` : ''}
             <div class="home-groups">${GRUPOS.map(([g, ic, nome, desc], gi) => `<div class="hg" style="animation-delay:${0.08 + gi * 0.08}s"><div class="hg-head"><span class="hg-ic" aria-hidden="true">${ic}</span><div><b>${nome}</b><span>${desc}</span></div></div><div class="hg-links">${paginasDo(g).map(([k, l, d, , pic]) => `<a href="#${k}" data-say="${esc(d)}"><span aria-hidden="true">${pic}</span>${l}</a>`).join('')}</div></div>`).join('')}</div>
-            <div class="kpis"><div><b>${st.radarHoje || 0}</b>pedidos hoje</div><div><b>${h.ofertas_enviadas || 0}</b>imóveis enviados</div><div><b>${h.novas_conversas || 0}</b>conversas novas</div><div><b>${st.inventoryCount || 0}</b>imóveis ativos</div></div>
+            <div class="kpis"><div><b>${Number(st.radarHoje) || 0}</b>pedidos hoje</div><div><b>${Number(h.ofertas_enviadas) || 0}</b>imóveis enviados</div><div><b>${Number(h.novas_conversas) || 0}</b>conversas novas</div><div><b>${Number(st.inventoryCount) || 0}</b>imóveis ativos</div></div>
           </div>
         </div>
       </main>`;
     detachArt = ART.attach($('#stage'));
-    say(conn ? `${saud}! Tenho ${st.radarHoje || 0} pedido(s) dos grupos hoje. Escolha uma página ao lado.` : 'Oi! Escaneie o QR Code para eu me conectar ao seu WhatsApp.');
+    say(conn ? `${saud}! Tenho ${Number(st.radarHoje) || 0} pedido(s) dos grupos hoje. Escolha uma página ao lado.` : 'Oi! Escaneie o QR Code para eu me conectar ao seu WhatsApp.');
   }
 
   // ------------------------------------------------------------------ HOJE
@@ -280,12 +316,13 @@
     const st = S.status || {};
     const h = st.hoje || {};
     const conn = st.connectionStatus === 'CONECTADO';
+    const qr = safeQrSvg(st.qrSvg);
     const logs = (st.activityLogs || []).slice(0, 25);
     shell(`
-      ${header(`${esc(st.daily?.currentPeriodGreeting || 'Olá')}.<br><span class="muted">${conn ? 'Tudo sob controle.' : 'Vamos conectar?'}</span>`, 'Hoje', conn ? `Conectada como <b>${esc(st.self?.name || st.self?.phone || '')}</b>. Monitorando ${st.connectedGroups ? st.connectedGroups.filter(g => g.monitored).length : 0} grupo(s) de busca com ${st.inventoryCount || 0} imóveis ativos.` : 'Escaneie o QR Code com o WhatsApp do seu celular: Configurações › Aparelhos conectados › Conectar aparelho.')}
-      ${!conn && st.qrSvg ? `<section class="section"><div class="container"><div class="card split rev reveal"><div class="qr">${st.qrSvg}</div><div class="intro"><span class="label">QR Code</span><p class="body muted">O código muda a cada poucos segundos — esta tela atualiza sozinha.</p></div></div></div></section>` : ''}
+      ${header(`${esc(st.daily?.currentPeriodGreeting || 'Olá')}.<br><span class="muted">${conn ? 'Tudo sob controle.' : 'Vamos conectar?'}</span>`, 'Hoje', conn ? `Conectada como <b>${esc(st.self?.name || st.self?.phone || '')}</b>. Monitorando ${st.connectedGroups ? st.connectedGroups.filter(g => g.monitored).length : 0} grupo(s) de busca com ${Number(st.inventoryCount) || 0} imóveis ativos.` : 'Escaneie o QR Code com o WhatsApp do seu celular: Configurações › Aparelhos conectados › Conectar aparelho.')}
+      ${!conn && qr ? `<section class="section"><div class="container"><div class="card split rev reveal"><div class="qr">${qr}</div><div class="intro"><span class="label">QR Code</span><p class="body muted">O código muda a cada poucos segundos — esta tela atualiza sozinha.</p></div></div></div></section>` : ''}
       <section class="section"><div class="container"><div class="stats reveal">
-        ${[['Pedidos lidos', st.radarHoje || 0], ['Imóveis enviados', h.ofertas_enviadas || 0], ['Para conferir', h.duvidas || 0], ['Novas conversas', h.novas_conversas || 0], ['Ligações respondidas', h.ligacoes_perdidas || 0], ['Leads do Garimpo', h.garimpo_leads || 0]].map(([l, n]) => `<div class="stat"><div class="n" data-count="${n}">${n}</div><div class="l">${l}</div></div>`).join('')}
+        ${[['Pedidos lidos', Number(st.radarHoje) || 0], ['Imóveis enviados', Number(h.ofertas_enviadas) || 0], ['Para conferir', Number(h.duvidas) || 0], ['Novas conversas', Number(h.novas_conversas) || 0], ['Ligações respondidas', Number(h.ligacoes_perdidas) || 0], ['Leads do Garimpo', Number(h.garimpo_leads) || 0]].map(([l, n]) => `<div class="stat"><div class="n" data-count="${n}">${n}</div><div class="l">${l}</div></div>`).join('')}
       </div></div></section>
       ${st.config && !st.config.dataDirPersistente ? `<section class="section"><div class="container"><div class="card reveal"><h2 class="heading-sm warn">Memória temporária</h2><p class="body muted">Os dados ficam na pasta do projeto e podem ser apagados em reinícios. Use a máquina virtual com DATA_DIR (veja GUIA_VM_GRATUITA.md).</p></div></div></section>` : ''}
       <section class="section"><div class="container split top">
@@ -304,13 +341,14 @@
     const r = S.radar || { items: [], demanda: { tipos: [], locais: [], faixas: [], total: 0 } };
     const items = r.items.filter(i => !S.filtroRadar || i.decision === S.filtroRadar);
     const bars = arr => {
-      const max = Math.max(1, ...arr.map(x => x.qtd));
-      return arr.length ? `<div class="bars">${arr.map(x => `<div class="bar"><span>${esc(x.nome)}</span><span class="track"><span class="fill" style="width:${(x.qtd / max) * 100}%"></span></span><span class="ash">${x.qtd}</span></div>`).join('')}</div>` : '<p class="body ash">Sem dados ainda.</p>';
+      const safeArr = Array.isArray(arr) ? arr : [];
+      const max = Math.max(1, ...safeArr.map(x => Number(x.qtd) || 0));
+      return safeArr.length ? `<div class="bars">${safeArr.map(x => `<div class="bar"><span>${esc(x.nome)}</span><span class="track"><span class="fill" style="width:${Math.min(100, Math.max(0, ((Number(x.qtd) || 0) / max) * 100))}%"></span></span><span class="ash">${Number(x.qtd) || 0}</span></div>`).join('')}</div>` : '<p class="body ash">Sem dados ainda.</p>';
     };
     shell(`
       ${header('Radar de<br>buscas', 'O que os corretores pedem', `Todo pedido lido nos grupos fica aqui, com o que a BIGA entendeu e o que ela fez. Em <span class="saffron">conferir</span> você decide com um clique.`)}
       <section class="section"><div class="container split top">
-        <div><span class="label">Mais procurados · ${r.demanda.total} pedidos em 30 dias</span>${bars(r.demanda.locais)}</div>
+        <div><span class="label">Mais procurados · ${Number(r.demanda.total) || 0} pedidos em 30 dias</span>${bars(r.demanda.locais)}</div>
         <div class="stack"><div><span class="label">Tipos</span>${bars(r.demanda.tipos)}</div><div><span class="label">Faixas de preço</span>${bars(r.demanda.faixas)}</div></div>
       </div></section>
       <section class="section"><div class="container">
@@ -318,7 +356,7 @@
         <div class="list">${items.length ? items.map(i => `
           <div class="item stack-sm">
             <div class="row tight"><span class="tag iris">${esc(i.code)}</span>${decisionTag(i.decision)}<span class="caption">${esc(when(i.ts))} · ${esc(i.grupo)}</span></div>
-            <h3 class="h2xs">${esc(i.sender)} ${i.phone ? `<a class="btn-ghost accent" href="https://wa.me/${esc(i.phone)}" target="_blank" rel="noopener">wa.me/${esc(i.phone)}</a>` : ''}</h3>
+            <h3 class="h2xs">${esc(i.sender)} ${safeWaPhone(i.phone) ? `<a class="btn-ghost accent" href="https://wa.me/${safeWaPhone(i.phone)}" target="_blank" rel="noopener noreferrer">wa.me/${esc(i.phone)}</a>` : ''}</h3>
             <div class="body muted pre">${esc(i.texto)}</div>
             <div class="caption">🧠 ${esc(i.resumo || '')}</div>
             ${(i.duvidas || []).length ? `<div class="caption saffron">${i.duvidas.map(esc).join('<br>')}</div>` : ''}
@@ -348,7 +386,7 @@
             <div class="stack-sm">
               <div class="row tight"><span class="tag iris">#${esc(p.id)}</span>${p.ativo ? '<span class="tag enviar">● ativo</span>' : '<span class="tag">● inativo</span>'}${p.negociacao === 'AGIO' ? '<span class="tag avisar">ágio</span>' : ''}${p.negociacao === 'ALUGUEL' ? '<span class="tag">aluguel</span>' : ''}${p.aceita_permuta === 'SIM' ? '<span class="tag">aceita permuta</span>' : ''}</div>
               <h3 class="h2xs">${esc(propTitle(p))}</h3>
-              <div class="body muted">${[p.quartos ? p.quartos + ' qts' : '', p.suites !== '' && p.suites !== undefined ? p.suites + ' suítes' : '', p.vagas ? p.vagas + ' vagas' : '', p.tamanho_m2 ? p.tamanho_m2 + ' m²' : '', { SIM: 'mobiliado', SEMI: 'com armários' }[p.mobiliado] || ''].filter(Boolean).join(' · ')} · <span class="saffron">${p.negociacao === 'AGIO' && p.valor_agio ? 'ágio ' + brl(p.valor_agio) : brl(p.valor)}</span></div>
+              <div class="body muted">${esc([p.quartos ? p.quartos + ' qts' : '', p.suites !== '' && p.suites !== undefined ? p.suites + ' suítes' : '', p.vagas ? p.vagas + ' vagas' : '', p.tamanho_m2 ? p.tamanho_m2 + ' m²' : '', hasOwn({ SIM: 1, SEMI: 1 }, p.mobiliado) ? ({ SIM: 'mobiliado', SEMI: 'com armários' }[p.mobiliado]) : ''].filter(Boolean).join(' · '))} · <span class="saffron">${esc(p.negociacao === 'AGIO' && p.valor_agio ? 'ágio ' + brl(p.valor_agio) : brl(p.valor))}</span></div>
               <div class="row tight"><button class="btn-ghost accent" data-action="editar" data-id="${esc(p.id)}">Editar</button><button class="btn-ghost" data-action="ativo" data-id="${esc(p.id)}">${p.ativo ? 'Desativar' : 'Ativar'}</button><button class="btn-ghost" data-action="aVitrine" data-id="${esc(p.id)}">Vitrine</button><button class="btn-ghost accent" data-action="quemProcura" data-id="${esc(p.id)}" title="Pedidos dos grupos que batem com este imóvel">🎯 Quem procura</button><button class="btn-ghost" data-action="irPdf" data-id="${esc(p.id)}">Ficha PDF</button><button class="btn-ghost danger" data-action="excluir" data-id="${esc(p.id)}">Excluir</button></div>
               ${S.qp && String(S.qp.id) === String(p.id) ? blocoQuemProcura(S.qp) : ''}
             </div>
@@ -395,10 +433,10 @@
     if (q.carregando) return '<div class="qp card-in"><p class="caption">Relendo os pedidos dos grupos…</p></div>';
     if (!q.lista.length) return `<div class="qp card-in"><p class="body muted">Ninguém pediu algo assim nos grupos nos últimos ${q.dias} dias. Que tal divulgar na Vitrine ou fazer uma capa?</p></div>`;
     return `<div class="qp card-in" data-qp="${esc(q.id)}">
-      <p class="body"><b>${q.lista.length}</b> corretor(es) pediram algo assim nos últimos ${q.dias} dias:</p>
+      <p class="body"><b>${Number(q.lista.length) || 0}</b> corretor(es) pediram algo assim nos últimos ${Number(q.dias) || 0} dias:</p>
       ${q.lista.map(l => `<label class="qp-item"><input type="checkbox" name="qpCode" value="${esc(l.code)}" ${l.nivel === 'MATCH' && !l.jaRecebeu ? 'checked' : ''}>
         <span><span class="tag ${l.nivel === 'MATCH' ? 'enviar' : 'avisar'}">${l.nivel === 'MATCH' ? '🎯 bate em tudo' : '🤔 quase'}</span>${l.jaRecebeu ? ' <span class="tag">já recebeu</span>' : ''}
-        <b>${esc(l.sender)}</b> <span class="caption">${esc(when(l.ts))} · ${esc(l.grupo)}${l.phone ? ` · <a href="https://wa.me/${esc(l.phone)}" target="_blank" rel="noopener">wa.me/${esc(l.phone)}</a>` : ''}</span><br>
+        <b>${esc(l.sender)}</b> <span class="caption">${esc(when(l.ts))} · ${esc(l.grupo)}${safeWaPhone(l.phone) ? ` · <a href="https://wa.me/${safeWaPhone(l.phone)}" target="_blank" rel="noopener noreferrer">wa.me/${esc(l.phone)}</a>` : ''}</span><br>
         <span class="caption">“${esc(l.texto)}”${l.falta && l.falta.length ? `<br>Falta confirmar: ${esc(l.falta.join('; '))}` : ''}</span></span></label>`).join('')}
       <div class="row tight"><button class="btn-primary" data-action="oferecer" data-id="${esc(q.id)}">Oferecer para os marcados</button><span class="caption">Um por vez, com pausa de 25–45 s, no privado de cada um.</span></div>
     </div>`;
@@ -452,7 +490,7 @@
           <div class="stack-sm">
             ${pags.map((pg, i) => `
               <div class="row" style="align-items:center;background:var(--bg-card-subtle,#f4f4f6);padding:6px 12px;border-radius:6px;gap:8px;">
-                <span class="caption" style="min-width:70px;font-weight:600;">Pág. ${i + 1} · ${esc(ROT_PAG_16X9[pg.tipo] || pg.tipo)}</span>
+                <span class="caption" style="min-width:70px;font-weight:600;">Pág. ${i + 1} · ${esc(hasOwn(ROT_PAG_16X9, pg.tipo) ? ROT_PAG_16X9[pg.tipo] : pg.tipo)}</span>
                 ${pg.tipo === 'texto' ? `<input type="text" name="pgTitulo_${i}" value="${esc(pg.titulo || '')}" placeholder="Título opcional da página" style="flex:1;font-size:12px;padding:4px 8px;">` : '<span style="flex:1;"></span>'}
                 <div class="tight row">
                   <button type="button" class="btn-ghost" data-action="pdfSubirPagina" data-i="${i}" title="Subir página" ${i === 0 ? 'disabled' : ''}>↑</button>
@@ -534,7 +572,19 @@
     };
   }
   async function pdfArquivo() {
-    const r = await fetch(`/api/pdf/${encodeURIComponent(S.pdfSel)}/arquivo`, { method: 'POST', credentials: 'same-origin', headers: { 'x-secretaria': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(coletarPdf()) });
+    const fetchOpts = { method: 'POST', credentials: 'same-origin', headers: { 'x-secretaria': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(coletarPdf()) };
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') fetchOpts.signal = AbortSignal.timeout(30000);
+    let r;
+    try {
+      r = await fetch(`/api/pdf/${encodeURIComponent(S.pdfSel)}/arquivo`, fetchOpts);
+    } catch {
+      throw new Error('Sem conexão ao gerar PDF. Tente novamente.');
+    }
+    if (r.status === 401) {
+      S.authed = false;
+      render();
+      throw new Error('Faça login novamente.');
+    }
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Erro ${r.status}`);
     const nome = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || 'Imovel.pdf';
     return { blob: await r.blob(), nome };
@@ -620,7 +670,7 @@
           <div class="item stack-sm">
             <div class="row tight"><span class="tag ${c.status === 'ATIVA' ? 'enviar' : c.status === 'PAUSADA' ? 'avisar' : ''}">● ${esc(c.status.toLowerCase())}</span><span class="caption">${esc(when(c.criadaEm))}</span></div>
             <h3 class="h2xs">${esc(c.nome)}</h3>
-            <div class="body muted">${c.enviados}/${c.total} enviados · ${c.pendentes} na fila · ${c.falhas} falhas · ${c.sairam} saíram</div>
+            <div class="body muted">${Number(c.enviados) || 0}/${Number(c.total) || 0} enviados · ${Number(c.pendentes) || 0} na fila · ${Number(c.falhas) || 0} falhas · ${Number(c.sairam) || 0} saíram</div>
             <div class="caption pre">${esc(c.mensagem.slice(0, 200))}</div>
             <div class="row tight">${c.status === 'ATIVA' ? `<button class="btn-ghost accent" data-action="campStatus" data-id="${esc(c.id)}" data-s="PAUSADA">Pausar</button>` : ['RASCUNHO', 'PAUSADA'].includes(c.status) ? `<button class="btn-ghost accent" data-action="campStatus" data-id="${esc(c.id)}" data-s="ATIVA">Iniciar</button>` : ''}<button class="btn-ghost danger" data-action="campExcluir" data-id="${esc(c.id)}">Excluir</button></div>
           </div>`).join('') : '<p class="body ash">Nenhuma campanha.</p>'}</div>
@@ -730,7 +780,7 @@
       <p class="body" style="margin-top:6px"><b>${p.valor ? brl(p.valor) : 'preço não informado'}</b></p>
       <p class="body muted" style="margin-top:6px">“${esc(String(g.texto || '').slice(0, 300))}${String(g.texto || '').length > 300 ? '…' : ''}”</p>
       ${g.status !== 'MATCH' && (g.faltando || []).length ? `<p class="caption">⚠️ ${esc(g.faltando.slice(0, 2).join('; '))}</p>` : ''}
-      <div class="stack-sm" style="margin-top:8px">${(g.fontes || []).map(f => `<div class="row between"><span class="caption">👤 <b>${esc(f.autor)}</b> · ${esc(f.grupo)} · ${dataCurta(f.ts)}</span>${f.telefone ? `<a class="btn-ghost accent" href="https://wa.me/${esc(f.telefone)}" target="_blank" rel="noopener noreferrer">Chamar no WhatsApp ↗</a>` : ''}</div>`).join('')}</div>
+      <div class="stack-sm" style="margin-top:8px">${(g.fontes || []).map(f => `<div class="row between"><span class="caption">👤 <b>${esc(f.autor)}</b> · ${esc(f.grupo)} · ${esc(dataCurta(f.ts))}</span>${safeWaPhone(f.telefone) ? `<a class="btn-ghost accent" href="https://wa.me/${safeWaPhone(f.telefone)}" target="_blank" rel="noopener noreferrer">Chamar no WhatsApp ↗</a>` : ''}</div>`).join('')}</div>
     </div>`;
   }
   function cardPortal(x) {
@@ -739,7 +789,7 @@
       <div class="row between"><h3 class="hxs">${esc(x.titulo || x.resumo || 'Imóvel')}</h3><span class="tag">${esc(x.portal)}</span></div>
       <p class="body" style="margin-top:6px">${esc(det)}</p>
       ${x.anunciante ? `<p class="caption">${esc(x.anunciante)}${x.certeza === 'estimativa' ? ' · tipo estimado pelo texto' : ''}</p>` : ''}
-      <div class="row tight"><a class="btn-ghost accent" href="${esc(x.link)}" target="_blank" rel="noopener noreferrer">Abrir anúncio ↗</a></div>
+      <div class="row tight"><a class="btn-ghost accent" href="${esc(safeHref(x.link))}" target="_blank" rel="noopener noreferrer">Abrir anúncio ↗</a></div>
     </div>`;
   }
   function resultadoBusca(r) {
@@ -764,10 +814,10 @@
           <p class="caption">Só entram anúncios com link confirmado pela busca${(p.via || []).length ? ` · via ${esc(p.via.join(' + '))}` : ''}.${p.semCuradoria ? ` ⚠️ Não consegui filtrar${p.curadoriaErro ? `: ${esc(p.curadoriaErro)}` : ' (sem chave/resposta do Gemini)'}. Veja abaixo os anúncios achados; tente de novo em alguns minutos.` : ''}</p>
           ${bloco('👤 Particular', grupoPorTipo('particular'))}${bloco('🏢 Profissional', grupoPorTipo('profissional'))}${bloco('❔ Não identificado', grupoPorTipo('desconhecido'))}
           ${!(p.itens || []).length ? `<div class="card"><p class="body muted">Nenhum anúncio confirmado com esse perfil.${p.diagBusca ? ` O buscador devolveu — ${esc(p.diagBusca)}.` : ''}</p></div>` : ''}
-          ${(p.fontesSoltas || []).length ? `<span class="label" style="margin-top:16px">Outras páginas encontradas</span><div class="linkout">${p.fontesSoltas.map(f => `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer"><span>${esc(f.titulo || f.url)}</span><span>↗</span></a>`).join('')}</div>` : ''}`}
+          ${(p.fontesSoltas || []).length ? `<span class="label" style="margin-top:16px">Outras páginas encontradas</span><div class="linkout">${p.fontesSoltas.map(f => `<a href="${esc(safeHref(f.url))}" target="_blank" rel="noopener noreferrer"><span>${esc(f.titulo || f.url)}</span><span>↗</span></a>`).join('')}</div>` : ''}`}
       </div></section>
       ${Object.keys(r.links || {}).length ? `<section class="section"><div class="container"><span class="label reveal">🔗 Busca pronta nos portais</span>
-        <div class="linkout">${Object.entries(r.links).map(([n, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer"><span>${esc(n)} — com os filtros do pedido</span><span>↗</span></a>`).join('')}</div></div></section>` : ''}`;
+        <div class="linkout">${Object.entries(r.links).map(([n, u]) => `<a href="${esc(safeHref(u))}" target="_blank" rel="noopener noreferrer"><span>${esc(n)} — com os filtros do pedido</span><span>↗</span></a>`).join('')}</div></div></section>` : ''}`;
   }
   function viewBusca() {
     const b = S.busca || { config: {}, memoria: {}, historico: [] };
@@ -807,8 +857,8 @@
       </div></div></section>
       ${resultadoBusca(S.buscaAtual)}
       <section class="section"><div class="container"><div class="stats reveal">
-        <div class="stat"><div class="n" data-count="${m.total || 0}">0</div><div class="l">anúncios guardados</div></div>
-        <div class="stat"><div class="n" data-count="${m.grupos || 0}">0</div><div class="l">grupos</div></div>
+        <div class="stat"><div class="n" data-count="${Number(m.total) || 0}">0</div><div class="l">anúncios guardados</div></div>
+        <div class="stat"><div class="n" data-count="${Number(m.grupos) || 0}">0</div><div class="l">grupos</div></div>
         <div class="stat"><div class="n" style="font-size:22px">${m.desde ? esc(dataCurta(m.desde)) : '—'}</div><div class="l">desde (guardo 90 dias)</div></div>
         <div class="stat"><div class="n" data-count="${(b.historico || []).length}">0</div><div class="l">buscas salvas</div></div>
       </div></div></section>
@@ -818,7 +868,7 @@
           <p class="body"><b>1.</b> Peça ao seu celular (deixe-o ligado e com internet):</p>
           <div class="row tight"><button class="btn-ghost accent" id="btnImportar" data-action="importarHistorico" ${imp && imp.rodando ? 'disabled' : ''}>${imp && imp.rodando ? 'Importando…' : 'Importar histórico dos grupos'}</button></div>
           <p class="caption" id="impAndamento">${imp && imp.rodando ? esc(textoAndamento(imp)) : ''}</p>
-          ${imp && !imp.rodando && imp.fim ? `<p class="caption">Última importação: ${imp.anuncios} anúncios de ${imp.comHistorico} de ${imp.grupos} grupos (${esc(when(imp.fim))}).${imp.semAncora.length ? ` Sem mensagem recente para começar: ${esc(imp.semAncora.slice(0, 5).join(', '))}${imp.semAncora.length > 5 ? '…' : ''} — exporte a conversa desses.` : ''}</p>` : ''}
+          ${imp && !imp.rodando && imp.fim ? `<p class="caption">Última importação: ${Number(imp.anuncios) || 0} anúncios de ${Number(imp.comHistorico) || 0} de ${Number(imp.grupos) || 0} grupos (${esc(when(imp.fim))}).${imp.semAncora?.length ? ` Sem mensagem recente para começar: ${esc(imp.semAncora.slice(0, 5).join(', '))}${imp.semAncora.length > 5 ? '…' : ''} — exporte a conversa desses.` : ''}</p>` : ''}
           <p class="body"><b>2.</b> Ou mande a conversa exportada de um grupo (WhatsApp › grupo › Exportar conversa › Sem mídia):</p>
           <div class="row tight"><label class="btn-ghost accent" style="cursor:pointer">Escolher arquivo (.txt ou .zip)<input type="file" id="conversaInput" accept=".txt,.zip,text/plain,application/zip" hidden></label></div>
         </div>
@@ -906,16 +956,16 @@
           <button class="btn-primary" data-action="garimpoRodar">${g.rodando ? 'Escavando…' : 'Escavar agora'}</button></div>
         <div class="list">${leads.length ? leads.map(l => `
           <div class="item reveal">
-            <div class="row between"><div class="row tight"><span class="tag src ${esc(l.fonte)}"><i></i>${esc(fonteNome[l.fonte] || l.fonte)}</span>${(l.matches || []).length ? `<span class="tag enviar">● você tem #${l.matches.map(esc).join(', #')}</span>` : ''}<span class="caption">${esc(when(l.encontradoEm))}</span></div><span class="lead-score" title="Pontuação do lead">${l.score}</span></div>
+            <div class="row between"><div class="row tight"><span class="tag src ${esc(l.fonte)}"><i></i>${esc(hasOwn(fonteNome, l.fonte) ? fonteNome[l.fonte] : l.fonte)}</span>${(l.matches || []).length ? `<span class="tag enviar">● você tem #${l.matches.map(esc).join(', #')}</span>` : ''}<span class="caption">${esc(when(l.encontradoEm))}</span></div><span class="lead-score" title="Pontuação do lead">${Number(l.score) || 0}</span></div>
             <h3 class="hxs" style="margin-top:10px">${esc(l.titulo || '')}</h3>
             <p class="body muted" style="margin-top:6px">${esc(l.texto || '')}</p>
             <p class="caption">🧠 ${esc(l.resumo || '')}${l.post ? ` · no post: “${esc(l.post)}”` : ''}</p>
-            <div class="row tight"><a class="btn-ghost accent" href="${esc(l.link)}" target="_blank" rel="noopener noreferrer">Abrir publicação ↗</a>${l.status !== 'CONTATADO' ? `<button class="btn-ghost" data-action="leadStatus" data-id="${esc(l.id)}" data-s="CONTATADO">Marcar contatado</button>` : ''}${l.status !== 'DESCARTADO' ? `<button class="btn-ghost danger" data-action="leadStatus" data-id="${esc(l.id)}" data-s="DESCARTADO">Descartar</button>` : `<button class="btn-ghost" data-action="leadStatus" data-id="${esc(l.id)}" data-s="NOVO">Restaurar</button>`}</div>
+            <div class="row tight"><a class="btn-ghost accent" href="${esc(safeHref(l.link))}" target="_blank" rel="noopener noreferrer">Abrir publicação ↗</a>${l.status !== 'CONTATADO' ? `<button class="btn-ghost" data-action="leadStatus" data-id="${esc(l.id)}" data-s="CONTATADO">Marcar contatado</button>` : ''}${l.status !== 'DESCARTADO' ? `<button class="btn-ghost danger" data-action="leadStatus" data-id="${esc(l.id)}" data-s="DESCARTADO">Descartar</button>` : `<button class="btn-ghost" data-action="leadStatus" data-id="${esc(l.id)}" data-s="NOVO">Restaurar</button>`}</div>
           </div>`).join('') : `<div class="card"><p class="body muted">${g.leads.length ? 'Nada nesta lista.' : 'Ainda não encontrei leads. Configure a busca abaixo e toque em “Escavar agora”.'}</p></div>`}</div>
       </div></section>
       <section class="section"><div class="container split top">
         <div class="card reveal"><span class="label">Campanhas de imóveis no ar (bibliotecas oficiais)</span><p class="body muted">Anúncios ativos de imobiliárias e construtoras em Goiânia, e o interesse de busca na região nos últimos 7 dias.</p>
-          <div class="linkout">${(g.campanhas || []).map(c => `<a href="${esc(c.meta)}" target="_blank" rel="noopener noreferrer"><span>Meta (Instagram/Facebook) · ${esc(c.termo)}</span><span>↗</span></a><a href="${esc(c.trends)}" target="_blank" rel="noopener noreferrer"><span>Google Trends Goiás · ${esc(c.termo)}</span><span>↗</span></a>`).join('')}
+          <div class="linkout">${(g.campanhas || []).map(c => `<a href="${esc(safeHref(c.meta))}" target="_blank" rel="noopener noreferrer"><span>Meta (Instagram/Facebook) · ${esc(c.termo)}</span><span>↗</span></a><a href="${esc(safeHref(c.trends))}" target="_blank" rel="noopener noreferrer"><span>Google Trends Goiás · ${esc(c.termo)}</span><span>↗</span></a>`).join('')}
           <a href="https://adstransparency.google.com/?region=BR" target="_blank" rel="noopener noreferrer"><span>Google (Central de Transparência de Anúncios)</span><span>↗</span></a>
           <a href="https://library.tiktok.com/ads?region=BR" target="_blank" rel="noopener noreferrer"><span>TikTok (Biblioteca de Anúncios)</span><span>↗</span></a></div></div>
         <div class="card reveal stack-sm"><span class="label">O que eu não faço (e por quê)</span>
@@ -1018,13 +1068,15 @@
         <span class="label">${lista.length} corretor(es)</span>
         <div class="list">${lista.length ? lista.map(c => {
           const w = c.whatsapp || {};
-          const [cls, txt] = STATUS_CORRETOR[w.status] || ['', w.status || '—'];
+          const [cls, txt] = hasOwn(STATUS_CORRETOR, w.status) ? STATUS_CORRETOR[w.status] : ['', w.status || '—'];
+          const pUrl = c.painel && c.painel.url ? safeHref(c.painel.url) : '#';
+          const cQr = safeQrSvg(w.qrSvg);
           return `<div class="item stack-sm">
             <div class="row tight"><span class="tag iris">${esc(c.corretorId)}</span><span class="tag ${cls}">● ${esc(txt)}</span>${(c.efetivo || {}).hasGeminiApiKey ? '<span class="tag">🧠 IA própria</span>' : '<span class="tag">sem chave de IA</span>'}${(c.efetivo || {}).modoApenasAvisar ? '<span class="tag">só avisa</span>' : ''}</div>
-            <h3 class="h2xs">${esc(c.nome)}${w.telefone ? ` <span class="caption">· ${esc(w.nomeWhatsapp || '')} wa.me/${esc(w.telefone)}</span>` : ''}</h3>
-            ${w.status === 'CONECTADO' ? `<div class="caption">${w.grupos} grupo(s) na conta · ${w.gruposMonitorados} monitorado(s)</div>` : ''}
-            ${c.painel && (c.painel.url || c.painel.codigoConvite) ? `<div class="caption">${c.painel.url ? `Painel dele(a): <a class="btn-ghost accent" href="${esc(c.painel.url)}" target="_blank" rel="noopener">${esc(c.painel.url.replace(/^https?:\/\//, ''))}</a> · ` : ''}${c.painel.codigoConvite ? `código para criar a senha: <b class="saffron">${esc(c.painel.codigoConvite)}</b>` : 'senha já criada'}</div>` : ''}
-            ${w.qrSvg ? `<div class="split rev top"><div class="qr" style="max-width:220px">${w.qrSvg}</div><p class="body muted">Peça para ${esc(c.nome.split(' ')[0])} abrir o WhatsApp › Configurações › Aparelhos conectados › <b>Conectar aparelho</b> e apontar para este código. Ele muda sozinho a cada poucos segundos.</p></div>` : ''}
+            <h3 class="h2xs">${esc(c.nome)}${safeWaPhone(w.telefone) ? ` <span class="caption">· ${esc(w.nomeWhatsapp || '')} wa.me/${safeWaPhone(w.telefone)}</span>` : ''}</h3>
+            ${w.status === 'CONECTADO' ? `<div class="caption">${Number(w.grupos) || 0} grupo(s) na conta · ${Number(w.gruposMonitorados) || 0} monitorado(s)</div>` : ''}
+            ${c.painel && (pUrl !== '#' || c.painel.codigoConvite) ? `<div class="caption">${pUrl !== '#' ? `Painel dele(a): <a class="btn-ghost accent" href="${esc(pUrl)}" target="_blank" rel="noopener noreferrer">${esc(pUrl.replace(/^https?:\/\//, ''))}</a> · ` : ''}${c.painel.codigoConvite ? `código para criar a senha: <b class="saffron">${esc(c.painel.codigoConvite)}</b>` : 'senha já criada'}</div>` : ''}
+            ${cQr ? `<div class="split rev top"><div class="qr" style="max-width:220px">${cQr}</div><p class="body muted">Peça para ${esc(String(c.nome || '').split(' ')[0])} abrir o WhatsApp › Configurações › Aparelhos conectados › <b>Conectar aparelho</b> e apontar para este código. Ele muda sozinho a cada poucos segundos.</p></div>` : ''}
             <div class="row tight">
               <button class="btn-ghost" data-action="editarCorretor" data-id="${esc(c.corretorId)}">Editar</button>
               ${c.ativo === false ? `<button class="btn-ghost accent" data-action="acaoCorretor" data-acao="retomar" data-id="${esc(c.corretorId)}">Retomar</button>` : `<button class="btn-ghost" data-action="acaoCorretor" data-acao="novo-qr" data-id="${esc(c.corretorId)}" data-confirm="Desconectar o WhatsApp de ${esc(c.nome)} e gerar um QR Code novo?">Novo QR Code</button><button class="btn-ghost" data-action="acaoCorretor" data-acao="pausar" data-id="${esc(c.corretorId)}" data-confirm="Pausar a BIGA de ${esc(c.nome)}? Ela para de ler grupos e responder até você retomar.">Pausar</button>`}
@@ -1169,6 +1221,7 @@
   }
 
   async function go() {
+    const navId = ++S._navSeq;
     const r = (location.hash || '#inicio').slice(1);
     S.route = views.has(r) ? r : location.pathname === '/dia-a-dia' ? 'atendimento' : 'inicio';
     S.editing = null;
@@ -1178,11 +1231,13 @@
     const curtainIn = animate ? playCurtain('go') : Promise.resolve();
     try {
       if (!S.status) await loadStatus();
+      if (navId !== S._navSeq) return;
       if (SO_ADMIN.has(S.route) && !isAdmin()) S.route = 'inicio'; // corretor não abre páginas do SaaS
       await Promise.all([loaders[S.route](), curtainIn]);
     } catch (err) {
-      toast(err.message, true);
+      if (navId === S._navSeq) toast(err.message, true);
     }
+    if (navId !== S._navSeq) return;
     S._navegando = true;
     render();
     S._navegando = false;
@@ -1191,25 +1246,33 @@
   }
 
   // Corretores: QR Code e status atualizam sozinhos
+  let pollingEquipe = false;
   setInterval(async () => {
-    if (!S.authed || document.hidden || S.route !== 'corretores') return;
+    if (pollingEquipe || !S.authed || document.hidden || S.route !== 'corretores') return;
     if (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+    pollingEquipe = true;
     try {
       const antes = JSON.stringify(S.equipe);
       await loaders.corretores();
-      if (JSON.stringify(S.equipe) !== antes) render({ manterCampos: true });
-    } catch {}
+      if (S.route === 'corretores' && JSON.stringify(S.equipe) !== antes) render({ manterCampos: true });
+    } catch {} finally {
+      pollingEquipe = false;
+    }
   }, 5000);
 
   // Atualização automática da visão geral (QR Code, atividade)
+  let pollingStatus = false;
   setInterval(async () => {
-    if (!S.authed || document.hidden || !['hoje', 'geral'].includes(S.route)) return;
+    if (pollingStatus || !S.authed || document.hidden || !['hoje', 'geral'].includes(S.route)) return;
     if (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+    pollingStatus = true;
     try {
       const antes = JSON.stringify(S.status);
       await loadStatus();
-      if (JSON.stringify(S.status) !== antes) render({ manterCampos: true }); // só redesenha se algo mudou
-    } catch {}
+      if (['hoje', 'geral'].includes(S.route) && JSON.stringify(S.status) !== antes) render({ manterCampos: true }); // só redesenha se algo mudou
+    } catch {} finally {
+      pollingStatus = false;
+    }
   }, 5000);
 
   // ------------------------------------------------------------------ ações
@@ -1272,6 +1335,7 @@
       toast({ pausar: 'Corretor pausado.', retomar: 'Corretor retomado.', 'novo-qr': 'QR Code novo gerado.' }[el.dataset.acao] || 'Feito.');
     },
     buscar: async () => {
+      if (S.buscando) return;
       const f = formData($('#buscaForm'));
       const { texto, whatsapp, ...filtros } = f;
       S.buscaForm = { ...filtros, texto };
@@ -1284,7 +1348,7 @@
         const r = await api('POST', '/api/busca', { texto, filtros, whatsapp });
         S.buscaAtual = r.busca;
         S.busca = r.estado;
-        toast(`${r.busca.grupos.length} nos grupos · ${(r.busca.portais.itens || []).length} nos portais${f.whatsapp ? ' · mandei no seu WhatsApp' : ''}`);
+        toast(`${(r.busca?.grupos || []).length} nos grupos · ${(r.busca?.portais?.itens || []).length} nos portais${f.whatsapp ? ' · mandei no seu WhatsApp' : ''}`);
       } finally {
         S.buscando = false;
         render();
@@ -1354,7 +1418,8 @@
     atualizarAgora: async () => {
       const r = await api('POST', '/api/sistema/atualizar');
       toast(r.message);
-      setTimeout(async () => {
+      clearTimeout(S._updatePoll);
+      S._updatePoll = setTimeout(async () => {
         S.sistema = await api('GET', '/api/sistema').catch(() => S.sistema);
         if (S.route === 'ajustes') render();
       }, 120000);
@@ -1372,7 +1437,7 @@
     },
     garimpoSalvar: async () => {
       const r = await api('POST', '/api/garimpo/config', formData($('#garimpoCfg')));
-      S.garimpo.config = r.config;
+      if (S.garimpo) S.garimpo.config = r.config;
       toast('Garimpo salvo!');
       render();
     },
@@ -1383,11 +1448,11 @@
       render();
     },
     leadStatus: async el => {
-      S.garimpo = (await api('POST', `/api/garimpo/lead/${el.dataset.id}`, { status: el.dataset.s })).state;
+      S.garimpo = (await api('POST', `/api/garimpo/lead/${encodeURIComponent(el.dataset.id)}`, { status: el.dataset.s })).state;
       render();
     },
     soMarcados: el => {
-      const box = document.querySelector(`[data-filter="${el.dataset.target}"]`);
+      const box = document.querySelector(`[data-filter="${CSS.escape(el.dataset.target || '')}"]`);
       if (!box) return;
       box.dataset.only = box.dataset.only === '1' ? '0' : '1';
       el.classList.toggle('accent', box.dataset.only === '1');
@@ -1399,7 +1464,7 @@
       render();
     },
     aprovarRadar: async el => {
-      const r = await api('POST', `/api/radar/${el.dataset.code}/enviar`, { propId: el.dataset.id });
+      const r = await api('POST', `/api/radar/${encodeURIComponent(el.dataset.code)}/enviar`, { propId: el.dataset.id });
       toast(r.message || 'Enviado!');
       await loaders.radar();
       render();
@@ -1407,7 +1472,7 @@
     aprovarOutro: async el => {
       const id = prompt('Número (#) do imóvel para enviar:');
       if (!id) return;
-      const r = await api('POST', `/api/radar/${el.dataset.code}/enviar`, { propId: id.replace(/\D/g, '') });
+      const r = await api('POST', `/api/radar/${encodeURIComponent(el.dataset.code)}/enviar`, { propId: id.replace(/\D/g, '') });
       toast(r.message || 'Enviado!');
       await loaders.radar();
       render();
@@ -1417,7 +1482,9 @@
       render();
     },
     editar: el => {
-      S.editing = JSON.parse(JSON.stringify(S.inventory.find(p => String(p.id) === el.dataset.id)));
+      const item = S.inventory.find(p => String(p.id) === el.dataset.id);
+      if (!item) return;
+      S.editing = JSON.parse(JSON.stringify(item));
       render();
       scrollTo(0, 0);
     },
@@ -1427,17 +1494,21 @@
     },
     capa: el => {
       const i = Number(el.dataset.i);
-      const fotos = syncEditing().fotos;
-      fotos.unshift(...fotos.splice(i, 1));
+      const ed = syncEditing();
+      if (!ed || !Array.isArray(ed.fotos)) return;
+      ed.fotos.unshift(...ed.fotos.splice(i, 1));
       render();
     },
     rmFoto: el => {
-      syncEditing().fotos.splice(Number(el.dataset.i), 1);
+      const ed = syncEditing();
+      if (!ed || !Array.isArray(ed.fotos)) return;
+      ed.fotos.splice(Number(el.dataset.i), 1);
       render();
     },
     salvarImovel: async () => {
       const p = syncEditing();
-      const r = p.id ? await api('PUT', `/api/property/${p.id}`, p) : await api('POST', '/api/property', p);
+      if (!p) return;
+      const r = p.id ? await api('PUT', `/api/property/${encodeURIComponent(p.id)}`, p) : await api('POST', '/api/property', p);
       S.inventory = r.inventory;
       S.editing = null;
       toast(`Imóvel #${r.property.id} salvo!`);
@@ -1445,18 +1516,19 @@
     },
     ativo: async el => {
       const p = S.inventory.find(x => String(x.id) === el.dataset.id);
-      const r = await api('PUT', `/api/property/${p.id}`, { ativo: !p.ativo });
+      if (!p) return;
+      const r = await api('PUT', `/api/property/${encodeURIComponent(p.id)}`, { ativo: !p.ativo });
       S.inventory = r.inventory;
       render();
     },
     excluir: async el => {
       if (!confirm(`Excluir o imóvel #${el.dataset.id}? Isso não pode ser desfeito.`)) return;
-      S.inventory = (await api('DELETE', `/api/property/${el.dataset.id}`)).inventory;
+      S.inventory = (await api('DELETE', `/api/property/${encodeURIComponent(el.dataset.id)}`)).inventory;
       toast('Excluído.');
       render();
     },
     aVitrine: async el => {
-      await api('POST', `/api/vitrine/post/${el.dataset.id}`, {});
+      await api('POST', `/api/vitrine/post/${encodeURIComponent(el.dataset.id)}`, {});
       location.hash = '#vitrine';
     },
     importGoogle: async () => {
@@ -1466,7 +1538,7 @@
     },
     salvarVitrine: async () => {
       const r = await api('POST', '/api/vitrine/config', collectVitrine());
-      S.vitrine.config = r.config;
+      if (S.vitrine) S.vitrine.config = r.config;
       toast('Vitrine salva!');
       render();
     },
@@ -1485,9 +1557,11 @@
       render();
     },
     salvarPost: async el => {
-      const texto = $(`[data-post="${el.dataset.id}"] textarea`).value;
-      const r = await api('POST', `/api/vitrine/post/${el.dataset.id}`, { texto });
-      S.vitrine.posts[el.dataset.id] = r.post;
+      const postId = String(el.dataset.id || '');
+      const ta = $(`[data-post="${CSS.escape(postId)}"] textarea`);
+      if (!ta) return;
+      const r = await api('POST', `/api/vitrine/post/${encodeURIComponent(postId)}`, { texto: ta.value });
+      if (S.vitrine?.posts && !['__proto__', 'constructor', 'prototype'].includes(postId)) S.vitrine.posts[postId] = r.post;
       toast('Texto salvo (aguardando aprovação).');
       render();
     },
@@ -1515,15 +1589,17 @@
       location.hash = '#pdf';
     },
     pdfCor: async el => {
+      if (!S.pdf || !S.pdf.ficha) return;
       guardarEnvioPdf();
       S.pdf.ficha = { ...S.pdf.ficha, ...coletarPdf(), cor: el.dataset.cor };
       render();
     },
     pdfAddPagina: async el => {
+      if (!S.pdf || !S.pdf.ficha) return;
       guardarEnvioPdf();
       const coletado = coletarPdf();
       const tipo = el.dataset.tipo || 'foto';
-      const pags = (S.pdf && S.pdf.ficha && Array.isArray(S.pdf.ficha.paginas)) ? [...S.pdf.ficha.paginas] : [
+      const pags = Array.isArray(S.pdf.ficha.paginas) ? [...S.pdf.ficha.paginas] : [
         { tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }
       ];
       if (pags.length >= 14) return toast('Limite máximo de 14 páginas atingido.', true);
@@ -1534,10 +1610,11 @@
       render();
     },
     pdfRmPagina: async el => {
+      if (!S.pdf || !S.pdf.ficha) return;
       guardarEnvioPdf();
       const coletado = coletarPdf();
       const idx = parseInt(el.dataset.i, 10);
-      const pags = (S.pdf && S.pdf.ficha && Array.isArray(S.pdf.ficha.paginas)) ? [...S.pdf.ficha.paginas] : [
+      const pags = Array.isArray(S.pdf.ficha.paginas) ? [...S.pdf.ficha.paginas] : [
         { tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }
       ];
       if (pags.length <= 1) return toast('A apresentação deve ter ao menos 1 página.', true);
@@ -1546,10 +1623,11 @@
       render();
     },
     pdfSubirPagina: async el => {
+      if (!S.pdf || !S.pdf.ficha) return;
       guardarEnvioPdf();
       const coletado = coletarPdf();
       const idx = parseInt(el.dataset.i, 10);
-      const pags = (S.pdf && S.pdf.ficha && Array.isArray(S.pdf.ficha.paginas)) ? [...S.pdf.ficha.paginas] : [
+      const pags = Array.isArray(S.pdf.ficha.paginas) ? [...S.pdf.ficha.paginas] : [
         { tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }
       ];
       if (idx > 0) {
@@ -1561,10 +1639,11 @@
       }
     },
     pdfDescerPagina: async el => {
+      if (!S.pdf || !S.pdf.ficha) return;
       guardarEnvioPdf();
       const coletado = coletarPdf();
       const idx = parseInt(el.dataset.i, 10);
-      const pags = (S.pdf && S.pdf.ficha && Array.isArray(S.pdf.ficha.paginas)) ? [...S.pdf.ficha.paginas] : [
+      const pags = Array.isArray(S.pdf.ficha.paginas) ? [...S.pdf.ficha.paginas] : [
         { tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }
       ];
       if (idx < pags.length - 1) {
@@ -1576,13 +1655,14 @@
       }
     },
     pdfSalvar: async () => {
+      if (!S.pdf) return;
       const r = await api('POST', `/api/pdf/${encodeURIComponent(S.pdfSel)}`, coletarPdf());
       S.pdf.ficha = r.ficha;
       toast('Ficha salva.');
       render();
     },
     pdfRestaurar: async () => {
-      if (!confirm('Voltar título, descrição, diferenciais e fotos ao que está na Carteira?')) return;
+      if (!S.pdf || !confirm('Voltar título, descrição, diferenciais e fotos ao que está na Carteira?')) return;
       const r = await api('POST', `/api/pdf/${encodeURIComponent(S.pdfSel)}`, { restaurar: true });
       S.pdf.ficha = r.ficha;
       render();
@@ -1600,10 +1680,12 @@
     },
     pdfVer: async () => {
       const aba = window.open('', '_blank');
+      if (aba) aba.opener = null;
       toast('Gerando o PDF…');
       try {
         const { blob } = await pdfArquivo();
         const url = URL.createObjectURL(blob);
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
         if (aba) aba.location.href = url;
         else location.href = url;
       } catch (err) {
@@ -1620,27 +1702,32 @@
       toast('PDF enviado! ✅');
     },
     regerarPost: async el => {
-      const r = await api('POST', `/api/vitrine/post/${el.dataset.id}`, { regerar: true });
-      S.vitrine.posts[el.dataset.id] = r.post;
+      const postId = String(el.dataset.id || '');
+      const r = await api('POST', `/api/vitrine/post/${encodeURIComponent(postId)}`, { regerar: true });
+      if (S.vitrine?.posts && !['__proto__', 'constructor', 'prototype'].includes(postId)) S.vitrine.posts[postId] = r.post;
       toast('Texto refeito com a descrição completa (aguardando aprovação).');
       render();
     },
     aprovarPost: async el => {
-      const texto = $(`[data-post="${el.dataset.id}"] textarea`).value;
-      await api('POST', `/api/vitrine/post/${el.dataset.id}`, { texto });
-      const r = await api('POST', `/api/vitrine/post/${el.dataset.id}/status`, { status: 'APROVADO' });
-      S.vitrine.posts[el.dataset.id] = r.post;
+      const postId = String(el.dataset.id || '');
+      const ta = $(`[data-post="${CSS.escape(postId)}"] textarea`);
+      if (!ta) return;
+      await api('POST', `/api/vitrine/post/${encodeURIComponent(postId)}`, { texto: ta.value });
+      const r = await api('POST', `/api/vitrine/post/${encodeURIComponent(postId)}/status`, { status: 'APROVADO' });
+      if (S.vitrine?.posts && !['__proto__', 'constructor', 'prototype'].includes(postId)) S.vitrine.posts[postId] = r.post;
       toast('Aprovado para a vitrine!');
       render();
     },
     reprovarPost: async el => {
-      const r = await api('POST', `/api/vitrine/post/${el.dataset.id}/status`, { status: 'REPROVADO' });
-      S.vitrine.posts[el.dataset.id] = r.post;
+      const postId = String(el.dataset.id || '');
+      const r = await api('POST', `/api/vitrine/post/${encodeURIComponent(postId)}/status`, { status: 'REPROVADO' });
+      if (S.vitrine?.posts && !['__proto__', 'constructor', 'prototype'].includes(postId)) S.vitrine.posts[postId] = r.post;
       render();
     },
     fotoPost: async el => {
-      const r = await api('POST', `/api/vitrine/post/${el.dataset.id}`, { foto: el.dataset.f });
-      S.vitrine.posts[el.dataset.id] = r.post;
+      const postId = String(el.dataset.id || '');
+      const r = await api('POST', `/api/vitrine/post/${encodeURIComponent(postId)}`, { foto: el.dataset.f });
+      if (S.vitrine?.posts && !['__proto__', 'constructor', 'prototype'].includes(postId)) S.vitrine.posts[postId] = r.post;
       render();
     },
     selTodos: () => {
@@ -1659,27 +1746,29 @@
     criarCampanha: el => criarCampanha(true, el),
     criarRascunho: el => criarCampanha(false, el),
     campStatus: async el => {
-      S.prosp = (await api('POST', `/api/prospeccao/campanha/${el.dataset.id}/status`, { status: el.dataset.s })).state;
+      S.prosp = (await api('POST', `/api/prospeccao/campanha/${encodeURIComponent(el.dataset.id)}/status`, { status: el.dataset.s })).state;
       render();
     },
     campExcluir: async el => {
       if (!confirm('Excluir esta campanha?')) return;
-      S.prosp = (await api('DELETE', `/api/prospeccao/campanha/${el.dataset.id}`)).state;
+      S.prosp = (await api('DELETE', `/api/prospeccao/campanha/${encodeURIComponent(el.dataset.id)}`)).state;
       render();
     },
     salvarProspCfg: async () => {
       const r = await api('POST', '/api/prospeccao/config', formData($('#prospCfg')));
-      S.prosp.config = r.config;
+      if (S.prosp) S.prosp.config = r.config;
       toast('Ritmo salvo!');
       render();
     },
     addRule: () => {
+      if (!S.status?.config) return;
       const rules = collectRules();
       rules.push({ trigger: '', response: '', active: true });
       S.status.config.dailySimpleReplies = rules;
       render();
     },
     rmRule: el => {
+      if (!S.status?.config) return;
       const rules = collectRules();
       rules.splice(Number(el.dataset.i), 1);
       S.status.config.dailySimpleReplies = rules;
@@ -1704,16 +1793,19 @@
       toast(r.message);
     },
     addPlace: () => {
+      if (!S.cerebro) return;
       S.cerebro.extraPlaces = [...collectPlaces(), { name: '', kind: 'edificio', bairro: '', aliases: '' }];
       render();
     },
     rmPlace: el => {
+      if (!S.cerebro) return;
       const list = collectPlaces();
       list.splice(Number(el.dataset.i), 1);
       S.cerebro.extraPlaces = list;
       render();
     },
     salvarPlaces: async () => {
+      if (!S.cerebro) return;
       const r = await api('POST', '/api/cerebro/lugares', { extraPlaces: collectPlaces() });
       S.cerebro.extraPlaces = r.extraPlaces;
       toast('Lugares salvos — a BIGA já aprendeu.');
@@ -1724,7 +1816,8 @@
       render();
     },
     templatePadrao: () => {
-      $('#treino textarea[name=messageTemplate]').value = S.status.config.defaultMessageTemplate;
+      const ta = $('#treino textarea[name=messageTemplate]');
+      if (ta && S.status?.config) ta.value = S.status.config.defaultMessageTemplate || '';
     },
     simular: async () => {
       const d = formData($('#simForm'));
@@ -1860,10 +1953,10 @@
       S._ft = setTimeout(() => {
         const pos = e.target.selectionStart;
         render();
-        const again = $(`[name="${n}"]`);
+        const again = $(`[name="${CSS.escape(n)}"]`);
         if (again) {
           again.focus();
-          again.setSelectionRange(pos, pos);
+          if (typeof again.setSelectionRange === 'function' && pos !== null) again.setSelectionRange(pos, pos);
         }
       }, 250);
     }
@@ -1876,12 +1969,14 @@
         return render();
       }
       if (e.target.name === 'pdfFoto') {
+        if (!S.pdf || !S.pdf.ficha) return;
         guardarEnvioPdf();
         S.pdf.ficha = { ...S.pdf.ficha, ...coletarPdf() };
         return render();
       }
       if (e.target.id === 'fotoInput' && e.target.files.length) {
         const p = syncEditing();
+        if (!p) return;
         toast('Enviando fotos…');
         p.fotos = [...(p.fotos || []), ...(await uploadFiles(e.target.files))];
         render();
@@ -1913,9 +2008,12 @@
         S.campImg = (await uploadFiles(e.target.files))[0];
         render();
         if (S.campDraft) {
-          $('#campForm [name=nome]').value = S.campDraft.nome || '';
-          $('#campForm [name=mensagem]').value = S.campDraft.mensagem || '';
-          $('#campForm [name=colar]').value = S.campDraft.colar || '';
+          const nomeEl = $('#campForm [name=nome]');
+          const msgEl = $('#campForm [name=mensagem]');
+          const colarEl = $('#campForm [name=colar]');
+          if (nomeEl) nomeEl.value = S.campDraft.nome || '';
+          if (msgEl) msgEl.value = S.campDraft.mensagem || '';
+          if (colarEl) colarEl.value = S.campDraft.colar || '';
         }
       }
     } catch (err) {

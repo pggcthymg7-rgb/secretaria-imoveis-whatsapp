@@ -329,3 +329,70 @@ test('tenantPath: pasta do corretor nunca sai da pasta base', () => {
   assert.equal(tenantPath(base, 'ana'), path.join(base, 'ana'));
   for (const bad of ['..', '../x', 'a/../../etc', '/etc', 'a\\b', '.', 'A', '', 'ana/', 'www']) assert.throws(() => tenantPath(base, bad), /inválido|reservado/, bad);
 });
+
+test('Agente 1: isolamento extra, prototype lookup, host reservado, concorrência de sessão e pausa', { timeout: 15000 }, async () => {
+  const { dataPath } = require('../src/paths');
+  assert.throws(() => dataPath('..', 'fora.txt'), /fora de DATA_DIR/);
+
+  // Segredos arbitrários do hospedeiro e exitCode não vazam para tenant
+  const env = buildTenantEnv({
+    baseEnv: { PATH: process.env.PATH, GITHUB_TOKEN: 'ghp_secret', DATABASE_URL: 'postgres://x', MY_CUSTOM_SECRET: 's3cr3t' },
+    dataDir: path.join(tmp, 'iso2'),
+    tenantId: 'carol'
+  });
+  assert.equal(env.GITHUB_TOKEN, undefined);
+  assert.equal(env.DATABASE_URL, undefined);
+  assert.equal(env.MY_CUSTOM_SECRET, undefined);
+  const c = createTenantContainer({ tenantId: 'carol', dataDir: path.join(tmp, 'iso2'), env });
+  c.process.exitCode = 42;
+  assert.notEqual(process.exitCode, 42);
+  c.require('radar').add({ grupo: 'G', texto: 't', decision: 'AVISAR', tipos: [], locais: [], candidatos: [] });
+  assert.ok(c.timersAtivos >= 1, 'timer rastreado dentro do contêiner');
+  c.dispose();
+  assert.equal(c.timersAtivos, 0);
+
+  // normalizeConfigIA rejeita chaves de protótipo com 400 (TenantValidationError)
+  const { normalizeConfigIA, TenantValidationError } = require('../src/tenancy/tenant-store');
+  for (const k of ['constructor', 'toString', 'valueOf']) {
+    assert.throws(() => normalizeConfigIA({ [k]: 'x' }), err => err instanceof TenantValidationError && err.status === 400);
+  }
+  const protoPayload = JSON.parse('{"__proto__":{"polluted":true}}');
+  assert.throws(() => normalizeConfigIA(protoPayload), err => err instanceof TenantValidationError && err.status === 400);
+
+  // tenantFromHost rejeita subdomínios reservados (www/admin/api) e dispatchHost segue adiante sem 500
+  const oldDom = process.env.DOMINIO;
+  process.env.DOMINIO = 'biga.test';
+  const t = createTenancy({ baseDir: path.join(tmp, 'mt-edge'), baileys: fakeBaileys, startScheduler: false });
+  try {
+    assert.equal(t.tenantFromHost('www.biga.test'), null);
+    assert.equal(t.tenantFromHost('admin.biga.test:443'), null);
+    assert.equal(t.tenantFromHost('a-.biga.test'), null);
+    assert.equal(t.tenantFromHost('ana.biga.test:8443'), 'ana');
+
+    let nextCalled = false;
+    t.dispatchHost({ headers: { host: 'www.biga.test' } }, { status: () => { throw new Error('não deveria responder erro'); } }, () => { nextCalled = true; });
+    assert.equal(nextCalled, true);
+
+    // Concorrência em initializeTenant cria apenas 1 socket e limpa listeners ao reconectar
+    t.tenantStore.save('duda', { nome: 'Duda' });
+    const countBefore = sockets.length;
+    await Promise.all([t.sessionManager.initializeTenant('duda'), t.sessionManager.initializeTenant('duda')]);
+    assert.equal(sockets.length - countBefore, 1, 'inicializações simultâneas criam apenas 1 socket');
+    const s1 = t.sessionManager.getSession('duda');
+    assert.ok(s1.ev.listenerCount('messages.upsert') >= 1);
+    s1.ev.emit('connection.update', { connection: 'close', lastDisconnect: { error: { output: { statusCode: 408 } } } });
+    assert.equal(s1.ev.listenerCount('messages.upsert'), 0, 'socket antigo teve listeners limpos no close');
+
+    // Tenant pausado não é ressuscitado por evento tardio ou prepareTenant
+    t.tenantStore.setAtivo('duda', false);
+    t.router.stopTenant('duda');
+    assert.throws(() => t.router.prepareTenant('duda'), /pausado/);
+    t.sessionManager.emit('connection', { tenantId: 'duda', connection: 'open' });
+    await wait(20);
+    assert.equal(t.router.domains.has('duda'), false, 'evento tardio não recria domínio pausado');
+  } finally {
+    if (oldDom === undefined) delete process.env.DOMINIO;
+    else process.env.DOMINIO = oldDom;
+    await t.shutdown();
+  }
+});

@@ -280,7 +280,9 @@ function getBusca(id) {
 
 function portalDe(url) {
   try {
-    const h = new URL(url).hostname.replace(/^www\./, '').replace(/^[a-z]{2}\./, '');
+    const u = new URL(url);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    const h = u.hostname.replace(/^www\./, '').replace(/^[a-z]{2}\./, '');
     return Object.keys(PORTAIS).find(d => h === d || h.endsWith(`.${d}`)) || null;
   } catch {
     return null;
@@ -327,8 +329,11 @@ function promptPortais(descricao, textoOriginal, dominios = Object.keys(PORTAIS)
 }
 
 function extrairJson(texto) {
-  const bloco = String(texto || '').match(/```(?:json)?\s*([\s\S]*?)```/);
-  const bruto = bloco ? bloco[1] : String(texto || '').slice(String(texto || '').indexOf('['));
+  const s = String(texto || '').slice(0, 200000);
+  const bloco = s.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const idx = s.indexOf('[');
+  const bruto = bloco ? bloco[1] : idx >= 0 ? s.slice(idx) : '';
+  if (!bruto) return [];
   try {
     const v = JSON.parse(bruto);
     return Array.isArray(v) ? v : Array.isArray(v?.itens) ? v.itens : [];
@@ -339,7 +344,7 @@ function extrairJson(texto) {
 
 /** Os links das fontes do Google vêm "embrulhados"; abre o embrulho (sem seguir para o site) */
 async function abrirFontes(chunks, fetcher) {
-  const lista = chunks.map(ch => ch && ch.web).filter(w => w && w.uri).slice(0, 30);
+  const lista = (Array.isArray(chunks) ? chunks : []).map(ch => ch && ch.web).filter(w => w && w.uri).slice(0, 30);
   const res = await Promise.all(
     lista.map(async w => {
       let url = w.uri;
@@ -453,7 +458,7 @@ async function buscarPortaisGemini(criterios, textoOriginal, { env, fetcher, dom
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(90000)
       });
-      const d = await r.json();
+      const d = await r.json().catch(() => ({}));
       if (r.ok) {
         tentativas.push({ modelo, status: r.status });
         data = d;
@@ -580,7 +585,10 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
         }));
         const lidos = finalizarItens(brutosLidos, { permitidos, dominios, criterios, certeza: 'anúncio' });
         todos.push(...lidos.itens);
-        const resolvidos = new Set([...lidos.vistos, ...[...lei.descartados].map(id => urlChave(porId.get(id).url))]);
+        const resolvidos = new Set([
+          ...lidos.vistos,
+          ...[...lei.descartados].map(id => porId.get(id)?.url).filter(Boolean).map(urlChave)
+        ]);
         const aCurar = lei.aCurar;
         const chave = require('./gemini-chave').limparChave(env.GEMINI_API_KEY);
         if (aCurar.length && chave) {
@@ -589,7 +597,7 @@ async function buscarNosPortais(criterios, textoOriginal, { env = process.env, f
             via.push(`${r.provedor} + Gemini`);
             modelo = cur.modelo;
             const brutos = [];
-            for (const x of cur.itens) {
+            for (const x of Array.isArray(cur.itens) ? cur.itens : []) {
               const cat = porId.get(Number(x && x.id)); // o Gemini devolve o número; o link vem do catálogo
               if (cat && aCurar.some(a => a.id === cat.id)) {
                 const e = (aCurar.find(a => a.id === cat.id) || {}).dadosEndereco || {};

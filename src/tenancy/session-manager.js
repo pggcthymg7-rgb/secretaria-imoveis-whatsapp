@@ -32,11 +32,34 @@ class WhatsAppSessionManager extends EventEmitter {
     this.log = log || ((tenantId, msg) => console.log(`[tenant:${tenantId}] ${msg}`));
     /** @type {Map<string, any>} */
     this.sessions = new Map();
+    /** @type {Map<string, Promise<any>>} */
+    this._locks = new Map();
     fs.mkdirSync(this.storageDir, { recursive: true, mode: 0o700 });
   }
 
   authDir(tenantId) {
     return tenantPath(this.storageDir, tenantId);
+  }
+
+  _withLock(tenantId, fn) {
+    const prev = this._locks.get(tenantId) || Promise.resolve();
+    const run = prev.then(fn, fn);
+    const tail = run.catch(() => {});
+    this._locks.set(tenantId, tail);
+    tail.finally(() => {
+      if (this._locks.get(tenantId) === tail) this._locks.delete(tenantId);
+    });
+    return run;
+  }
+
+  _cleanupSocket(sock) {
+    if (!sock) return;
+    try {
+      sock.end?.(undefined);
+    } catch {}
+    try {
+      sock.ev?.removeAllListeners?.();
+    } catch {}
   }
 
   /**
@@ -45,6 +68,10 @@ class WhatsAppSessionManager extends EventEmitter {
    */
   async initializeTenant(tenantId, config = {}) {
     validateTenantId(tenantId);
+    return this._withLock(tenantId, () => this._initializeLocked(tenantId, config));
+  }
+
+  async _initializeLocked(tenantId, config = {}) {
     const existing = this.sessions.get(tenantId);
     if (existing && !existing.stopped) {
       existing.config = { ...existing.config, ...config };
@@ -52,7 +79,17 @@ class WhatsAppSessionManager extends EventEmitter {
     }
     const session = { tenantId, config, sock: null, status: 'INICIANDO', qr: null, attempts: 0, timer: null, stopped: false };
     this.sessions.set(tenantId, session);
-    await this._connect(session);
+    try {
+      await this._connect(session);
+    } catch (err) {
+      session.stopped = true;
+      clearTimeout(session.timer);
+      session.timer = null;
+      this._cleanupSocket(session.sock);
+      session.sock = null;
+      if (this.sessions.get(tenantId) === session) this.sessions.delete(tenantId);
+      throw err;
+    }
     return this.getStatus(tenantId);
   }
 
@@ -66,10 +103,12 @@ class WhatsAppSessionManager extends EventEmitter {
     try {
       ({ version } = await fetchLatestBaileysVersion());
     } catch {}
-    if (session.stopped) return;
+    if (session.stopped || this.sessions.get(tenantId) !== session) return;
 
+    const prevSock = session.sock;
     const sock = makeWASocket({ ...(version ? { version } : {}), auth: state, logger: this.logger, printQRInTerminal: false, syncFullHistory: false, markOnlineOnConnect: false });
     session.sock = sock;
+    if (prevSock && prevSock !== sock) this._cleanupSocket(prevSock);
     const isCurrent = () => session.sock === sock && !session.stopped && this.sessions.get(tenantId) === session;
     sock.ev.on('creds.update', saveCreds);
     this.emit('socket', { tenantId, sock });
@@ -97,6 +136,8 @@ class WhatsAppSessionManager extends EventEmitter {
           fs.rmSync(authDir, { recursive: true, force: true });
           session.attempts = 0;
         }
+        this._cleanupSocket(sock);
+        if (session.sock === sock) session.sock = null;
         this._scheduleReconnect(session, statusCode);
       }
     });
@@ -112,14 +153,17 @@ class WhatsAppSessionManager extends EventEmitter {
   }
 
   _scheduleReconnect(session, statusCode) {
-    if (session.timer || session.stopped) return;
+    if (session.timer || session.stopped || this.sessions.get(session.tenantId) !== session) return;
     session.attempts++;
     const semSessao = !session.sock?.authState?.creds?.me;
     const delay = reconnectDelay(statusCode, session.attempts, semSessao);
     session.timer = setTimeout(() => {
       session.timer = null;
-      if (session.stopped) return;
-      this._connect(session).catch(err => this.log(session.tenantId, `Erro ao reconectar: ${err.message}`));
+      if (session.stopped || this.sessions.get(session.tenantId) !== session) return;
+      this._connect(session).catch(err => {
+        this.log(session.tenantId, `Erro ao reconectar: ${err.message}`);
+        this._scheduleReconnect(session, null);
+      });
     }, delay);
     if (session.timer.unref) session.timer.unref();
   }
@@ -141,27 +185,38 @@ class WhatsAppSessionManager extends EventEmitter {
 
   /** Desliga a conexão (mantém as credenciais no disco) */
   async stopTenant(tenantId) {
+    validateTenantId(tenantId);
+    return this._withLock(tenantId, () => this._stopLocked(tenantId));
+  }
+
+  _stopLocked(tenantId) {
     const s = this.sessions.get(tenantId);
     if (!s) return false;
     s.stopped = true;
     clearTimeout(s.timer);
+    s.timer = null;
     this.sessions.delete(tenantId);
-    try {
-      s.sock?.end?.(undefined);
-    } catch {}
+    this._cleanupSocket(s.sock);
+    s.sock = null;
     return true;
   }
 
   /** Desconecta, apaga as credenciais e gera um QR Code novo */
   async resetTenant(tenantId) {
-    const s = this.sessions.get(tenantId);
-    const config = s?.config || {};
-    try {
-      await s?.sock?.logout?.();
-    } catch {}
-    await this.stopTenant(tenantId);
-    fs.rmSync(this.authDir(tenantId), { recursive: true, force: true });
-    return this.initializeTenant(tenantId, config);
+    validateTenantId(tenantId);
+    return this._withLock(tenantId, async () => {
+      const s = this.sessions.get(tenantId);
+      const config = s?.config || {};
+      if (s) s.stopped = true; // impede reconexão enquanto logout está em andamento
+      clearTimeout(s?.timer);
+      if (s) s.timer = null;
+      try {
+        await s?.sock?.logout?.();
+      } catch {}
+      this._stopLocked(tenantId);
+      fs.rmSync(this.authDir(tenantId), { recursive: true, force: true });
+      return this._initializeLocked(tenantId, config);
+    });
   }
 
   async stopAll() {

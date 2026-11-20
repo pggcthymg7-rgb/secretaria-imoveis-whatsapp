@@ -8,8 +8,12 @@ if [ -z "${ATUALIZAR_COPIA:-}" ]; then
   cp "$0" "$COPIA"
   ATUALIZAR_COPIA=1 exec bash "$COPIA" "$@"
 fi
+if [[ "$0" == /tmp/secretaria-atualizar.* ]]; then
+  trap 'rm -f "$0"' EXIT
+fi
 APP_DIR="${APP_DIR:-/opt/secretaria}"
 BRANCH="${BRANCH:-main}"
+[[ "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "BRANCH inválido" >&2; exit 1; }
 DATA_DIR="${DATA_DIR:-/var/lib/secretaria}"
 FLAG="$DATA_DIR/atualizar-agora"
 # shellcheck disable=SC2034 # caminho do log, documentado para quem lê o script
@@ -20,7 +24,7 @@ registrar() { # resultado para o painel e o WhatsApp mostrarem (BIGA principal e
     [ -d "$d" ] || continue
     l="$d/atualizacao.log"
     printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M')" "$*" >> "$l" 2>/dev/null || true
-    tail -n 30 "$l" > "$l.tmp" 2>/dev/null && mv "$l.tmp" "$l" 2>/dev/null || true
+    tail -n 30 "$l" > "$l.tmp.$$" 2>/dev/null && mv "$l.tmp.$$" "$l" 2>/dev/null || rm -f "$l.tmp.$$" 2>/dev/null || true
     chmod 644 "$l" 2>/dev/null || true
   done
 }

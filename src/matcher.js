@@ -143,10 +143,22 @@ TEXTO:
     contents: prompt,
     config: { responseMimeType: 'application/json', temperature: 0 }
   });
-  const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout Gemini')), 8000));
-  const response = await Promise.race([call, timeout]);
-  const parsed = JSON.parse(response.text);
-  return Array.isArray(parsed.lugares) ? parsed.lugares : [];
+  let timeoutId;
+  try {
+    const timeout = new Promise((_, rej) => {
+      timeoutId = setTimeout(() => rej(new Error('timeout Gemini')), 8000);
+    });
+    const response = await Promise.race([call, timeout]);
+    let parsed = {};
+    try {
+      parsed = JSON.parse(String((response && response.text) || '{}'));
+    } catch {
+      return [];
+    }
+    return parsed && Array.isArray(parsed.lugares) ? parsed.lugares : [];
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function mergeAiPlaces(criteria, aiPlaces, rawText, index) {
@@ -181,9 +193,12 @@ function mergeAiPlaces(criteria, aiPlaces, rawText, index) {
 let cachedIndex = null;
 let cachedIndexKey = '';
 function getIndex(inventory, settings) {
-  const key = JSON.stringify([osmVersion(), (settings.extraPlaces || []).length, inventory.map(p => `${p.id}:${p.setor}:${p.edificio || ''}`).join('|'), JSON.stringify(settings.extraPlaces || [])]);
+  const list = Array.isArray(inventory) ? inventory : [];
+  const cfg = settings && typeof settings === 'object' ? settings : {};
+  const extras = Array.isArray(cfg.extraPlaces) ? cfg.extraPlaces : [];
+  const key = JSON.stringify([osmVersion(), extras.length, list.map(p => `${p && p.id}:${p && p.setor}:${(p && p.edificio) || ''}`).join('|'), JSON.stringify(extras)]);
   if (!cachedIndex || key !== cachedIndexKey) {
-    cachedIndex = buildIndex({ extraPlaces: settings.extraPlaces || [], inventory });
+    cachedIndex = buildIndex({ extraPlaces: extras, inventory: list });
     cachedIndexKey = key;
   }
   return cachedIndex;
@@ -195,11 +210,12 @@ function getIndex(inventory, settings) {
  * sem ele, vale a configuração do processo (.env), como no modo de 1 corretor por processo.
  */
 async function analyzeMessageAndMatch(messageText, senderName, inventory, options = {}) {
-  if (!messageText || messageText.trim().length < 6) {
+  if (typeof messageText !== 'string' || messageText.trim().length < 6) {
     return { isLookingForProperty: false, decision: 'IGNORAR', reason: 'Mensagem muito curta' };
   }
+  const safeInventory = Array.isArray(inventory) ? inventory : [];
   const settings = loadSettings();
-  const index = getIndex(inventory, settings);
+  const index = getIndex(safeInventory, settings);
   const criteria = parseRequest(messageText, { index });
 
   if (criteria.intent !== 'BUSCA') {
@@ -224,7 +240,7 @@ async function analyzeMessageAndMatch(messageText, senderName, inventory, option
     }
   }
 
-  const evaluation = evaluateInventory(inventory, criteria, index);
+  const evaluation = evaluateInventory(safeInventory, criteria, index);
   const minCriterios = Number(settings.minCriteriosParaEnvio ?? 2);
   const maxOfertas = Math.max(1, Number(settings.maxOfertasPorPedido || 3));
 
@@ -315,26 +331,27 @@ function formatOutreachMessage(senderName, originalMessage, property, analysisCo
       ? { opening: analysisContext.customOpening, closing: analysisContext.customClosing }
       : buildHumanContextualParts(originalMessage, senderName, settings.humanTraining);
 
-  const mob = { SIM: 'Mobiliado', SEMI: 'Com armários', NAO: 'Sem mobília' }[String(property.mobiliado || 'NAO').toUpperCase()] || 'Sem mobília';
-  const s = propSuites(property);
+  const safeProp = property && typeof property === 'object' ? property : {};
+  const mob = { SIM: 'Mobiliado', SEMI: 'Com armários', NAO: 'Sem mobília' }[String(safeProp.mobiliado || 'NAO').toUpperCase()] || 'Sem mobília';
+  const s = propSuites(safeProp);
 
-  return String(template)
-    .replace(/\{abertura_humana\}/gi, human.opening)
-    .replace(/\{fechamento_humano\}/gi, human.closing)
-    .replace(/\{nome\}/gi, firstNameOf(senderName) || '')
-    .replace(/\{tipo\}/gi, propTipo(property))
-    .replace(/\{setor\}/gi, [property.edificio, property.setor].filter(Boolean).join(' · ') || 'Consulte')
-    .replace(/\{edificio\}/gi, property.edificio || '')
-    .replace(/\{regiao\}/gi, property.regiao || property.cidade || 'Goiânia')
-    .replace(/\{mobiliado\}/gi, mob)
-    .replace(/\{quartos\}/gi, property.quartos ? String(property.quartos) : 'Consulte')
-    .replace(/\{suites\}/gi, s ? String(s) : '-')
-    .replace(/\{vagas\}/gi, property.vagas ? String(property.vagas) : '-')
-    .replace(/\{tamanho\}/gi, property.tamanho_m2 ? String(property.tamanho_m2) : 'Consulte')
-    .replace(/\{valor\}/gi, formatPriceLabel(property))
-    .replace(/\{descricao\}/gi, property.descricao || '')
-    .replace(/\{resumo\}/gi, describeProperty(property))
-    .replace(/\{mensagem_original\}/gi, originalMessage || '')
+  return String(template || '')
+    .replace(/\{abertura_humana\}/gi, () => human.opening || '')
+    .replace(/\{fechamento_humano\}/gi, () => human.closing || '')
+    .replace(/\{nome\}/gi, () => firstNameOf(senderName) || '')
+    .replace(/\{tipo\}/gi, () => propTipo(safeProp))
+    .replace(/\{setor\}/gi, () => [safeProp.edificio, safeProp.setor].filter(Boolean).join(' · ') || 'Consulte')
+    .replace(/\{edificio\}/gi, () => safeProp.edificio || '')
+    .replace(/\{regiao\}/gi, () => safeProp.regiao || safeProp.cidade || 'Goiânia')
+    .replace(/\{mobiliado\}/gi, () => mob)
+    .replace(/\{quartos\}/gi, () => (safeProp.quartos ? String(safeProp.quartos) : 'Consulte'))
+    .replace(/\{suites\}/gi, () => (s ? String(s) : '-'))
+    .replace(/\{vagas\}/gi, () => (safeProp.vagas ? String(safeProp.vagas) : '-'))
+    .replace(/\{tamanho\}/gi, () => (safeProp.tamanho_m2 ? String(safeProp.tamanho_m2) : 'Consulte'))
+    .replace(/\{valor\}/gi, () => formatPriceLabel(safeProp))
+    .replace(/\{descricao\}/gi, () => safeProp.descricao || '')
+    .replace(/\{resumo\}/gi, () => describeProperty(safeProp))
+    .replace(/\{mensagem_original\}/gi, () => originalMessage || '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }

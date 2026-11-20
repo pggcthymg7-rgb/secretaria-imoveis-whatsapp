@@ -52,10 +52,14 @@ const CONFIG_TO_ENV = {
   meuWhatsappAlerta: 'MEU_WHATSAPP_ALERTA'
 };
 
+const HOST_SECRET_KEY_RE = /(_SECRET|_TOKEN|_PASSWORD|_SENHA|_API_KEY|_PRIVATE_KEY|^DATABASE_URL$|^REDIS_URL$|^AWS_|^GH_|^GITHUB_|^RENDER_)/i;
+
 /** Ambiente do tenant: infraestrutura do hospedeiro (PATH, TZ, proxy...) + só o que é dele */
 function buildTenantEnv({ baseEnv = process.env, dataDir, configIA = {}, tenantId = '' }) {
   const env = {};
-  for (const [k, v] of Object.entries(baseEnv)) if (!TENANT_PRIVATE_ENV.has(k) && v !== undefined) env[k] = String(v);
+  for (const [k, v] of Object.entries(baseEnv)) {
+    if (!TENANT_PRIVATE_ENV.has(k) && !HOST_SECRET_KEY_RE.test(k) && v !== undefined) env[k] = String(v);
+  }
   // Cadastro do administrador (configuração inicial) < chaves que o próprio corretor salvou
   for (const [field, key] of Object.entries(CONFIG_TO_ENV)) {
     if (typeof configIA[field] === 'string' && configIA[field]) env[key] = configIA[field];
@@ -70,26 +74,36 @@ function buildTenantEnv({ baseEnv = process.env, dataDir, configIA = {}, tenantI
   // Papel fixo: o app do corretor nunca vira administrador do SaaS (ver src/app.js)
   env.BIGA_PAPEL = 'corretor';
   const dominio = String(baseEnv.DOMINIO || '').trim().toLowerCase();
-  if (tenantId && dominio) env.PUBLIC_URL = `https://${tenantId}.${dominio}`;
+  const cleanId = String(tenantId || '').trim().toLowerCase();
+  if (/^[a-z0-9][a-z0-9-]{1,31}$/.test(cleanId) && !cleanId.endsWith('-') && dominio) {
+    env.PUBLIC_URL = `https://${cleanId}.${dominio}`;
+  }
   return env;
 }
 
 /**
- * `process` do tenant: igual ao real, exceto `env` e `exit`.
+ * `process` do tenant: igual ao real, exceto `env`, `exitCode` e `exit`.
  * `exit` NUNCA derruba o processo do SaaS (todos os corretores): recarrega só a BIGA deste tenant.
  */
 function tenantProcess(env, onExit) {
   const exit = code => {
     onExit(code);
   };
+  let localExitCode = 0;
   return new Proxy(process, {
     get(target, key) {
       if (key === 'env') return env;
+      if (key === 'exitCode') return localExitCode;
       if (key === 'exit' || key === 'reallyExit' || key === 'abort') return exit;
-      return Reflect.get(target, key, target);
+      const val = Reflect.get(target, key, target);
+      return typeof val === 'function' ? val.bind(target) : val;
     },
     set(target, key, value) {
       if (key === 'env') return false;
+      if (key === 'exitCode') {
+        localExitCode = value;
+        return true;
+      }
       return Reflect.set(target, key, value, target);
     }
   });
@@ -97,6 +111,16 @@ function tenantProcess(env, onExit) {
 
 function isTenantScoped(file) {
   return file.startsWith(SRC_DIR + path.sep) && !file.startsWith(TENANCY_DIR + path.sep) && file.endsWith('.js');
+}
+
+function makeNoopTimer() {
+  return {
+    ref() { return this; },
+    unref() { return this; },
+    refresh() { return this; },
+    hasRef() { return false; },
+    [Symbol.toPrimitive]() { return 0; }
+  };
 }
 
 /**
@@ -108,23 +132,44 @@ function createTenantContainer({ tenantId, dataDir, env, onExit = code => consol
   fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const proc = tenantProcess(env, onExit);
   const cache = new Map();
+  const reqCache = Object.create(null);
 
   // Timers do tenant são rastreados: dispose() mata todos (ex.: recarregar após restaurar backup
   // sem que uma gravação atrasada da instância antiga sobrescreva os dados restaurados).
-  const timers = new Set();
+  const timeouts = new Set();
+  const intervals = new Set();
   let disposed = false;
-  const track = h => (disposed ? (clearTimeout(h), h) : (timers.add(h), h));
   const tSetTimeout = (fn, ms, ...args) => {
+    if (disposed) return makeNoopTimer();
     const h = setTimeout((...a) => {
-      timers.delete(h);
+      timeouts.delete(h);
+      if (!disposed && typeof fn === 'function') fn(...a);
+    }, ms, ...args);
+    timeouts.add(h);
+    return h;
+  };
+  const tSetInterval = (fn, ms, ...args) => {
+    if (disposed) return makeNoopTimer();
+    const h = setInterval((...a) => {
+      if (disposed) {
+        intervals.delete(h);
+        clearInterval(h);
+        return;
+      }
       if (typeof fn === 'function') fn(...a);
     }, ms, ...args);
-    return track(h);
+    intervals.add(h);
+    return h;
   };
-  const tSetInterval = (fn, ms, ...args) => track(setInterval(fn, ms, ...args));
-  const tClear = h => {
-    timers.delete(h);
+  const tClearTimeout = h => {
+    timeouts.delete(h);
+    intervals.delete(h);
     clearTimeout(h);
+  };
+  const tClearInterval = h => {
+    intervals.delete(h);
+    timeouts.delete(h);
+    clearInterval(h);
   };
 
   function load(filename) {
@@ -134,20 +179,22 @@ function createTenantContainer({ tenantId, dataDir, env, onExit = code => consol
     mod.filename = filename;
     mod.paths = Module._nodeModulePaths(path.dirname(filename));
     cache.set(filename, mod);
+    reqCache[filename] = mod;
     const hostRequire = Module.createRequire(filename);
     const req = id => {
       const resolved = hostRequire.resolve(id);
       return isTenantScoped(resolved) ? load(resolved) : hostRequire(id);
     };
     req.resolve = hostRequire.resolve;
-    req.cache = hostRequire.cache;
+    req.cache = reqCache;
     req.main = require.main;
     try {
       const params = ['exports', 'require', 'module', '__filename', '__dirname', 'process', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'];
       const fn = vm.compileFunction(fs.readFileSync(filename, 'utf-8'), params, { filename });
-      fn.call(mod.exports, mod.exports, req, mod, filename, path.dirname(filename), proc, tSetTimeout, tSetInterval, tClear, tClear);
+      fn.call(mod.exports, mod.exports, req, mod, filename, path.dirname(filename), proc, tSetTimeout, tSetInterval, tClearTimeout, tClearInterval);
     } catch (err) {
       cache.delete(filename);
+      delete reqCache[filename];
       throw err;
     }
     mod.loaded = true;
@@ -167,11 +214,13 @@ function createTenantContainer({ tenantId, dataDir, env, onExit = code => consol
     /** Desliga esta instância: todos os timers param e nada novo é agendado */
     dispose() {
       disposed = true;
-      for (const h of timers) clearTimeout(h);
-      timers.clear();
+      for (const h of timeouts) clearTimeout(h);
+      for (const h of intervals) clearInterval(h);
+      timeouts.clear();
+      intervals.clear();
     },
     get timersAtivos() {
-      return timers.size;
+      return timeouts.size + intervals.size;
     }
   };
 }

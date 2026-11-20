@@ -4,6 +4,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { dataPath } = require('./paths');
 
 function readJson(name, fallback) {
@@ -16,11 +17,21 @@ function readJson(name, fallback) {
   return typeof fallback === 'function' ? fallback() : fallback;
 }
 
-function writeJson(name, data) {
+function writeJson(name, data, { mode } = {}) {
   const file = path.isAbsolute(name) ? name : dataPath(name);
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8');
-  fs.renameSync(tmp, file);
+  const dir = path.dirname(file);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  const opts = mode !== undefined ? { encoding: 'utf-8', mode } : 'utf-8';
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), opts);
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {}
+    throw err;
+  }
 }
 
 module.exports = { readJson, writeJson };
