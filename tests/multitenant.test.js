@@ -6,21 +6,25 @@ const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
 
-// ---- Gemini falso: registra qual chave/modelo cada chamada usou ------------------------------
+// ---- Gemini REST falso: registra qual chave/modelo cada chamada usou ------------------------
 const geminiCalls = [];
-const genaiPath = require.resolve('@google/genai');
-require.cache[genaiPath] = {
-  id: genaiPath,
-  filename: genaiPath,
-  loaded: true,
-  exports: {
-    GoogleGenAI: class {
-      constructor({ apiKey }) {
-        this.models = { generateContent: async ({ model }) => (geminiCalls.push({ apiKey, model }), { text: '{"lugares":[]}' }) };
-      }
+const realFetch = global.fetch;
+global.fetch = async (url, opts) => {
+  const s = String(url);
+  if (s.startsWith('https://generativelanguage.googleapis.com/')) {
+    const apiKey = new Headers(opts?.headers || {}).get('x-goog-api-key') || '';
+    const m = s.match(/\/models\/([^/?:]+):generateContent$/);
+    if (m) {
+      geminiCalls.push({ apiKey, model: decodeURIComponent(m[1]) });
+      return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: '{"lugares":[]}' }] } }] }) };
     }
+    return { ok: true, status: 200, json: async () => ({ models: [] }) };
   }
+  return realFetch(url, opts);
 };
+test.after(() => {
+  global.fetch = realFetch;
+});
 
 // ---- Baileys falso: um socket por tenant ------------------------------------------------------
 const sockets = [];
@@ -395,4 +399,68 @@ test('Agente 1: isolamento extra, prototype lookup, host reservado, concorrênci
     else process.env.DOMINIO = oldDom;
     await t.shutdown();
   }
+});
+
+// ---------------------------------------------------------------------------------------------
+test('Matcher REST: extrai JSON (inclusive em bloco markdown), faz fallback de modelo e degrada sem SDK @google/genai', async () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  assert.equal(Object.hasOwn(pkg.dependencies || {}, '@google/genai'), false, '@google/genai removido de package.json');
+  const matcherSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'matcher.js'), 'utf8');
+  assert.equal(/require\(['"]@google\/genai['"]\)/.test(matcherSrc), false, 'matcher.js não importa @google/genai');
+
+  // 1) JSON dentro de cerca markdown reforça o local e usa x-goog-api-key apenas no header
+  const urlsVistas = [];
+  const fetcherMarkdown = async (url, opts) => {
+    urlsVistas.push({ url: String(url), hdrKey: new Headers(opts?.headers || {}).get('x-goog-api-key') });
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: '```json\n{"lugares":[{"nome":"Esquina do Peixe","tipo":"marco"}]}\n```' }] } }]
+      })
+    };
+  };
+  const inv = [{ id: '10', tipo: 'Apartamento', setor: 'Setor Marista', quartos: 3, tamanho_m2: 120, valor: 900000, ativo: true }];
+  const res1 = await analyzeMessageAndMatch('Procuro apartamento 3 quartos perto da Esquina do Peixe', 'Ana', inv, {
+    tenant: { ia: { geminiApiKey: 'AIzaTestKeyRest123456', geminiModel: 'gemini-2.5-flash' } },
+    fetcher: fetcherMarkdown
+  });
+  assert.equal(urlsVistas.length, 1);
+  assert.ok(!urlsVistas[0].url.includes('AIzaTestKeyRest123456'), 'chave nunca vai na URL');
+  assert.equal(urlsVistas[0].hdrKey, 'AIzaTestKeyRest123456');
+  assert.ok(res1.usedEngine.includes('Gemini (lugares)'));
+  assert.ok(res1.criteria.local.nomesDesconhecidos.includes('esquina do peixe'));
+  assert.ok(res1.criteria.resumo.includes('IA reforçou a localização'));
+
+  // 2) Fallback após 429 no modelo explícito -> descobre modelos -> usa próximo flash-lite
+  const seq = [];
+  const fetcherFallback = async url => {
+    const s = String(url);
+    seq.push(s);
+    if (s.includes('/models/modelo-saturado:generateContent')) {
+      return { ok: false, status: 429, json: async () => ({ error: { message: 'Quota exceeded' } }) };
+    }
+    if (s.includes('/models?')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ models: [{ name: 'models/gemini-2.5-flash-lite', supportedGenerationMethods: ['generateContent'] }] })
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: '{"lugares":[]}' }] } }] }) };
+  };
+  const res2 = await analyzeMessageAndMatch(PEDIDO, 'Bia', inv, {
+    tenant: { ia: { geminiApiKey: 'AIzaFallbackKey999999', geminiModel: 'modelo-saturado' } },
+    fetcher: fetcherFallback
+  });
+  assert.ok(seq.some(u => u.includes('modelo-saturado:generateContent')));
+  assert.ok(seq.some(u => u.includes('gemini-2.5-flash-lite:generateContent')));
+  assert.ok(res2.usedEngine.includes('Gemini (lugares)'));
+
+  // 3) Erro HTTP 500 ou erro de rede não derruba o atendimento local
+  const res3 = await analyzeMessageAndMatch(PEDIDO, 'Carla', inv, {
+    tenant: { ia: { geminiApiKey: 'AIzaErrKey888888', geminiModel: 'gemini-2.5-flash' } },
+    fetcher: async () => ({ ok: false, status: 400, json: async () => ({ error: { message: 'Bad Request' } }) })
+  });
+  assert.equal(res3.usedEngine, 'Motor de regras + Mapa de Goiânia');
 });

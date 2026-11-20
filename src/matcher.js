@@ -9,7 +9,6 @@
  * 5. Monta a mensagem humana adaptada ao horário e ao tom do pedido
  * ============================================================================
  */
-const { GoogleGenAI } = require('@google/genai');
 const { loadSettings } = require('./settings');
 const { parseRequest, fmtPrice } = require('./brain/parser');
 const { buildIndex, detectLocations, osmVersion } = require('./brain/locations');
@@ -127,38 +126,107 @@ function buildHumanContextualParts(messageText, senderName, humanTraining = '', 
 // ---------------------------------------------------------------------------
 // Gemini (opcional): só ajuda a identificar nomes de lugares que o mapa não conhece
 // ---------------------------------------------------------------------------
-async function aiExtractPlaces(messageText, tenant = null) {
-  // Multi-tenant: chave/modelo vêm do TenantContext do corretor; modo clássico: do .env
-  const apiKey = String(tenant?.ia?.geminiApiKey ?? process.env.GEMINI_API_KEY ?? '').trim();
+const GEMINI_MODEL_RX = /^[\w.-]{1,80}$/;
+
+function parseAiPlacesJson(texto) {
+  const bruto = String(texto || '').trim();
+  if (!bruto) return [];
+  const tryParse = s => {
+    try {
+      const j = JSON.parse(s);
+      return j && Array.isArray(j.lugares) ? j.lugares : null;
+    } catch {
+      return null;
+    }
+  };
+  const direto = tryParse(bruto);
+  if (direto) return direto;
+  const ini = bruto.indexOf('{');
+  const fim = bruto.lastIndexOf('}');
+  if (ini >= 0 && fim > ini) {
+    const recortado = tryParse(bruto.slice(ini, fim + 1));
+    if (recortado) return recortado;
+  }
+  return [];
+}
+
+async function aiExtractPlaces(messageText, tenant = null, { fetcher = fetch } = {}) {
+  // Multi-tenant: chave/modelo vêm só do TenantContext do corretor; modo clássico: do .env
+  const rawKey = tenant ? (tenant?.ia?.geminiApiKey ?? '') : (process.env.GEMINI_API_KEY ?? '');
+  const apiKey = require('./gemini-chave').limparChave(rawKey);
   if (!apiKey || apiKey === 'coloque_sua_chave_aqui') return null;
-  const ai = new GoogleGenAI({ apiKey });
+
+  const M = require('./gemini-modelo');
+  const prazo = Date.now() + 8000;
   const prompt = `Você lê pedidos de imóveis em grupos de corretores de Goiânia-GO.
 Extraia SOMENTE nomes de lugares citados no texto: bairros/setores, condomínios, edifícios/empreendimentos, cidades, praças, avenidas e pontos de referência.
 Ignore nomes de pessoas, telefones e lugares mencionados como imóvel oferecido em PERMUTA/TROCA.
 Responda apenas JSON: {"lugares":[{"nome":"texto exatamente como aparece","tipo":"bairro|condominio|edificio|cidade|marco"}]}
 TEXTO:
-"""${String(messageText).slice(0, 2000)}"""`;
-  const call = ai.models.generateContent({
-    model: tenant?.ia?.geminiModel || process.env.GEMINI_MODEL || (await require('./gemini-modelo').escolherModelo(apiKey)),
-    contents: prompt,
-    config: { responseMimeType: 'application/json', temperature: 0 }
-  });
-  let timeoutId;
-  try {
-    const timeout = new Promise((_, rej) => {
-      timeoutId = setTimeout(() => rej(new Error('timeout Gemini')), 8000);
-    });
-    const response = await Promise.race([call, timeout]);
-    let parsed = {};
-    try {
-      parsed = JSON.parse(String((response && response.text) || '{}'));
-    } catch {
-      return [];
+"""${String(messageText || '').slice(0, 2000)}"""`;
+
+  const rawModel = tenant ? (tenant?.ia?.geminiModel ?? '') : (process.env.GEMINI_MODEL ?? '');
+  const explicito = String(rawModel).trim();
+  const seen = new Set();
+  const ordem = [];
+  const pushModel = m => {
+    const s = String(m || '').trim();
+    if (s && GEMINI_MODEL_RX.test(s) && !seen.has(s)) {
+      seen.add(s);
+      ordem.push(s);
     }
-    return parsed && Array.isArray(parsed.lugares) ? parsed.lugares : [];
-  } finally {
-    clearTimeout(timeoutId);
+  };
+
+  let expandiuFallback = false;
+  if (explicito) {
+    pushModel(explicito);
+  } else {
+    expandiuFallback = true;
+    for (const m of await M.escolherModelos(apiKey, { fetcher, preferirLite: true, max: 3 })) pushModel(m);
+    if (!ordem.length) pushModel(await M.escolherModelo(apiKey, { fetcher }));
   }
+  if (!ordem.length) return [];
+
+  let ultimoErro = '';
+  for (let i = 0; i < ordem.length; i++) {
+    const modelo = ordem[i];
+    const restante = prazo - Date.now();
+    if (restante <= 200) throw new Error('timeout Gemini');
+
+    let r;
+    let d = {};
+    try {
+      r = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: 'application/json', temperature: 0 }
+        }),
+        signal: AbortSignal.timeout(restante)
+      });
+      d = await r.json().catch(() => ({}));
+    } catch (err) {
+      throw new Error(String(err?.message || err).slice(0, 200));
+    }
+
+    if (r.ok) {
+      const texto = ((d?.candidates?.[0]?.content?.parts) || []).map(p => p?.text || '').join('');
+      return parseAiPlacesJson(texto);
+    }
+
+    const msg = String(d?.error?.message || r.status).slice(0, 240);
+    ultimoErro = `Gemini HTTP ${r.status}: ${msg}`;
+    if (M.modeloIndisponivel(r.status, msg)) M.marcarIndisponivel(apiKey, modelo);
+    const podeTentarOutro = M.modeloIndisponivel(r.status, msg) || r.status === 429 || M.erroTransitorio(r.status, msg);
+    if (!podeTentarOutro) throw new Error(ultimoErro);
+
+    if (!expandiuFallback && prazo - Date.now() > 1000) {
+      expandiuFallback = true;
+      for (const m of await M.escolherModelos(apiKey, { fetcher, preferirLite: true, max: 2 })) pushModel(m);
+    }
+  }
+  throw new Error(ultimoErro || 'Gemini indisponível');
 }
 
 function mergeAiPlaces(criteria, aiPlaces, rawText, index) {
@@ -230,7 +298,7 @@ async function analyzeMessageAndMatch(messageText, senderName, inventory, option
   let usedEngine = 'Motor de regras + Mapa de Goiânia';
   if (options.useAi !== false && settings.usarIaGemini !== false) {
     try {
-      const aiPlaces = await aiExtractPlaces(messageText, options.tenant || null);
+      const aiPlaces = await aiExtractPlaces(messageText, options.tenant || null, options.fetcher ? { fetcher: options.fetcher } : undefined);
       if (aiPlaces) {
         usedEngine += ' + Gemini (lugares)';
         if (mergeAiPlaces(criteria, aiPlaces, messageText, index)) criteria.resumo += ' · (IA reforçou a localização)';

@@ -6,7 +6,7 @@
  * tenant recebe a SUA instância dos módulos de `src/`, compilados com:
  *   - um `process` próprio, cujo `env` é do tenant (DATA_DIR, chaves de IA, planilha, alerta);
  *   - um `require` que instancia de novo só arquivos de `src/` (bibliotecas de node_modules,
- *     Baileys, Gemini, sharp etc. continuam compartilhadas — é aí que está o ganho de memória).
+ *     Baileys, sharp etc. continuam compartilhadas — é aí que está o ganho de memória).
  * Resultado: estado e arquivos de um corretor nunca enxergam os de outro, e a regra de negócio
  * continua byte a byte a mesma.
  */
