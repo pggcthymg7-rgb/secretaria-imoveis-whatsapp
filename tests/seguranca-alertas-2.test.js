@@ -149,11 +149,12 @@ test('Passada 2: app.shutdown() limpa timers de pdf16x9/rateLimit/anuncios, rota
   const pdf16x9 = require('../src/pdf/deck16x9/manager');
   const appMod = require('../src/web/app');
   const waSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'whatsapp', 'client.js'), 'utf8');
-  const appSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'app.js'), 'utf8');
+  const pdfRoutesSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'routes', 'pdf.routes.js'), 'utf8');
+  const vitrineRoutesSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'routes', 'vitrine.routes.js'), 'utf8');
 
   assert.match(waSrc, /fs\.mkdirSync\(FOTOS_DIR,\s*\{\s*recursive:\s*true\s*\}\)/);
-  assert.match(appSrc, /Object\.prototype\.hasOwnProperty\.call\(fichas16,\s*pidStr\)/);
-  assert.match(appSrc, /Object\.prototype\.hasOwnProperty\.call\(posts,\s*String\(p\.id\)\)/);
+  assert.match(pdfRoutesSrc, /Object\.prototype\.hasOwnProperty\.call\(fichas16,\s*pidStr\)/);
+  assert.match(vitrineRoutesSrc, /Object\.prototype\.hasOwnProperty\.call\(posts,\s*String\(p\.id\)\)/);
 
   pdf16x9.agendarPreGeracao({ id: 'passada2_shutdown' }, 60000);
   assert.doesNotThrow(() => appMod.shutdown());

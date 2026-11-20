@@ -19,7 +19,7 @@ Guia simples de onde cada parte do sistema mora e onde mexer para fazer alteraç
 ├── tests/                    # Testes automatizados (rodados com npm test)
 └── src/                      # Código principal da aplicação
     ├── public/               # Telas do painel web (HTML, CSS, JS visual e editor de capas)
-    ├── web/                  # Servidor web Express (app.js com autenticação, rotas da API e painel)
+    ├── web/                  # Servidor web Express (app.js, helpers.js e rotas por domínio em routes/)
     ├── config/               # Caminhos, gravação em JSON, .env, ajustes, login, backup, métricas e atualização
     ├── whatsapp/             # Conexão WhatsApp (Baileys), reconexão, atendimento 1ª msg/ligações, contatos e comandos
     ├── brain/                # Cérebro de leitura: bairros/condomínios (mapa OSM), parser de pedidos e motor de busca
@@ -38,7 +38,7 @@ Guia simples de onde cada parte do sistema mora e onde mexer para fazer alteraç
 | **Visual, cores, telas, botões e menus do painel** | `src/public/` | `index.html`, `app.css`, `app.js`, `biga-art.js` |
 | **Editor visual de capas no navegador** | `src/public/capas.js` e `src/public/fontes-google.json` | Canvas, camadas, presets e lista de fontes Google |
 | **Salvar/carregar modelos de capa no servidor** | `src/domain/capas.js` | Persistência dos modelos salvos (`capas.json`) |
-| **Rotas HTTP e endpoints da API (`/api/...`)** | `src/web/app.js` | Endpoints do painel, uploads, segurança HTTP e montagem de rotas |
+| **Rotas HTTP e endpoints da API (`/api/...`)** | `src/web/app.js` e `src/web/routes/*.routes.js` | Segurança HTTP em `app.js` e rotas separadas por área (`status`, `carteira`, `config`, `radar`, `pdf`, `vitrine`, `prospeccao`, `busca`) |
 | **Conexão com WhatsApp, QR Code e queda/reconexão** | `src/whatsapp/client.js` e `src/whatsapp/reconexao.js` | Socket Baileys, leitura de grupos e disparo de mensagens |
 | **Comandos no "Mensagem para mim" (`ajuda`, `busca`, etc.)** | `src/whatsapp/assistant.js` | Interpretador de comandos do dono via WhatsApp |
 | **Atendimento diário (1ª mensagem e ligação perdida)** | `src/whatsapp/atendimento-diario.js` e `src/whatsapp/contacts.js` | Saudação inicial, cooldown e memória telefone + LID |
