@@ -655,7 +655,7 @@
         <div class="row tight"><label class="btn-ghost accent" style="cursor:pointer">+ Imagem (opcional)<input type="file" id="campImg" accept="image/jpeg,image/png,image/webp"></label><span class="caption" id="campImgName">${esc(S.campImg || '')}</span>${S.campImg ? '<button class="btn-ghost" data-action="rmCampImg">remover</button>' : ''}</div>
         <div class="split top">
           <div class="stack-sm">
-            <span class="field"><span>Contatos do WhatsApp · ${S.selContacts.size} selecionado(s)</span></span>
+            <span class="field"><span>Contatos do WhatsApp · <span id="selContactsCount">${S.selContacts.size}</span> selecionado(s)</span></span>
             ${field('filtroContato', 'Filtrar', S.filtroContato || '', { type: 'search', ph: 'nome ou número' })}
             <div class="row tight"><button class="btn-ghost accent" data-action="selTodos">Selecionar filtrados</button><button class="btn-ghost" data-action="selNenhum">Limpar</button></div>
             <div class="chips" style="max-height:320px;overflow:auto">${contatos.length ? contatos.map(c => toggle(`c:${c.telefone}`, S.selContacts.has(c.telefone), `${c.nome || 'Sem nome'} · ${c.telefone}`)).join('') : '<span class="body ash">A lista aparece conforme o WhatsApp sincroniza seus contatos.</span>'}</div>
@@ -1734,15 +1734,15 @@
     selTodos: () => {
       const f = (S.filtroContato || '').toLowerCase();
       S.contatos.filter(c => !f || (c.nome + c.telefone).toLowerCase().includes(f)).forEach(c => S.selContacts.add(c.telefone));
-      render();
+      render({ manterCampos: true });
     },
     selNenhum: () => {
       S.selContacts.clear();
-      render();
+      render({ manterCampos: true });
     },
     rmCampImg: () => {
       S.campImg = '';
-      render();
+      render({ manterCampos: true });
     },
     criarCampanha: el => criarCampanha(true, el),
     criarRascunho: el => criarCampanha(false, el),
@@ -1895,6 +1895,8 @@
       const k = tg.dataset.toggle;
       if (k.startsWith('c:')) {
         on ? S.selContacts.add(k.slice(2)) : S.selContacts.delete(k.slice(2));
+        const cnt = $('#selContactsCount');
+        if (cnt) cnt.textContent = String(S.selContacts.size);
         return;
       }
       if (k.startsWith('g:')) applyGroupFilter('vit');
@@ -1955,7 +1957,7 @@
       S._ft = setTimeout(() => {
         if (S.route !== rota) return;
         const pos = e.target.selectionStart;
-        render();
+        render({ manterCampos: true });
         const again = $(`[name="${CSS.escape(n)}"]`);
         if (again) {
           again.focus();
