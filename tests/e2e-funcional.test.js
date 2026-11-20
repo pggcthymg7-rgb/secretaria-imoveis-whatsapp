@@ -147,3 +147,49 @@ test('Agente 3 E2E: Carteira CRUD, Vitrine ciclo completo, Quem Procura e Prospe
   assert.ok(appJs.includes('id="selContactsCount"'), 'Contador de contatos selecionados deve ter id selContactsCount');
   assert.ok(appJs.includes("cnt.textContent = String(S.selContacts.size)"), 'Clique em contato deve atualizar selContactsCount');
 });
+
+test('Agente 4 E2E: API Capas, fontes, SVG BIGA_ART, duplicação de logo e carregamento sem itálico 400', async t => {
+  const vm = require('vm');
+  const srv = http.createServer(app);
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  t.after(() => new Promise(r => srv.close(r)));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+
+  const loginRes = await fetch(`${base}/api/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-secretaria': '1' },
+    body: JSON.stringify({ senha: process.env.PAINEL_SENHA })
+  });
+  const cookie = loginRes.headers.get('set-cookie').split(';')[0];
+  const H = { 'Content-Type': 'application/json', 'x-secretaria': '1', cookie };
+
+  // Testar biga-art.js e capas.js em contexto sandbox de browser mínimo
+  const win = { BIGA_ART: null, BIGA_CAPAS: null, matchMedia: () => ({ matches: false }), addEventListener: () => {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'biga-art.js'), 'utf-8'), { window: win, document: { querySelectorAll: () => [] } });
+  assert.match(win.BIGA_ART.bigaSVG('e2e'), /<svg[\s\S]+<\/svg>/);
+  assert.match(win.BIGA_ART.skySVG(), /<svg[\s\S]+<\/svg>/);
+  assert.match(win.BIGA_ART.miniBiga(), /class="biga-mini"/);
+
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'capas.js'), 'utf-8'), { window: win, Set, Map });
+  const mPronto = win.BIGA_CAPAS.modeloPronto('minimal', 'story');
+  assert.equal(mPronto.camadas.length > 0, true);
+  assert.equal(win.BIGA_CAPAS.trocar('Imóvel {preco}', win.BIGA_CAPAS.variaveis({ valor: 500000 })).includes('500.000'), true);
+
+  // API Capas CRUD completo
+  const saveRes = await (await fetch(`${base}/api/capas/modelos`, {
+    method: 'POST',
+    headers: H,
+    body: JSON.stringify({ nome: 'Capas E2E', tamanho: 'quadrado', fundo: '#0D0D0D', camadas: mPronto.camadas })
+  })).json();
+  assert.equal(saveRes.ok, true);
+  const modId = saveRes.modelo.id;
+
+  const listRes = await (await fetch(`${base}/api/capas`, { headers: { cookie } })).json();
+  assert.ok(listRes.modelos.some(m => m.id === modId));
+  const delRes = await (await fetch(`${base}/api/capas/modelos/${modId}`, { method: 'DELETE', headers: H })).json();
+  assert.equal(delRes.ok, true);
+
+  const capasJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'capas.js'), 'utf-8');
+  assert.ok(capasJs.includes('if (dup.tipo === \'logo\' && E.R.logos[c.id]) E.R.logos[dup.id] = E.R.logos[c.id]'), 'Duplicar logo deve copiar imagem carregada para novo ID');
+  assert.ok(capasJs.includes('const ok = italico'), 'carregarFonte só deve tentar ital,wght quando italico estiver ativo');
+});
