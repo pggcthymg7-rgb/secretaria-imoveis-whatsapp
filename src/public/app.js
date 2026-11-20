@@ -46,7 +46,7 @@
     try {
       data = await r.json();
     } catch {}
-    if (r.status === 401 && !url.startsWith('/api/login') && !url.startsWith('/api/setup')) {
+    if (r.status === 401 && !url.startsWith('/api/login') && !url.startsWith('/api/setup') && !url.startsWith('/api/change-password')) {
       S.authed = false;
       render();
       throw new Error('Faça login novamente.');
@@ -193,8 +193,8 @@
         await api('POST', setup ? '/api/setup' : '/api/login', d);
         S.authed = true;
         S.configured = true;
-        await loadStatus();
-        render();
+        S._booted = false;
+        await go();
       } catch (err) {
         toast(err.message, true);
       }

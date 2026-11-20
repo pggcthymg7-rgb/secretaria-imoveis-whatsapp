@@ -125,7 +125,8 @@ function loadSettings() {
   }
   if (!Array.isArray(merged.dailySimpleReplies)) merged.dailySimpleReplies = [];
   if (!Array.isArray(merged.extraPlaces)) merged.extraPlaces = [];
-  merged.maxPhotosPerMatch = Math.min(10, Math.max(0, Number(merged.maxPhotosPerMatch) || 5));
+  const rawMaxPhotos = merged.maxPhotosPerMatch === '' || merged.maxPhotosPerMatch === null || merged.maxPhotosPerMatch === undefined ? 5 : Number(merged.maxPhotosPerMatch);
+  merged.maxPhotosPerMatch = Math.min(10, Math.max(0, Number.isFinite(rawMaxPhotos) ? rawMaxPhotos : 5));
   merged.modoApenasAvisar = Boolean(merged.modoApenasAvisar);
   return merged;
 }
