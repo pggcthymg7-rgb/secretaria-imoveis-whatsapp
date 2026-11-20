@@ -105,3 +105,40 @@ test('Painel (app.js): campos de filtro gravam em propriedades FIXAS de S (sem S
   digitar('busca', 'casa'); digitar('filtroContato', 'ana'); digitar('filtroBairro', 'marista');
   assert.deepEqual(S, { filtro: 'casa', filtroContato: 'ana', filtroBairro: 'marista' });
 });
+
+test('Agente 6: frontend (app.js, capas.js, biga-art.js) sem erros de sintaxe e com sanitização de links, SVG, telefone e viewCarteira', () => {
+  const pub = path.join(__dirname, '..', 'src', 'public');
+  const appSrc = fs.readFileSync(path.join(pub, 'app.js'), 'utf8');
+  const capasSrc = fs.readFileSync(path.join(pub, 'capas.js'), 'utf8');
+  const artSrc = fs.readFileSync(path.join(pub, 'biga-art.js'), 'utf8');
+
+  new Function(appSrc); // eslint-disable-line no-new-func
+  new Function(capasSrc); // eslint-disable-line no-new-func
+  new Function(artSrc); // eslint-disable-line no-new-func
+
+  // Helpers obrigatórios de sanitização em app.js
+  const mh = appSrc.match(/const safeHref = u => ([^;]+);/);
+  const mw = appSrc.match(/const safeWaPhone = s => ([^;]+);/);
+  const mq = appSrc.match(/const safeQrSvg = s => \{([\s\S]*?)\};/);
+  assert.ok(mh && mw && mq, 'helpers safeHref, safeWaPhone e safeQrSvg presentes');
+
+  const safeHref = new Function(`return u => ${mh[1]};`)();
+  assert.equal(safeHref('javascript:alert(1)'), '#');
+  assert.equal(safeHref('https://zapimoveis.com.br/imovel/1'), 'https://zapimoveis.com.br/imovel/1');
+
+  const safeWaPhone = new Function(`return s => ${mw[1]};`)();
+  assert.equal(safeWaPhone('+55 (62) 99999-0000" onclick="alert(1)'), '55629999900001');
+
+  const safeQrSvg = new Function(`return s => {${mq[1]}};`)();
+  assert.equal(safeQrSvg('<svg><script>alert(1)</script></svg>'), '');
+  assert.equal(safeQrSvg('<svg onload="alert(1)"></svg>'), '');
+  assert.equal(safeQrSvg('<svg viewBox="0 0 10 10"><rect/></svg>'), '<svg viewBox="0 0 10 10"><rect/></svg>');
+
+  // Garantia contra XSS não escapado em links e textos do app.js
+  assert.ok(!appSrc.includes('href="${esc(x.link)}"'), 'x.link deve passar por safeHref');
+  assert.ok(!appSrc.includes('href="${esc(l.link)}"'), 'l.link deve passar por safeHref');
+  assert.ok(!appSrc.includes('href="${esc(f.url)}"'), 'f.url deve passar por safeHref');
+  assert.ok(!appSrc.includes('href="${esc(u)}"'), 'u deve passar por safeHref');
+  assert.ok(!appSrc.includes('<span>${f.titulo || f.url}</span>'), 'fontesSoltas deve usar esc()');
+  assert.ok(appSrc.includes("const reentrancia") || appSrc.includes("pollingEquipe"), 'polling deve ter trava anti-reentrância');
+});

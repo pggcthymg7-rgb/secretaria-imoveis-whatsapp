@@ -29,6 +29,7 @@
   const CHAVES = new Set(['nome', 'x', 'y', 'w', 'h', 'rot', 'opacidade', 'texto', 'peso', 'alinhamento', 'tamanho', 'escalaX', 'escalaY', 'espacamento', 'entrelinha', 'italico', 'maiusculas', 'fundo', 'raioFundo', 'folga', 'sombra', 'contorno', 'ancora', 'zoom', 'offX', 'offY', 'brilho', 'contraste', 'saturacao', 'desfoque', 'raio', 'borda', 'angulo', 'cor', 'corFundo', 'corSombra', 'corContorno', 'corBorda', 'cor1', 'cor2']);
 
   const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const safeFont = f => (/^[A-Za-z0-9 ]{1,60}$/.test(String(f || '')) ? String(f) : 'Inter');
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   const uid = () => Math.random().toString(36).slice(2, 10);
   const copia = o => JSON.parse(JSON.stringify(o));
@@ -62,7 +63,10 @@
     if (FONTES) return FONTES;
     try {
       const r = await fetch('/assets/fontes-google.json', { credentials: 'same-origin' });
-      FONTES = (await r.json()).familias;
+      if (!r.ok) throw new Error('erro fontes');
+      const j = await r.json();
+      if (!Array.isArray(j.familias)) throw new Error('formato inválido');
+      FONTES = j.familias;
     } catch {
       FONTES = [['Inter', 's', [400, 700]], ['Playfair Display', 'r', [400, 700]], ['Montserrat', 's', [400, 700, 800]]];
     }
@@ -77,10 +81,21 @@
       const l = document.createElement('link');
       l.rel = 'stylesheet';
       l.href = href;
-      l.onload = () => res(true);
-      l.onerror = () => res(false);
+      let settled = false;
+      const done = ok => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(t);
+        if (!ok) {
+          folhas.delete(href);
+          l.remove();
+        }
+        res(ok);
+      };
+      const t = setTimeout(() => done(false), 8000);
+      l.onload = () => done(true);
+      l.onerror = () => done(false);
       document.head.appendChild(l);
-      setTimeout(() => res(false), 8000);
     });
     folhas.set(href, p);
     return p;
@@ -88,15 +103,16 @@
   const famUrl = fam => encodeURIComponent(fam).replace(/%20/g, '+');
   /** carrega a família inteira (todos os pesos) e espera o navegador ter a fonte pronta para o canvas */
   async function carregarFonte(fam, peso = 400, italico = false) {
-    if (!fam || /^(sans-serif|serif)$/.test(fam)) return;
+    const safeFam = safeFont(fam);
+    if (!safeFam || /^(sans-serif|serif)$/.test(safeFam)) return;
     await listaFontes();
-    const ps = pesosDe(fam);
+    const ps = pesosDe(safeFam);
     // ital,wght pede itálico e normal de todos os pesos (família sem itálico: o Google devolve erro 400 -> tenta sem)
-    const ok = await linkFonte(`https://fonts.googleapis.com/css2?family=${famUrl(fam)}:ital,wght@${[0, 1].flatMap(i => ps.map(w => `${i},${w}`)).join(';')}&display=swap`);
-    if (!ok) await linkFonte(`https://fonts.googleapis.com/css2?family=${famUrl(fam)}:wght@${ps.join(';')}&display=swap`);
-    fontesCarregadas.add(fam);
+    const ok = await linkFonte(`https://fonts.googleapis.com/css2?family=${famUrl(safeFam)}:ital,wght@${[0, 1].flatMap(i => ps.map(w => `${i},${w}`)).join(';')}&display=swap`);
+    if (!ok) await linkFonte(`https://fonts.googleapis.com/css2?family=${famUrl(safeFam)}:wght@${ps.join(';')}&display=swap`);
+    fontesCarregadas.add(safeFam);
     try {
-      await document.fonts.load(`${italico ? 'italic ' : ''}${peso} 48px "${fam}"`);
+      await document.fonts.load(`${italico ? 'italic ' : ''}${peso} 48px "${safeFam}"`);
     } catch {}
   }
   /** prévia barata: só as letras do nome da fonte (parâmetro text= do Google Fonts) */
@@ -329,15 +345,23 @@
     await Promise.all(doc.camadas.filter(c => c.tipo === 'texto').map(c => carregarFonte(c.fonte, c.peso, c.italico)));
     return { vars, fotos: fotos.filter(Boolean), logos, semFoto: prop ? 'Este imóvel não tem foto' : 'Escolha um imóvel' };
   }
+  const MAX_CACHE_IMG = 100;
   const cacheImg = new Map();
   function carregarImagem(src) {
     if (!src) return Promise.resolve(null);
     if (cacheImg.has(src)) return cacheImg.get(src);
+    if (cacheImg.size >= MAX_CACHE_IMG) {
+      const oldest = cacheImg.keys().next().value;
+      if (oldest !== undefined) cacheImg.delete(oldest);
+    }
     const p = new Promise(res => {
       const img = new Image();
       if (/^https?:/i.test(src) && !src.startsWith(location.origin)) img.crossOrigin = 'anonymous';
       img.onload = () => res(img);
-      img.onerror = () => res(null);
+      img.onerror = () => {
+        cacheImg.delete(src);
+        res(null);
+      };
       img.src = src;
     });
     cacheImg.set(src, p);
@@ -548,6 +572,7 @@
     // ---------------- interação no canvas
     function ponto(ev) {
       const r = canvas.getBoundingClientRect();
+      if (!r.width || !r.height) return { x: 0, y: 0 };
       return { x: ((ev.clientX - r.left) / r.width) * canvas.width, y: ((ev.clientY - r.top) / r.height) * canvas.height };
     }
     function local(c, p) {
@@ -567,9 +592,11 @@
     }
     canvas.addEventListener('pointerdown', ev => {
       if (!E.doc) return;
+      const rect = canvas.getBoundingClientRect();
+      if (!rect.width) return;
       const p = ponto(ev);
       const atual = camada(E.sel);
-      const tol = HANDLE * (canvas.width / canvas.getBoundingClientRect().width) * 0.9;
+      const tol = HANDLE * (canvas.width / rect.width) * 0.9;
       if (atual && !atual.travada) {
         const l = local(atual, p);
         if (Math.hypot(l.x, l.y + atual.h / 2 + 60) < tol) return iniciar(ev, { modo: 'girar', c: atual, p });
@@ -729,7 +756,10 @@
     }
 
     // ---------------- painel de propriedades
-    const num = (k, rot, v, min, max, passo = 1) => `<label class="cp-num"><span>${rot}</span><input type="range" data-k="${k}" min="${min}" max="${max}" step="${passo}" value="${v}"><input type="number" data-k="${k}" min="${min}" max="${max}" step="${passo}" value="${Math.round(v * 100) / 100}"></label>`;
+    const num = (k, rot, v, min, max, passo = 1) => {
+      const n = Number(v) || 0;
+      return `<label class="cp-num"><span>${esc(rot)}</span><input type="range" data-k="${esc(k)}" min="${min}" max="${max}" step="${passo}" value="${n}"><input type="number" data-k="${esc(k)}" min="${min}" max="${max}" step="${passo}" value="${Math.round(n * 100) / 100}"></label>`;
+    };
     const corCampo = (k, rot, v) => `<div class="cp-cor"><span>${rot}</span><button class="cp-amostra" data-cp="roda" data-k="${k}" style="--c:${esc(hexRgba(v))}" title="${esc(v)}"></button><input type="text" data-k="${k}" value="${esc(v)}" maxlength="9" spellcheck="false"></div>${E.rodaPara === k ? rodaHtml(v) : ''}`;
     const chk = (k, rot, v) => `<label class="cp-chk"><input type="checkbox" data-k="${k}" ${v ? 'checked' : ''}> ${rot}</label>`;
     function rodaHtml(v) {
@@ -742,6 +772,7 @@
     }
     function painel() {
       const box = $('#cpProps');
+      if (!box) return;
       const c = camada(E.sel);
       if (!c) {
         box.innerHTML = `<span class="label">Arte</span>${E.doc ? corCampo('doc.fundo', 'Cor de fundo', E.doc.fundo) : ''}<p class="caption">Clique numa camada da arte ou da lista para editar. Dica: os textos com {nome}, {preco}, {bairro}… trocam sozinhos quando você muda o imóvel.</p>`;
@@ -759,7 +790,7 @@
         esp = `
           <label class="field"><span>Texto</span><textarea data-k="texto" rows="3">${esc(c.texto)}</textarea></label>
           <div class="cp-vars">${VARS.map(([v, r]) => `<button class="tag" data-cp="var" data-v="${v}" title="${r}">${v}</button>`).join('')}</div>
-          <div class="cp-fonte"><span class="label">Fonte: <b style="font-family:'${esc(c.fonte)}'">${esc(c.fonte)}</b></span>
+          <div class="cp-fonte"><span class="label">Fonte: <b style="font-family:'${esc(safeFont(c.fonte))}'">${esc(c.fonte)}</b></span>
             <div class="row tight"><input type="search" data-cpf="busca" placeholder="Buscar entre ${FONTES ? FONTES.length : '1.800+'} fontes do Google…" value="${esc(E.fonteBusca)}"><select data-cpf="cat"><option value="">Todas</option>${Object.entries(CAT).map(([k, v]) => `<option value="${k}" ${E.fonteCat === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
             <div class="cp-fontes" id="cpFontes"></div></div>
           <div class="cp-grade"><label class="field"><span>Peso</span><select data-k="peso">${pesosDe(c.fonte).map(w => `<option value="${w}" ${w === c.peso ? 'selected' : ''}>${w}</option>`).join('')}</select></label>
@@ -809,7 +840,7 @@
       const achadas = todas.filter(f => (!E.fonteCat || f[1] === E.fonteCat) && (!q || f[0].toLowerCase().includes(q))).slice(0, 40);
       achadas.forEach(f => previaFonte(f[0]));
       const atual = camada(E.sel);
-      box.innerHTML = achadas.length ? achadas.map(f => `<button data-cp="fonte" data-f="${esc(f[0])}" class="${atual && atual.fonte === f[0] ? 'sel' : ''}" style="font-family:'${esc(f[0])}',sans-serif">${esc(f[0])}</button>`).join('') : '<p class="caption">Nenhuma fonte com esse nome.</p>';
+      box.innerHTML = achadas.length ? achadas.map(f => `<button data-cp="fonte" data-f="${esc(f[0])}" class="${atual && atual.fonte === f[0] ? 'sel' : ''}" style="font-family:'${esc(safeFont(f[0]))}',sans-serif">${esc(f[0])}</button>`).join('') : '<p class="caption">Nenhuma fonte com esse nome.</p>';
     }
 
     // ---------------- roda de cores (hue x saturação)
@@ -883,9 +914,9 @@
       redesenhar();
       if (refazPainel) painel();
       else {
-        const amostra = el.querySelector(`.cp-amostra[data-k="${k}"]`);
+        const amostra = el.querySelector(`.cp-amostra[data-k="${CSS.escape(k)}"]`);
         if (amostra) amostra.style.setProperty('--c', hexRgba(hex));
-        const txt = el.querySelector(`.cp-cor input[data-k="${k}"]`);
+        const txt = el.querySelector(`.cp-cor input[data-k="${CSS.escape(k)}"]`);
         if (txt) txt.value = hex;
         desenharRoda();
       }
@@ -921,7 +952,7 @@
         const v = Number(t.value);
         if (!Number.isFinite(v)) return;
         c[k] = v;
-        const par = el.querySelectorAll(`#cpProps [data-k="${k}"]`);
+        const par = el.querySelectorAll(`#cpProps [data-k="${CSS.escape(k)}"]`);
         par.forEach(o => o !== t && (o.value = v));
         if (k === 'escalaX' && E.uniforme && c.tipo === 'texto') {
           c.escalaY = v;
@@ -997,10 +1028,11 @@
       const src = await new Promise(res => {
         const fr = new FileReader();
         fr.onload = () => res(fr.result);
+        fr.onerror = () => res(null);
         fr.readAsDataURL(arquivo);
       });
       const img = await carregarImagem(src);
-      if (!img) return toast('Não consegui abrir esse arquivo.', true);
+      if (!img || !img.naturalWidth || !img.naturalHeight) return toast('Não consegui abrir esse arquivo.', true);
       marcar();
       const w = 260;
       const h = Math.round((img.naturalHeight / img.naturalWidth) * w);
@@ -1177,9 +1209,13 @@
       });
     }
     async function baixar(cv, nome) {
-      if (cv === canvas) desenhar(g, E.doc, E.R, null); // sem a seleção azul
-      const b = await blobDe(cv);
-      if (cv === canvas) redesenhar();
+      let b;
+      try {
+        if (cv === canvas) desenhar(g, E.doc, E.R, null); // sem a seleção azul
+        b = await blobDe(cv);
+      } finally {
+        if (cv === canvas) redesenhar();
+      }
       const a = document.createElement('a');
       a.href = URL.createObjectURL(b);
       a.download = nome;
@@ -1190,9 +1226,13 @@
     }
     async function usarNaVitrine(cv, p) {
       if (!p) return toast('Escolha um imóvel primeiro.', true);
-      if (cv === canvas) desenhar(g, E.doc, E.R, null);
-      const b = await blobDe(cv);
-      if (cv === canvas) redesenhar();
+      let b;
+      try {
+        if (cv === canvas) desenhar(g, E.doc, E.R, null);
+        b = await blobDe(cv);
+      } finally {
+        if (cv === canvas) redesenhar();
+      }
       const fd = new FormData();
       fd.append('photos', b, nomeArquivo(p));
       const up = await api('POST', '/api/upload-photos', fd, true);
@@ -1223,32 +1263,38 @@
       $('#cpLote').scrollIntoView({ behavior: 'smooth' });
     }
     async function gerarLote() {
+      if (E.loteGerando || !E.doc) return;
       const ids = [...el.querySelectorAll('#cpLote input[name=loteImovel]:checked')].map(i => i.value);
       if (!ids.length) return toast('Marque pelo menos um imóvel.', true);
       const grade = $('#cpLoteGrade');
       grade.innerHTML = '<p class="caption">Gerando…</p>';
       E.lote.itens = [];
-      const [W, H] = TAM[E.doc.tamanho];
-      for (const idp of ids) {
-        const p = inventario().find(x => String(x.id) === idp);
-        if (!p) continue;
-        const cv = document.createElement('canvas');
-        cv.width = W;
-        cv.height = H;
-        const doc = copia(E.doc);
-        for (const c of doc.camadas) if (c.tipo === 'foto' && c.indiceFoto >= fotosDe(p).length) c.indiceFoto = 0;
-        const R = await recursos(doc, p, fotoUrl);
-        desenhar(cv.getContext('2d'), doc, R, null);
-        E.lote.itens.push({ id: p.id, p, cv });
-      }
-      grade.innerHTML = E.lote.itens.map(it => `<figure class="cp-lote-item"><img alt="Capa do imóvel #${esc(it.id)}" data-lote-img="${esc(it.id)}"><figcaption>#${esc(it.id)} ${esc(it.p.setor || '')}<span class="row tight"><button class="btn-ghost" data-cp="loteBaixar" data-id="${esc(it.id)}">Baixar</button><button class="btn-ghost accent" data-cp="loteVitrine" data-id="${esc(it.id)}">Vitrine</button></span></figcaption></figure>`).join('') + (E.lote.itens.length > 1 ? `<div class="row tight cp-lote-todas"><button class="btn-ghost" data-cp="loteBaixarTodas">Baixar todas</button><button class="btn-primary" data-cp="loteVitrineTodas">Usar todas na Vitrine</button></div>` : '');
-      for (const it of E.lote.itens) {
-        const img = grade.querySelector(`[data-lote-img="${CSS.escape(String(it.id))}"]`);
-        try {
-          if (img) img.src = it.cv.toDataURL('image/jpeg', 0.6);
-        } catch {
-          if (img) img.alt = 'Prévia bloqueada (foto de outro site)';
+      E.loteGerando = true;
+      try {
+        const [W, H] = TAM[E.doc.tamanho];
+        for (const idp of ids) {
+          const p = inventario().find(x => String(x.id) === idp);
+          if (!p) continue;
+          const cv = document.createElement('canvas');
+          cv.width = W;
+          cv.height = H;
+          const doc = copia(E.doc);
+          for (const c of doc.camadas) if (c.tipo === 'foto' && c.indiceFoto >= fotosDe(p).length) c.indiceFoto = 0;
+          const R = await recursos(doc, p, fotoUrl);
+          desenhar(cv.getContext('2d'), doc, R, null);
+          E.lote.itens.push({ id: p.id, p, cv });
         }
+        grade.innerHTML = E.lote.itens.map(it => `<figure class="cp-lote-item"><img alt="Capa do imóvel #${esc(it.id)}" data-lote-img="${esc(it.id)}"><figcaption>#${esc(it.id)} ${esc(it.p.setor || '')}<span class="row tight"><button class="btn-ghost" data-cp="loteBaixar" data-id="${esc(it.id)}">Baixar</button><button class="btn-ghost accent" data-cp="loteVitrine" data-id="${esc(it.id)}">Vitrine</button></span></figcaption></figure>`).join('') + (E.lote.itens.length > 1 ? `<div class="row tight cp-lote-todas"><button class="btn-ghost" data-cp="loteBaixarTodas">Baixar todas</button><button class="btn-primary" data-cp="loteVitrineTodas">Usar todas na Vitrine</button></div>` : '');
+        for (const it of E.lote.itens) {
+          const img = grade.querySelector(`[data-lote-img="${CSS.escape(String(it.id))}"]`);
+          try {
+            if (img) img.src = it.cv.toDataURL('image/jpeg', 0.6);
+          } catch {
+            if (img) img.alt = 'Prévia bloqueada (foto de outro site)';
+          }
+        }
+      } finally {
+        E.loteGerando = false;
       }
     }
     const itemLote = idp => (E.lote?.itens || []).find(x => String(x.id) === String(idp));
