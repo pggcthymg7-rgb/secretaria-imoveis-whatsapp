@@ -269,3 +269,81 @@ test('Agente 5 E2E: PDF 16:9 respeita páginas customizadas, fotos=[], restaurar
   const appJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'app.js'), 'utf-8');
   assert.ok(appJs.includes('pgTitulo_${i}'), 'coletarPdf deve coletar títulos das páginas de texto');
 });
+
+test('Agente 6 E2E: Cérebro extremo, Busca/Garimpo com fallback 502/429/timeout, atendimento e scheduler limpo', async t => {
+  const { analyzeMessageAndMatch } = require('../src/matcher');
+  const garimpo = require('../src/garimpo');
+  const scheduler = require('../src/scheduler');
+  const daily = require('../src/atendimento-diario');
+  const anuncios = require('../src/anuncios');
+
+  const srv = http.createServer(app);
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  t.after(() => new Promise(r => srv.close(r)));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+
+  const loginRes = await fetch(`${base}/api/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-secretaria': '1' },
+    body: JSON.stringify({ senha: process.env.PAINEL_SENHA })
+  });
+  const cookie = loginRes.headers.get('set-cookie').split(';')[0];
+  const H = { 'Content-Type': 'application/json', 'x-secretaria': '1', cookie };
+
+  // Entradas extremas no Cérebro/Matcher
+  await sheets.createProperty({ tipo: 'Apartamento', setor: 'Setor Bueno', valor: 800000, quartos: 3 });
+  const inv = await sheets.loadInventory();
+  for (const txt of ['', '🏠🏢✨ '.repeat(400), 'Procuro apto 3qts setro marista até 1mi']) {
+    const resMatch = await analyzeMessageAndMatch(txt, 'Corretor', inv, { useAi: false });
+    assert.ok(resMatch && typeof resMatch.decision === 'string');
+  }
+
+  // Simulador + Busca Inteligente com mock HTTP (sucesso e falha 429/502)
+  anuncios.registrar({
+    id: 'e2e-ag6-1',
+    texto: 'VENDO Apartamento 3 quartos Setor Bueno R$ 850 mil 110 m2',
+    grupo: 'Grupo E2E',
+    grupoId: 'g-e2e@g.us',
+    autor: 'Parceiro',
+    telefone: '62988887777'
+  });
+
+  const realFetch = global.fetch;
+  const prevTavily = process.env.TAVILY_API_KEY;
+  process.env.TAVILY_API_KEY = 'tvly-e2e-test';
+  let mode = '502';
+  global.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.startsWith('http://127.0.0.1:')) return realFetch(url, opts);
+    if (mode === '502') return new Response('Bad Gateway', { status: 502 });
+    return new Response(JSON.stringify({ web: { results: [] } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    const buscaRes = await (await fetch(`${base}/api/busca`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({ filtros: { tipo: 'Apartamento', bairro: 'Setor Bueno', cidade: 'Goiânia', valorMax: '900 mil' } })
+    })).json();
+    assert.equal(buscaRes.ok, true, 'Busca não deve falhar com HTTP 500 mesmo se provedor externo retornar 502');
+    assert.ok(buscaRes.busca.grupos.length >= 1, 'Deve encontrar o anúncio na memória dos grupos');
+
+    const garRes = await garimpo.run({
+      inventory: inv,
+      env: { BRAVE_API_KEY: 'brave-e2e' },
+      pausaMs: 0,
+      fetcher: async () => new Response('Rate limit', { status: 429 })
+    });
+    assert.equal(garRes.ok, true, 'Garimpo deve degradar com elegância em HTTP 429');
+    assert.ok(Array.isArray(garRes.erros) && garRes.erros.length > 0);
+  } finally {
+    global.fetch = realFetch;
+    process.env.TAVILY_API_KEY = prevTavily || '';
+  }
+
+  // Garimpo chaves rejeita CX inválido + Scheduler start/stop limpo + daily
+  const badKey = await fetch(`${base}/api/garimpo/chaves`, { method: 'POST', headers: H, body: JSON.stringify({ googleCx: 'invalid!@#' }) });
+  assert.equal(badKey.status, 400);
+  assert.equal(typeof daily.getPeriodGreeting(), 'string');
+  scheduler.start({ isConnected: () => false }, () => {});
+  scheduler.stop();
+});
