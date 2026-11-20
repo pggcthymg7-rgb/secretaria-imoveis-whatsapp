@@ -74,16 +74,21 @@ const idDoLink = url => primeiro(String(url || '').split('?')[0].replace(/\/+$/,
  * não vira dado; preço, profissional/particular e anunciante são lidos do bloco desse anúncio, não de "relacionados".
  */
 function lerPaginaOlx(html, idAnuncio) {
-  const h = String(html || '');
+  const h = String(html || '').slice(0, MAX_BYTES);
   if (!/"price":"\d+"/.test(h) && !/"professionalAd":/.test(h)) return null;
+  let idLimpo = '';
+  if (idAnuncio !== undefined && idAnuncio !== null && idAnuncio !== '') {
+    idLimpo = String(idAnuncio).trim();
+    if (!/^\d{1,25}$/.test(idLimpo)) return null;
+  }
   let bloco = h;
-  if (idAnuncio) {
-    const m = h.match(new RegExp(`"listId":${idAnuncio}(?!\\d)`)); // (?!\d): "1" não casa com "1509799842"
+  if (idLimpo) {
+    const m = h.match(new RegExp(`"listId":${idLimpo}(?!\\d)`)); // (?!\d): "1" não casa com "1509799842"
     if (!m) return null;
     bloco = h.slice(m.index, m.index + 1500);
   }
   const prof = primeiro(bloco, /"professionalAd":(true|false)/);
-  const preco = (idAnuncio && primeiro(h, new RegExp(`"list_id":${idAnuncio}(?!\\d)[^}]{0,400}?"price":"(\\d+)"`))) || primeiro(bloco, /"price":"(\d+)"/) || primeiro(h, /"price":"(\d+)"/);
+  const preco = (idLimpo && primeiro(h, new RegExp(`"list_id":${idLimpo}(?!\\d)[^}]{0,400}?"price":"(\\d+)"`))) || primeiro(bloco, /"price":"(\d+)"/) || primeiro(h, /"price":"(\d+)"/);
   const titulo = primeiro(h, /<title>([^<]{5,200})<\/title>/).replace(/\s*\|\s*OLX.*$/i, '');
   const desc = primeiro(h, /"@type":"Product","name":"[^"]*","url":"[^"]*","description":"((?:[^"\\]|\\.){0,1500})"/);
   const texto = `${titulo} ${desc}`.replace(/<br\s*\/?>/gi, ' ');

@@ -58,7 +58,7 @@ let running = false;
 
 function save() {
   const limite = Date.now() - RETENCAO_DIAS * 86400000;
-  state.leads = state.leads.filter(l => l.encontradoEm >= limite).slice(0, MAX_LEADS);
+  state.leads = state.leads.filter(l => l && Number.isFinite(l.encontradoEm) && l.encontradoEm >= limite).slice(0, MAX_LEADS);
   state.execucoes = state.execucoes.slice(0, 40);
   writeJson(FILE, state);
 }
@@ -141,7 +141,11 @@ async function ownComments(env, fetcher) {
     for (const p of posts.data || []) {
       const cm = await graph(`${p.id}/comments?fields=id,from{name},message,created_time,permalink_url&limit=50&filter=stream`, env.META_PAGE_TOKEN, fetcher);
       for (const c of cm.data || []) {
-        if (new Date(c.created_time).getTime() < since) continue;
+        if (!c || !c.id) continue;
+        if (c.created_time) {
+          const ts = new Date(c.created_time).getTime();
+          if (!Number.isFinite(ts) || ts < since) continue;
+        }
         out.push({ fonte: 'facebook', id: c.id, autor: c.from && c.from.name, texto: c.message, link: c.permalink_url || p.permalink_url, post: clean(p.message, 120), data: c.created_time });
       }
     }
@@ -151,7 +155,11 @@ async function ownComments(env, fetcher) {
     for (const m of media.data || []) {
       const cm = await graph(`${m.id}/comments?fields=id,username,text,timestamp&limit=50`, env.META_PAGE_TOKEN, fetcher);
       for (const c of cm.data || []) {
-        if (new Date(c.timestamp).getTime() < since) continue;
+        if (!c || !c.id) continue;
+        if (c.timestamp) {
+          const ts = new Date(c.timestamp).getTime();
+          if (!Number.isFinite(ts) || ts < since) continue;
+        }
         out.push({ fonte: 'instagram', id: c.id, autor: c.username ? `@${c.username}` : '', texto: c.text, link: m.permalink, post: clean(m.caption, 120), data: c.timestamp });
       }
     }
@@ -178,7 +186,8 @@ function campaignLinks(termos = state.config.termosCampanha) {
 /**
  * Roda uma varredura completa. deps = { env, fetcher, inventory, extraPlaces, onLeads }
  */
-async function run(deps) {
+async function run(deps = {}) {
+  if (!deps || typeof deps !== 'object') deps = {};
   if (running) return { ok: false, erro: 'já existe uma varredura em andamento' };
   running = true;
   const env = deps.env || process.env;
@@ -278,6 +287,7 @@ async function tick(deps) {
 }
 
 function updateConfig(input = {}) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) input = {};
   const c = { ...state.config };
   if (input.ativo !== undefined) c.ativo = Boolean(input.ativo);
   if (input.alertarNoWhatsApp !== undefined) c.alertarNoWhatsApp = Boolean(input.alertarNoWhatsApp);

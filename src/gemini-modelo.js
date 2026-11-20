@@ -7,7 +7,23 @@
  */
 const FALLBACK = 'gemini-flash-latest'; // apelido que o Google mantém apontando para o flash atual
 const TTL_MS = 6 * 3600 * 1000;
+const MAX_CACHE_KEYS = 500;
 const cache = new Map(); // chave -> { modelo, ate }
+
+function setBounded(map, key, val) {
+  if (!map.has(key) && map.size >= MAX_CACHE_KEYS) {
+    const now = Date.now();
+    for (const [k, v] of map) {
+      if (v && typeof v.ate === 'number' && v.ate <= now) map.delete(k);
+    }
+    while (map.size >= MAX_CACHE_KEYS) {
+      const oldest = map.keys().next().value;
+      if (oldest === undefined) break;
+      map.delete(oldest);
+    }
+  }
+  map.set(key, val);
+}
 
 /** "models/gemini-3.8-flash" -> [3, 8] */
 function versaoDe(nome) {
@@ -38,7 +54,7 @@ async function listarModelos(chave, fetcher) {
       signal: AbortSignal.timeout(15000)
     });
     if (!r.ok) break;
-    const j = await r.json();
+    const j = await r.json().catch(() => ({}));
     todos.push(...(j.models || []));
     token = j.nextPageToken || '';
     if (!token) break;
@@ -56,7 +72,7 @@ async function escolherModelo(chave, { fetcher = fetch, ignorar = [] } = {}) {
   try {
     const modelo = melhorFlash(await listarModelos(chave, fetcher), ignorar);
     if (modelo) {
-      cache.set(chave, { modelo, ate: Date.now() + TTL_MS });
+      setBounded(cache, chave, { modelo, ate: Date.now() + TTL_MS });
       return modelo;
     }
   } catch {}
@@ -88,7 +104,7 @@ async function modelosDaChave(chave, fetcher) {
       .filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
       .map(m => parseFlash(String(m.name || '').replace(/^models\//, '')))
       .filter(Boolean);
-    if (itens.length) listaCache.set(chave, { itens, ate: Date.now() + TTL_MS });
+    if (itens.length) setBounded(listaCache, chave, { itens, ate: Date.now() + TTL_MS });
     return itens;
   } catch {
     return [];
@@ -96,8 +112,9 @@ async function modelosDaChave(chave, fetcher) {
 }
 
 function marcarIndisponivel(chave, nome) {
-  if (!indisponiveis.has(chave)) indisponiveis.set(chave, new Set());
-  indisponiveis.get(chave).add(nome);
+  if (!indisponiveis.has(chave)) setBounded(indisponiveis, chave, new Set());
+  const set = indisponiveis.get(chave);
+  if (set.size < 100) set.add(nome);
 }
 const ehIndisponivel = (chave, nome) => Boolean(indisponiveis.get(chave) && indisponiveis.get(chave).has(nome));
 

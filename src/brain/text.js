@@ -3,9 +3,13 @@
  * (tolera erros de digitação comuns em WhatsApp, ex: "Rondom" -> "Rondon").
  */
 
+const MAX_NORM_LEN = 100000;
+
 function normalize(str) {
   if (str === null || str === undefined) return '';
-  return String(str)
+  let s = String(str);
+  if (s.length > MAX_NORM_LEN) s = s.slice(0, MAX_NORM_LEN);
+  return s
     .toLowerCase()
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
@@ -132,6 +136,7 @@ module.exports = {
   escapeRegex,
   hasPhrase,
   tokens,
+  allowedTypos,
   editDistance,
   fuzzyContains,
   fuzzyFind,

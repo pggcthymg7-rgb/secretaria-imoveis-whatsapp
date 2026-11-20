@@ -234,3 +234,47 @@ test('Brave: a página 2 usa offset=1; Tavily continua com uma rodada só (já �
   assert.equal(t.length, 1);
   assert.equal(t[0].max_results, 20);
 });
+
+test('Agente 4: parser OLX rejeita id não numérico, Gemini faz fallback após 502 HTML e Apify bloqueia link não HTTP', async () => {
+  assert.equal(L.lerPaginaOlx(Fx.talkMarista, '1509799842).*'), null);
+  assert.equal(L.lerPaginaOlx(Fx.talkMarista, '(a+)+$'), null);
+
+  const apify = require('../src/busca-apify');
+  assert.equal(apify.normalizar({ link: 'javascript:alert(1)' }, 'ZAP').link, '');
+  assert.equal(apify.normalizarOlx(null).link, '');
+
+  const garimpo = require('../src/garimpo');
+  assert.doesNotThrow(() => garimpo.updateConfig(null));
+
+  const modelosChamados = [];
+  const fetcher = async (url, opts) => {
+    if (/\/models\?/.test(url)) {
+      return { ok: true, status: 200, json: async () => ({ models: [] }) };
+    }
+    const m = String(url).match(/models\/([^:]+):generateContent/);
+    if (m) modelosChamados.push(decodeURIComponent(m[1]));
+    if (modelosChamados.length === 1) {
+      return {
+        ok: false,
+        status: 502,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in HTML');
+        }
+      };
+    }
+    const link = OLX_TALK;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        candidates: [{
+          content: { parts: [{ text: '```json\n' + JSON.stringify([{ titulo: 'Apto Marista', portal: 'OLX', link, preco: 1450000, area_m2: 140, quartos: 3, bairro: 'Setor Marista', anunciante: 'Adão Imóveis', tipo_anunciante: 'profissional' }]) + '\n```' }] },
+          groundingMetadata: { groundingChunks: [{ web: { uri: link, title: 'OLX' } }] }
+        }]
+      })
+    };
+  };
+  const r = await bi.buscarNosPortais(bi.entenderPedido(PEDIDO).criterios, PEDIDO, { env: { GEMINI_API_KEY: 'AIzaSy' + 'x'.repeat(25), BUSCA_LIMITE_DIA: '99' }, fetcher });
+  assert.equal(r.ok, true, '502 HTML no primeiro modelo não deve abortar a fila de fallback do Gemini');
+  assert.ok(modelosChamados.length >= 2);
+});

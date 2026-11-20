@@ -251,3 +251,25 @@ test('Casa de condomínio é categoria própria: no cadastro, no pedido e nos fi
   const { criterios } = bi.entenderFiltros({ tipo: 'Casa de condomínio', negocio: 'VENDA' });
   assert.deepEqual([criterios.tipos, criterios.subtipo_casa], [['Casa'], 'CONDOMINIO']);
 });
+
+test('Agente 4: parser/matcher toleram entradas nulas/enormes, preservam $ na descrição e compartilham cache OSM', async () => {
+  const { loadOsm, osmVersion } = require('../src/brain/locations');
+  assert.equal(loadOsm(), loadOsm(), 'loadOsm deve retornar a mesma referência em cache sem reparse');
+  assert.ok(osmVersion().includes(':'));
+  assert.equal(parseRequest(null).intent, 'OUTRO');
+  assert.equal(parseRequest('busco apto no Setor Bueno ' + 'x '.repeat(60000)).local.bairros[0], 'Setor Bueno');
+
+  const inv = await run(12345, null);
+  assert.deepEqual([inv.isLookingForProperty, inv.decision], [false, 'IGNORAR']);
+
+  const { formatOutreachMessage } = require('../src/matcher');
+  const out = formatOutreachMessage('Carlos', 'Procuro apto com $& e $1 no texto', prop({
+    id: '99',
+    tipo: 'Apartamento',
+    setor: 'Setor Bueno',
+    quartos: 3,
+    valor: 600000,
+    descricao: 'Unidade com bônus $$ $& $1 exclusivo'
+  }));
+  assert.ok(out.includes('$$ $& $1'), 'placeholders não devem expandir referências $& / $1');
+});
