@@ -3,7 +3,19 @@
  * Todas as chaves têm padrão; o arquivo salvo só sobrescreve o que mudou.
  */
 const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const { SETTINGS_PATH } = require('./paths');
+
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+function cleanObject(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (!UNSAFE_KEYS.has(k)) out[k] = v;
+  }
+  return out;
+}
 
 // ============================================================================
 // PARTE 1: SECRETÁRIA DOS GRUPOS
@@ -98,7 +110,7 @@ function loadSettings() {
   let data = {};
   if (fs.existsSync(SETTINGS_PATH)) {
     try {
-      data = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8')) || {};
+      data = cleanObject(JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8')));
     } catch (err) {
       console.error('Erro ao ler settings.json:', err.message);
     }
@@ -122,13 +134,22 @@ function saveSettings(updates) {
   let current = {};
   if (fs.existsSync(SETTINGS_PATH)) {
     try {
-      current = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8')) || {};
+      current = cleanObject(JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8')));
     } catch {}
   }
-  const next = { ...current, ...updates };
-  const tmp = `${SETTINGS_PATH}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(next, null, 2), 'utf-8');
-  fs.renameSync(tmp, SETTINGS_PATH);
+  const next = { ...current, ...cleanObject(updates) };
+  const dir = path.dirname(SETTINGS_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const tmp = `${SETTINGS_PATH}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(next, null, 2), { encoding: 'utf-8', mode: 0o600 });
+    fs.renameSync(tmp, SETTINGS_PATH);
+  } catch (err) {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {}
+    throw err;
+  }
   return loadSettings();
 }
 

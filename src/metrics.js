@@ -34,4 +34,14 @@ function lastDays(n = 7) {
   return Object.keys(data).sort().slice(-n).map(d => ({ dia: d, ...data[d] }));
 }
 
-module.exports = { inc, getDay, lastDays, today };
+function flush() {
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
+  try {
+    writeJson(FILE, data);
+  } catch {}
+}
+
+module.exports = { inc, getDay, lastDays, today, flush };

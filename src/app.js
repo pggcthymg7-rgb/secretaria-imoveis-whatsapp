@@ -41,10 +41,12 @@ app.set('trust proxy', 1);
 app.use((req, res, next) => (tenancy ? tenancy.dispatchHost(req, res, next) : next()));
 // Limite geral por IP (o login tem o seu, mais rígido, em auth.js). /ping e /health ficam de fora: são para monitor.
 // RATE_LIMIT_MAX muda o teto por minuto (o painel faz poucas chamadas; 600/min é bem folgado).
+const rateLimitStore = new rateLimit.MemoryStore();
 app.use(
   rateLimit({
     windowMs: 60 * 1000,
     limit: Number(process.env.RATE_LIMIT_MAX) || 600,
+    store: rateLimitStore,
     // o app da BIGA de cada corretor é criado sob demanda (1º acesso ao endereço dele): é intencional
     validate: { creationStack: false },
     standardHeaders: 'draft-7',
@@ -699,4 +701,8 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Rota não encontrad
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => res.status(err.status || 500).json({ error: err.status ? err.message : 'Erro interno' }));
 
-module.exports = { app, tenancy, PAPEL };
+function shutdown() {
+  try { rateLimitStore.shutdown(); } catch {}
+}
+
+module.exports = { app, tenancy, PAPEL, shutdown };

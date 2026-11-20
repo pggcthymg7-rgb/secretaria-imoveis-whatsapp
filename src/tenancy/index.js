@@ -4,7 +4,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { TenantStore, TENANT_ID_RE } = require('./tenant-store');
+const { TenantStore, isValidTenantId } = require('./tenant-store');
 const { WhatsAppSessionManager } = require('./session-manager');
 const { WhatsAppRouter } = require('./router');
 
@@ -13,22 +13,29 @@ function createTenancy({ baseDir, baileys, startScheduler = true }) {
   const sessionManager = new WhatsAppSessionManager({ storageDir: tenantStore.sessionsDir, ...(baileys ? { baileys } : {}) });
   const router = new WhatsAppRouter({ sessionManager, tenantStore, startScheduler }).attach();
 
-  /** Religa todos os corretores já cadastrados (partida do processo) */
-  async function restoreAll() {
+  /** Religa todos os corretores já cadastrados (partida do processo, em lotes controlados) */
+  async function restoreAll({ concurrency = 5 } = {}) {
     const ids = tenantStore.list();
-    const religados = [];
-    for (const id of ids) {
-      try {
-        const cfg = tenantStore.get(id);
-        if (cfg.ativo === false) continue; // pausado pelo João no painel
-        router.prepareTenant(id);
-        await sessionManager.initializeTenant(id, { nome: cfg.nome });
-        religados.push(id);
-      } catch (err) {
-        console.error(`[tenant:${id}] Falha ao religar: ${err.message}`);
+    const religados = new Array(ids.length).fill(null);
+    let idx = 0;
+    const worker = async () => {
+      while (idx < ids.length) {
+        const cur = idx++;
+        const id = ids[cur];
+        try {
+          const cfg = tenantStore.get(id);
+          if (!cfg || cfg.ativo === false) continue; // pausado pelo João no painel
+          router.prepareTenant(id);
+          await sessionManager.initializeTenant(id, { nome: cfg.nome });
+          religados[cur] = id;
+        } catch (err) {
+          console.error(`[tenant:${id}] Falha ao religar: ${err.message}`);
+        }
       }
-    }
-    return religados;
+    };
+    const poolSize = Math.min(Math.max(1, concurrency), Math.max(1, ids.length));
+    await Promise.all(Array.from({ length: poolSize }, worker));
+    return religados.filter(Boolean);
   }
 
   /**
@@ -36,11 +43,11 @@ function createTenancy({ baseDir, baileys, startScheduler = true }) {
    * @returns {string|null} tenantId
    */
   function tenantFromHost(host) {
-    const h = String(host || '').toLowerCase().replace(/:\d+$/, '');
-    for (const base of [String(process.env.DOMINIO || '').trim().toLowerCase(), 'localhost'].filter(Boolean)) {
+    const h = String(host || '').trim().toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '');
+    for (const base of [String(process.env.DOMINIO || '').trim().toLowerCase().replace(/\.$/, ''), 'localhost'].filter(Boolean)) {
       if (!h.endsWith(`.${base}`)) continue;
       const id = h.slice(0, -(base.length + 1));
-      return TENANT_ID_RE.test(id) ? id : null;
+      return isValidTenantId(id) ? id : null;
     }
     return null;
   }
@@ -53,7 +60,7 @@ function createTenancy({ baseDir, baileys, startScheduler = true }) {
     if (!rec) return res.status(404).type('text').send('BIGA não encontrada.');
     if (rec.ativo === false) return res.status(503).type('text').send('Esta BIGA está pausada pelo administrador.');
     try {
-      return router.tenantApp(id)(req, res);
+      return router.tenantApp(id)(req, res, next);
     } catch (err) {
       console.error(`[tenant:${id}] painel: ${err.message}`);
       return res.status(503).type('text').send('BIGA indisponível no momento. Tente de novo em instantes.');

@@ -79,6 +79,10 @@ function demand(days = 30) {
 }
 
 function flush() {
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
   writeJson(FILE, items);
 }
 

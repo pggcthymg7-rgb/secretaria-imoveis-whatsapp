@@ -12,7 +12,11 @@ const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : ROO
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function dataPath(...parts) {
-  return path.join(DATA_DIR, ...parts);
+  const resolved = path.resolve(DATA_DIR, ...parts);
+  if (resolved !== DATA_DIR && !resolved.startsWith(DATA_DIR + path.sep)) {
+    throw new Error(`Caminho fora de DATA_DIR não permitido: ${parts.join('/')}`);
+  }
+  return resolved;
 }
 
 module.exports = {
