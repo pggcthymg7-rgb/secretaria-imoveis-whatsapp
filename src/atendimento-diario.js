@@ -53,6 +53,7 @@ function messageAgeSeconds(msg) {
 }
 
 async function humanSend(sock, jid, text, delayMs = 1500) {
+  if (!sock || typeof sock.sendMessage !== 'function') throw new Error('WhatsApp desconectado.');
   await new Promise(r => setTimeout(r, delayMs));
   try {
     await sock.sendPresenceUpdate('composing', jid);
@@ -72,8 +73,16 @@ async function humanSend(sock, jid, text, delayMs = 1500) {
 const activeCalls = new Map();
 const repliedMissedCalls = new Set();
 
+function pruneCalls(now = Date.now()) {
+  for (const [id, info] of activeCalls.entries()) {
+    if (now - (info.ts || 0) > 10 * 60 * 1000) activeCalls.delete(id);
+  }
+  while (activeCalls.size > 500) activeCalls.delete(activeCalls.keys().next().value);
+}
+
 async function handleIncomingCalls(sock, calls, addMainLog, ctx = {}) {
   if (!Array.isArray(calls)) return;
+  pruneCalls();
   for (const call of calls) {
     try {
       const callId = call.id;
@@ -81,10 +90,11 @@ async function handleIncomingCalls(sock, calls, addMainLog, ctx = {}) {
       if (!callId || !callerJid || callerJid.endsWith('@g.us') || call.isGroup) continue;
 
       if (call.status === 'offer') {
-        activeCalls.set(callId, { from: callerJid, answered: false });
+        activeCalls.set(callId, { from: callerJid, answered: false, ts: Date.now() });
       } else if (call.status === 'accept') {
         const info = activeCalls.get(callId) || { from: callerJid };
         info.answered = true;
+        info.ts = Date.now();
         activeCalls.set(callId, info);
       } else if (['timeout', 'reject', 'terminate'].includes(call.status)) {
         const info = activeCalls.get(callId);
@@ -92,7 +102,7 @@ async function handleIncomingCalls(sock, calls, addMainLog, ctx = {}) {
         activeCalls.delete(callId);
         if (wasAnswered || repliedMissedCalls.has(callId)) continue;
         repliedMissedCalls.add(callId);
-        if (repliedMissedCalls.size > 2000) repliedMissedCalls.clear();
+        while (repliedMissedCalls.size > 2000) repliedMissedCalls.delete(repliedMissedCalls.values().next().value);
 
         const settings = loadSettings();
         if (settings.pausado || settings.missedCallEnabled === false) continue;

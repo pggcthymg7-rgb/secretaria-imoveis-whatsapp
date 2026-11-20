@@ -428,3 +428,28 @@ test('Chaves da busca nos portais pelo "Mensagem para mim": chave tavily/serper/
     else process.env.TAVILY_API_KEY = guarda;
   }
 });
+
+test('Agente 3: startWhatsAppAgent concorrente não duplica socket, stopWhatsAppAgent limpa listeners e onMessagesUpsert aceita entrada inválida', async () => {
+  const beforeCalls = [];
+  const orig = fakeSock;
+  const p1 = wa.startWhatsAppAgent();
+  const p2 = wa.startWhatsAppAgent();
+  await Promise.all([p1, p2]);
+  assert.notEqual(fakeSock, orig);
+  // apenas 1 listener de messages.upsert no socket atual
+  assert.equal(fakeSock.ev.listenerCount('messages.upsert'), 1);
+  // socket anterior foi desconectado/limpo
+  assert.equal(orig.ev.listenerCount('messages.upsert'), 0);
+
+  // onMessagesUpsert com payload malformado não lança erro
+  await assert.doesNotReject(() => wa.onMessagesUpsert({ messages: null, type: 'notify' }));
+  await assert.doesNotReject(() => wa.onMessagesUpsert(undefined));
+
+  wa.stopWhatsAppAgent();
+  assert.equal(fakeSock.ev.listenerCount('messages.upsert'), 0);
+
+  // Reabre para manter comportamento se algo posterior usar
+  await wa.startWhatsAppAgent();
+  fakeSock.ev.emit('connection.update', { connection: 'open' });
+  await wait(30);
+});

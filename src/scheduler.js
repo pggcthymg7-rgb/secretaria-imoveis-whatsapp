@@ -50,6 +50,8 @@ async function dailySummaryTick(wa) {
   await wa.sendOwnerWhatsAppAlert(buildDailySummary());
 }
 
+let lastBackupFailTs = 0;
+
 /** Domingo, a partir das 07:00: manda o backup da memória para o seu WhatsApp */
 async function weeklyBackupTick(wa, log) {
   const s = loadSettings();
@@ -57,9 +59,15 @@ async function weeklyBackupTick(wa, log) {
   const now = nowParts();
   const st = readJson('agendador.json', {});
   if (now.weekday !== 0 || now.minutes < 7 * 60 || st.backupEnviadoEm === now.date) return;
-  writeJson('agendador.json', { ...st, backupEnviadoEm: now.date });
+  if (Date.now() - lastBackupFailTs < 30 * 60 * 1000) return;
   const r = await wa.sendBackup();
-  log('BACKUP', r.ok ? '💾 Backup semanal enviado para o seu WhatsApp.' : `Backup semanal não enviado: ${r.error}`);
+  if (r && r.ok) {
+    writeJson('agendador.json', { ...st, backupEnviadoEm: now.date });
+    lastBackupFailTs = 0;
+  } else {
+    lastBackupFailTs = Date.now();
+  }
+  log('BACKUP', r && r.ok ? '💾 Backup semanal enviado para o seu WhatsApp.' : `Backup semanal não enviado: ${r ? r.error : 'erro desconhecido'}`);
 }
 
 /** Alerta no seu WhatsApp quando o Garimpo acha leads novos */
@@ -79,9 +87,9 @@ async function weeklyMapTick(log) {
   const now = nowParts();
   const st = readJson('agendador.json', {});
   if (now.weekday !== 0 || now.minutes < 5 * 60 || st.mapaAtualizadoEm === now.date) return;
-  writeJson('agendador.json', { ...st, mapaAtualizadoEm: now.date });
   try {
     const r = await require('../scripts/atualizar-mapa').main({});
+    writeJson('agendador.json', { ...readJson('agendador.json', st), mapaAtualizadoEm: now.date });
     log('MAPA', `🗺️ Mapa de Goiânia atualizado: ${r.bairros} bairros, ${r.condominios} condomínios, ${r.edificios} edifícios.`);
   } catch (err) {
     log('MAPA', `Mapa não atualizado: ${err.message}`);
@@ -104,7 +112,7 @@ function start(wa, log) {
       }
       await dailySummaryTick(wa).catch(e => log('RESUMO', `erro: ${e.message}`));
       await weeklyBackupTick(wa, log).catch(e => log('BACKUP', `erro: ${e.message}`));
-      weeklyMapTick(log).catch(e => log('MAPA', `erro: ${e.message}`));
+      await weeklyMapTick(log).catch(e => log('MAPA', `erro: ${e.message}`));
     } finally {
       ticking = false;
     }

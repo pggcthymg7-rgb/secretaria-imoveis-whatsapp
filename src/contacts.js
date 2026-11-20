@@ -22,6 +22,9 @@ const BOOK_FILE = 'contatos.json';
 
 const known = new Set();
 const book = new Map(); // chave -> { nome, telefone, lid, agenda, visto }
+const MAX_KNOWN = 50000;
+const MAX_BOOK = 20000;
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 let saveTimer = null;
 
 function keyOf(jid) {
@@ -45,10 +48,27 @@ function phoneFromJid(jid) {
   const saved = readJson(KNOWN_CONTACTS_PATH, []);
   if (Array.isArray(saved)) saved.forEach(k => k && known.add(String(k)));
   const savedBook = readJson(BOOK_FILE, {});
-  for (const [k, v] of Object.entries(savedBook || {})) book.set(k, v);
+  if (savedBook && typeof savedBook === 'object' && !Array.isArray(savedBook)) {
+    for (const [k, v] of Object.entries(savedBook)) {
+      if (!UNSAFE_KEYS.has(k) && v && typeof v === 'object') book.set(k, v);
+    }
+  }
 })();
 
 const bootKnownCount = known.size;
+
+function trimBook() {
+  if (book.size <= MAX_BOOK) return;
+  for (const [k, v] of book.entries()) {
+    if (book.size <= MAX_BOOK) break;
+    if (!v?.agenda) book.delete(k);
+  }
+  while (book.size > MAX_BOOK) {
+    const oldest = book.keys().next().value;
+    if (oldest === undefined) break;
+    book.delete(oldest);
+  }
+}
 
 function scheduleSave() {
   if (saveTimer) return;
@@ -80,6 +100,7 @@ function markKnown(...jids) {
     const k = keyOf(j);
     if (k && !known.has(k)) {
       known.add(k);
+      if (known.size > MAX_KNOWN) known.delete(known.values().next().value);
       changed = true;
     }
   }
@@ -126,6 +147,7 @@ function upsertContact({ id, lid, phoneNumber, name, notify, agenda }) {
   };
   book.set(main, entry);
   if (lidKey && lidKey !== main) book.set(lidKey, { ...entry, alias: main });
+  trimBook();
   scheduleSave();
 }
 
@@ -141,6 +163,7 @@ function touch(jid, extra = {}) {
   if (!k) return;
   const prev = book.get(k) || {};
   book.set(k, { ...prev, ...extra, visto: new Date().toISOString() });
+  trimBook();
   scheduleSave();
 }
 

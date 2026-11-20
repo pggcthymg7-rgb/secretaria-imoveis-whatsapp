@@ -141,6 +141,7 @@ function lerExportacao(conteudo) {
       if (ampm === 'AM' && h === 12) h = 0;
       a = Number(a) < 100 ? 2000 + Number(a) : Number(a);
       const ts = new Date(a, Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || 0)).getTime();
+      if (!Number.isFinite(ts)) continue;
       atual = { ts, autor: autor.replace(/^‎/, '').trim(), texto };
     } else if (atual) {
       atual.texto += '\n' + linha;
@@ -172,9 +173,12 @@ function textoDoZip(buf) {
     const tamExtra = buf.readUInt16LE(p + 30);
     const tamCom = buf.readUInt16LE(p + 32);
     const local = buf.readUInt32LE(p + 42);
+    if (p + 46 + tamNome > buf.length) throw new Error('Arquivo .zip inválido ou corrompido.');
     const nome = buf.slice(p + 46, p + 46 + tamNome).toString('utf-8');
     if (/\.txt$/i.test(nome)) {
+      if (local + 30 > buf.length) throw new Error('Arquivo .zip inválido ou corrompido.');
       const ini = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
+      if (ini < 0 || ini + tamComp > buf.length) throw new Error('Arquivo .zip inválido ou corrompido.');
       const dados = buf.slice(ini, ini + tamComp);
       if (metodo === 0) return dados.toString('utf-8');
       if (metodo === 8) return zlib.inflateRawSync(dados, { maxOutputLength: 60 * 1024 * 1024 }).toString('utf-8');

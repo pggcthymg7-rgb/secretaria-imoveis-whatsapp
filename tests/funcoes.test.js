@@ -128,3 +128,30 @@ test('Vitrine: sem o teto antigo de 5 — até 10 com foto e 20 só texto por ho
   assert.ok(pausas.every(ms => ms >= 20000 && ms <= 40000), 'pausa de 20 a 40 s');
   vitrine.updateConfig({ porHorario: 1, porHorarioTexto: 1 });
 });
+
+test('Agente 3: prototype guard em assistant/radar, zip corrompido em anuncios, scheduler e humanSend sem socket', async () => {
+  const p = { valor: 100 };
+  assert.equal(assistant.applyFieldEdit(p, 'constructor qualquer coisa'), false);
+  assert.equal(assistant.applyFieldEdit(p, 'toString algo'), false);
+
+  const radar = require('../src/radar');
+  const item = radar.add({ grupo: 'G', texto: 't', decision: 'AVISAR', tipos: [], locais: [], candidatos: [] });
+  radar.update(item.code, JSON.parse('{"__proto__":{"polluted":true},"motivo":"ok"}'));
+  assert.equal(({}).polluted, undefined);
+  assert.equal(item.motivo, 'ok');
+
+  const anuncios = require('../src/anuncios');
+  // ZIP truncado com signature EOCD mas offset local fora do buffer deve lançar erro limpo (não RangeError)
+  const badZip = Buffer.alloc(64);
+  badZip.writeUInt32LE(0x06054b50, 42);
+  badZip.writeUInt16LE(1, 52);
+  badZip.writeUInt32LE(0, 58);
+  badZip.writeUInt32LE(0x02014b50, 0);
+  badZip.writeUInt16LE(4, 28); // tamNome = 4
+  badZip.writeUInt32LE(99999, 42); // local fora dos limites
+  Buffer.from('a.txt').copy(badZip, 46);
+  assert.throws(() => anuncios.textoDoZip(badZip), /inválido|corrompido/);
+
+  const { humanSend } = require('../src/atendimento-diario');
+  await assert.rejects(() => humanSend(null, '5562999999999@s.whatsapp.net', 'oi', 0), /desconectado/);
+});

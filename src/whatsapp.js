@@ -59,6 +59,27 @@ function addLog(type, message, details = null) {
   console.log(`[${entry.time}] [${type}] ${message}`);
 }
 
+let startingAgent = null;
+
+function withTimeout(promise, ms, label = 'operação WhatsApp') {
+  let timer = null;
+  const timeout = new Promise((_, rej) => {
+    timer = setTimeout(() => rej(new Error(`Timeout (${ms}ms) em ${label}`)), ms);
+    if (timer.unref) timer.unref();
+  });
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
+}
+
+function cleanupSocket(s) {
+  if (!s) return;
+  try {
+    s.ev?.removeAllListeners?.();
+  } catch {}
+  try {
+    s.end?.(undefined);
+  } catch {}
+}
+
 function remember(set, id, max = 3000) {
   if (!id) return;
   set.add(id);
@@ -83,7 +104,7 @@ function selfPhone() {
 // ---------------------------------------------------------------------------
 async function rawSend(jid, content) {
   if (!isConnected()) throw new Error('WhatsApp não está conectado.');
-  const sent = await sock.sendMessage(jid, content);
+  const sent = await withTimeout(sock.sendMessage(jid, content), 25000, 'sendMessage');
   if (sent && sent.key && sent.key.id) remember(sentByBot, sent.key.id);
   return sent;
 }
@@ -114,10 +135,11 @@ async function sendPdf(jid, property) {
 const sendDocument = (jid, buffer, fileName, caption = '', mimetype = 'application/pdf') => rawSend(jid, { document: buffer, mimetype, fileName, caption });
 
 async function typing(jid, ms = 2500) {
+  if (!sock) return;
   try {
     await sock.sendPresenceUpdate('composing', jid);
     await new Promise(r => setTimeout(r, ms));
-    await sock.sendPresenceUpdate('paused', jid);
+    await sock?.sendPresenceUpdate?.('paused', jid);
   } catch {}
 }
 
@@ -147,7 +169,7 @@ async function checkNumber(phone) {
   const candidates = brazilVariants(phone);
   if (!candidates.length || !sock) return null;
   try {
-    const res = await sock.onWhatsApp(...candidates);
+    const res = await withTimeout(sock.onWhatsApp(...candidates), 15000, 'onWhatsApp');
     const hit = Array.isArray(res) ? res.find(r => r && r.exists && r.jid) : null;
     return hit ? hit.jid.replace(/:\d+@/, '@') : null;
   } catch {
@@ -234,8 +256,8 @@ function shouldMonitorGroup(groupJid, groupSubject) {
 async function refreshGroups() {
   if (!sock) return connectedGroups;
   try {
-    const groupsObj = await sock.groupFetchAllParticipating();
-    connectedGroups = Object.values(groupsObj).map(g => ({ id: g.id, subject: g.subject, participantsCount: g.participants?.length || 0 }));
+    const groupsObj = await withTimeout(sock.groupFetchAllParticipating(), 25000, 'groupFetchAllParticipating');
+    connectedGroups = Object.values(groupsObj || {}).map(g => ({ id: g.id, subject: g.subject, participantsCount: g.participants?.length || 0 }));
   } catch (err) {
     addLog('GRUPOS', `Não consegui listar os grupos: ${err.message}`);
   }
@@ -249,8 +271,13 @@ function offerAlreadySent(phoneKey, propId) {
 }
 
 function markOfferSent(phoneKey, propId) {
-  sentOffers[`${phoneKey}:${propId}`] = Date.now();
-  for (const [k, ts] of Object.entries(sentOffers)) if (Date.now() - ts > OFFER_TTL_MS) delete sentOffers[k];
+  const now = Date.now();
+  sentOffers[`${phoneKey}:${propId}`] = now;
+  for (const [k, ts] of Object.entries(sentOffers)) if (now - ts > OFFER_TTL_MS) delete sentOffers[k];
+  const keys = Object.keys(sentOffers);
+  if (keys.length > 20000) {
+    keys.sort((a, b) => sentOffers[a] - sentOffers[b]).slice(0, keys.length - 20000).forEach(k => delete sentOffers[k]);
+  }
   try {
     writeJson(OFFERS_FILE, sentOffers);
   } catch {}
@@ -311,9 +338,9 @@ async function handleGroupMessage(msg, remoteJid, tenant = null) {
   let groupInfo = connectedGroups.find(g => g.id === remoteJid);
   if (!groupInfo) {
     try {
-      const meta = await sock.groupMetadata(remoteJid);
-      groupInfo = { id: remoteJid, subject: meta.subject, participantsCount: meta.participants?.length || 0 };
-      connectedGroups.push(groupInfo);
+      const meta = sock ? await withTimeout(sock.groupMetadata(remoteJid), 10000, 'groupMetadata') : null;
+      groupInfo = { id: remoteJid, subject: meta?.subject || remoteJid, participantsCount: meta?.participants?.length || 0 };
+      if (connectedGroups.length < 2000) connectedGroups.push(groupInfo);
     } catch {
       groupInfo = { id: remoteJid, subject: remoteJid };
     }
@@ -484,8 +511,9 @@ async function isOwnerChatAsync(msg) {
 const COMANDO_DIAG = /^(ajuda|menu|comandos|help|status|lista|versao|versão|atualizar|backup|corretores)$/i;
 
 async function downloadImageToFotos(msg) {
+  if (!sock) return null;
   try {
-    const buf = await downloadMediaMessage(msg, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage });
+    const buf = await withTimeout(downloadMediaMessage(msg, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage }), 45000, 'downloadMediaMessage');
     if (!buf || buf.length > 12 * 1024 * 1024) return null;
     const name = `${Date.now()}_wa_${crypto.randomBytes(3).toString('hex')}.jpg`;
     fs.writeFileSync(path.join(FOTOS_DIR, name), buf);
@@ -523,12 +551,26 @@ function tsDaMensagem(msg) {
 }
 
 /** Guarda a mensagem mais antiga que a BIGA conhece de cada grupo (ponto de partida para pedir o histórico) */
+function flushAncoras() {
+  if (ancorasTimer) {
+    clearTimeout(ancorasTimer);
+    ancorasTimer = null;
+  }
+  try {
+    writeJson(ANCORAS_FILE, ancoras);
+  } catch {}
+}
+
 function anotarAncora(msg) {
   const g = msg.key.remoteJid;
-  if (!g || !g.endsWith('@g.us') || !msg.key.id) return;
+  if (!g || !g.endsWith('@g.us') || !msg.key.id || g === '__proto__' || g === 'constructor' || g === 'prototype') return;
   const ts = tsDaMensagem(msg);
-  const a = ancoras[g];
+  const a = Object.hasOwn(ancoras, g) ? ancoras[g] : null;
   if (!a || ts < a.ts) {
+    if (!a && Object.keys(ancoras).length >= 2000) {
+      const oldest = Object.keys(ancoras).sort((x, y) => (ancoras[x]?.ts || 0) - (ancoras[y]?.ts || 0))[0];
+      if (oldest) delete ancoras[oldest];
+    }
     ancoras[g] = { key: { remoteJid: g, id: msg.key.id, fromMe: Boolean(msg.key.fromMe), participant: msg.key.participant || undefined }, ts };
     salvarAncoras();
   }
@@ -550,12 +592,13 @@ async function guardarAnuncioDoGrupo(msg, origem = 'ao vivo') {
 
 function esperarHistorico(grupoId, tsAntes, ms) {
   return new Promise(resolve => {
-    const w = { grupoId, tsAntes, resolve };
+    const w = { grupoId, tsAntes, resolve, timer: null };
     esperasHistorico.add(w);
-    setTimeout(() => {
+    w.timer = setTimeout(() => {
       esperasHistorico.delete(w);
       resolve(false);
     }, ms);
+    if (w.timer.unref) w.timer.unref();
   });
 }
 
@@ -573,6 +616,7 @@ async function processarHistorico(messages) {
   for (const w of [...esperasHistorico]) {
     const a = ancoras[w.grupoId];
     if (a && a.ts < w.tsAntes) {
+      clearTimeout(w.timer);
       esperasHistorico.delete(w);
       w.resolve(true);
     }
@@ -648,11 +692,12 @@ function estadoImportacao() {
 
 /** Conversa exportada (.txt/.zip) mandada no "Mensagem para mim" */
 async function importarConversaExportada(msg) {
+  if (!sock) throw new Error('WhatsApp não está conectado.');
   const doc = msg.message.documentMessage || msg.message.documentWithCaptionMessage?.message?.documentMessage;
   const nome = String(doc?.fileName || '');
   if (!doc || !/\.(txt|zip)$/i.test(nome)) return null;
   if (Number(doc.fileLength || 0) > 40 * 1024 * 1024) throw new Error('Arquivo grande demais (máximo 40 MB).');
-  const buf = await downloadMediaMessage(msg, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage });
+  const buf = await withTimeout(downloadMediaMessage(msg, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage }), 60000, 'downloadConversa');
   const r = anuncios.importarExportacao(buf, nome);
   addLog('BUSCA', `📥 Conversa exportada "${r.grupo}": ${r.anuncios} anúncios de ${r.lidas} mensagens.`);
   return r;
@@ -668,8 +713,12 @@ function scheduleReconnect(statusCode) {
   const delay = reconnectDelay(statusCode, reconnectAttempts, semSessao);
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    startWhatsAppAgent().catch(err => addLog('CONEXAO', `Erro ao reconectar: ${err.message}`));
+    startWhatsAppAgent().catch(err => {
+      addLog('CONEXAO', `Erro ao reconectar: ${err.message}`);
+      scheduleReconnect(null);
+    });
   }, delay);
+  if (reconnectTimer.unref) reconnectTimer.unref();
 }
 
 // ---------------------------------------------------------------------------
@@ -733,6 +782,7 @@ async function onCall(calls) {
  * no modo clássico é null e tudo funciona como antes (configuração do .env/settings.json).
  */
 async function onMessagesUpsert({ messages, type } = {}, tenant = null) {
+  if (!Array.isArray(messages)) return;
   for (const msg of messages) {
     try {
       if (msg.key && !msg.message && msg.key.fromMe && !String(msg.key.remoteJid || '').endsWith('@g.us') && msg.messageStubType === 2) {
@@ -834,50 +884,95 @@ function useSocket(externalSock, { reset = null } = {}) {
 }
 
 async function startWhatsAppAgent() {
-  if (!fs.existsSync(FOTOS_DIR)) fs.mkdirSync(FOTOS_DIR, { recursive: true });
-  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-  let version;
-  try {
-    ({ version } = await fetchLatestBaileysVersion());
-  } catch {}
-
-  sock = makeWASocket({ ...(version ? { version } : {}), auth: state, logger, printQRInTerminal: false, syncFullHistory: false, markOnlineOnConnect: false });
-  const current = sock;
-  sock.ev.on('creds.update', saveCreds);
-
-  sock.ev.on('connection.update', async update => {
-    if (current !== sock) return;
-    const { connection, lastDisconnect, qr } = update;
-    if (qr) {
-      console.log('\n📱 ESCANEIE O QR CODE (ou abra o painel e faça login):');
-      qrcode.generate(qr, { small: true });
+  if (startingAgent) return startingAgent;
+  startingAgent = (async () => {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
     }
-    await onConnectionState(update);
-    if (connection === 'close') {
-      const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const loggedOut = statusCode === DisconnectReason.loggedOut;
-      addLog('CONEXAO', `Conexão encerrada (código ${statusCode}).${loggedOut ? ' Sessão encerrada no celular.' : ' Reconectando...'}`);
-      if (loggedOut) {
-        try {
-          fs.rmSync(AUTH_DIR, { recursive: true, force: true });
-        } catch {}
-        addLog('CONEXAO', 'Sessão apagada. Um novo QR Code será gerado.');
-        reconnectAttempts = 0;
+    if (!fs.existsSync(FOTOS_DIR)) fs.mkdirSync(FOTOS_DIR, { recursive: true });
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    let version;
+    try {
+      ({ version } = await fetchLatestBaileysVersion());
+    } catch {}
+
+    const prevSock = sock;
+    const nextSock = makeWASocket({ ...(version ? { version } : {}), auth: state, logger, printQRInTerminal: false, syncFullHistory: false, markOnlineOnConnect: false });
+    sock = nextSock;
+    if (prevSock && prevSock !== nextSock) cleanupSocket(prevSock);
+    const current = nextSock;
+    nextSock.ev.on('creds.update', saveCreds);
+
+    nextSock.ev.on('connection.update', async update => {
+      if (current !== sock) return;
+      try {
+        const { connection, lastDisconnect, qr } = update;
+        if (qr) {
+          console.log('\n📱 ESCANEIE O QR CODE (ou abra o painel e faça login):');
+          qrcode.generate(qr, { small: true });
+        }
+        await onConnectionState(update);
+        if (connection === 'close') {
+          const statusCode = lastDisconnect?.error?.output?.statusCode;
+          const loggedOut = statusCode === DisconnectReason.loggedOut;
+          addLog('CONEXAO', `Conexão encerrada (código ${statusCode}).${loggedOut ? ' Sessão encerrada no celular.' : ' Reconectando...'}`);
+          if (loggedOut) {
+            try {
+              fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+            } catch {}
+            addLog('CONEXAO', 'Sessão apagada. Um novo QR Code será gerado.');
+            reconnectAttempts = 0;
+          }
+          if (statusCode === DisconnectReason.restartRequired) addLog('CONEXAO', 'QR Code lido! Terminando de conectar...');
+          cleanupSocket(current);
+          if (sock === current) sock = null;
+          scheduleReconnect(statusCode);
+        }
+      } catch (err) {
+        addLog('ERRO', `Erro na atualização de conexão: ${err.message}`);
       }
-      if (statusCode === DisconnectReason.restartRequired) addLog('CONEXAO', 'QR Code lido! Terminando de conectar...');
-      scheduleReconnect(statusCode);
-    }
-  });
+    });
 
-  for (const [name, handler] of Object.entries(DOMAIN_EVENTS)) sock.ev.on(name, handler);
+    for (const [name, handler] of Object.entries(DOMAIN_EVENTS)) {
+      nextSock.ev.on(name, payload => {
+        if (current !== sock) return;
+        Promise.resolve(handler(payload)).catch(err => addLog('ERRO', `Evento ${name}: ${err.message}`));
+      });
+    }
+  })().finally(() => {
+    startingAgent = null;
+  });
+  return startingAgent;
+}
+
+/** Encerra o agente WhatsApp de forma limpa (libera socket, timers e grava caches) */
+function stopWhatsAppAgent() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  cleanupSocket(sock);
+  sock = null;
+  connectionStatus = 'DESCONECTADO';
+  flushAncoras();
+  try { contacts.flush(); } catch {}
+  try { radar.flush(); } catch {}
 }
 
 /** Desconecta e apaga a sessão (gera novo QR Code) */
 async function resetSession() {
   if (externalReset) return externalReset(); // multi-tenant: quem apaga/reconecta é o WhatsAppSessionManager
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  const prev = sock;
+  sock = null;
   try {
-    if (sock) await sock.logout();
+    if (prev) await withTimeout(prev.logout(), 5000, 'logout');
   } catch {}
+  cleanupSocket(prev);
   try {
     fs.rmSync(AUTH_DIR, { recursive: true, force: true });
   } catch {}
@@ -903,6 +998,7 @@ const api = { isConnected, sendText, sendImage, sendPdf, sendDocument, checkNumb
 
 module.exports = {
   startWhatsAppAgent,
+  stopWhatsAppAgent,
   getAgentState,
   addLog,
   sendOwnerWhatsAppAlert,

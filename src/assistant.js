@@ -107,8 +107,9 @@ const FIELD_ALIASES = {
 function applyFieldEdit(prop, text) {
   const m = String(text).trim().match(/^([a-zA-ZÀ-ú0-9]+)\s*[:=]?\s+(.+)$/s);
   if (!m) return false;
-  const field = FIELD_ALIASES[normalize(m[1])];
-  if (!field) return false;
+  const fieldKey = normalize(m[1]);
+  if (!Object.hasOwn(FIELD_ALIASES, fieldKey)) return false;
+  const field = FIELD_ALIASES[fieldKey];
   let value = m[2].trim();
   if (['valor', 'valor_agio', 'condominio'].includes(field)) {
     const p = detectPrice(normalize(/r\$|mil|k|mi/i.test(value) ? value : `r$ ${value}`), false);
@@ -195,11 +196,20 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
   const text = String(msgInfo.text || '').trim();
   const norm = normalize(text);
   const key = chatJid;
-  let draft = drafts.get(key);
-  if (draft && Date.now() - draft.ts > DRAFT_TTL_MS) {
-    drafts.delete(key);
-    draft = null;
+  const now = Date.now();
+  for (const [k, d] of drafts.entries()) {
+    if (now - d.ts > DRAFT_TTL_MS) {
+      clearTimeout(d.ackTimer);
+      drafts.delete(k);
+    }
   }
+  while (drafts.size > 200) {
+    const oldest = drafts.keys().next().value;
+    if (oldest === undefined) break;
+    clearTimeout(drafts.get(oldest)?.ackTimer);
+    drafts.delete(oldest);
+  }
+  let draft = drafts.get(key);
 
   // Fotos para o rascunho aberto (ou foto com legenda "cadastrar ...")
   if (hasImage && (draft || /^(cadastrar|cadastra|novo imovel|#imovel)\b/.test(norm))) {
@@ -214,6 +224,7 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
     draft.ackTimer = setTimeout(() => {
       reply(wa, chatJid, `📸 ${draft.fotos.length} foto(s) no rascunho. Responda *SALVAR* quando terminar.`).catch(() => {});
     }, 4000);
+    if (draft.ackTimer.unref) draft.ackTimer.unref();
     return true;
   }
   if (!text) return false;
@@ -441,6 +452,8 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
         await reply(wa, chatJid, 'Falta o bairro. Responda por exemplo: *setor Jardim Goiás*');
         return true;
       }
+      clearTimeout(draft.ackTimer);
+      draft.ackTimer = null;
       const created = await sheets.createProperty({ ...draft.prop, fotos: draft.fotos, ativo: true });
       drafts.delete(key);
       if (ctx.log) ctx.log('ASSISTENTE', `Imóvel #${created.id} cadastrado pelo WhatsApp.`);
@@ -452,6 +465,8 @@ async function handleOwnerMessage(wa, msgInfo, ctx = {}) {
       return true;
     }
     if (/^(cancelar|cancela|descartar)$/.test(norm)) {
+      clearTimeout(draft.ackTimer);
+      draft.ackTimer = null;
       drafts.delete(key);
       await reply(wa, chatJid, 'Rascunho descartado.');
       return true;
