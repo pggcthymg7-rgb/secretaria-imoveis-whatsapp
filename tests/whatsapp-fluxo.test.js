@@ -449,7 +449,7 @@ test('Agente 3: startWhatsAppAgent concorrente não duplica socket, stopWhatsApp
   const matcherSrc = require('fs').readFileSync(path.join(__dirname, '..', 'src', 'matcher.js'), 'utf8');
   assert.ok(!/esperarHistorico[\s\S]{0,400}w\.timer\.unref/.test(waSrc), 'esperarHistorico não deve chamar unref() no timer aguardado');
   assert.ok(!/function withTimeout[\s\S]{0,300}timer\.unref/.test(waSrc), 'withTimeout não deve chamar unref() no timer aguardado');
-  assert.ok(!/timeout Gemini[\s\S]{0,120}timeoutId\.unref/.test(matcherSrc), 'timeout do Gemini não deve chamar unref()');
+  assert.ok(!matcherSrc.includes('.unref('), 'matcher.js não deve chamar unref() no timeout aguardado do Gemini');
 
   wa.stopWhatsAppAgent();
   assert.equal(fakeSock.ev.listenerCount('messages.upsert'), 0);
