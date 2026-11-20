@@ -46,7 +46,7 @@
     try {
       data = await r.json();
     } catch {}
-    if (r.status === 401 && !url.startsWith('/api/login') && !url.startsWith('/api/setup')) {
+    if (r.status === 401 && !url.startsWith('/api/login') && !url.startsWith('/api/setup') && !url.startsWith('/api/change-password')) {
       S.authed = false;
       render();
       throw new Error('Faça login novamente.');
@@ -193,8 +193,8 @@
         await api('POST', setup ? '/api/setup' : '/api/login', d);
         S.authed = true;
         S.configured = true;
-        await loadStatus();
-        render();
+        S._booted = false;
+        await go();
       } catch (err) {
         toast(err.message, true);
       }
@@ -544,6 +544,17 @@
     const d = formData($('#pdfForm'));
     S.pdfEnvio = { tel: d.pdfTel || '', msg: d.pdfMsg || '' };
   }
+  function atualizarPaginasPdf(alterar) {
+    if (!S.pdf || !S.pdf.ficha) return;
+    guardarEnvioPdf();
+    const coletado = coletarPdf();
+    const pags = Array.isArray(coletado.paginas)
+      ? [...coletado.paginas]
+      : [{ tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }];
+    if (alterar(pags) === false) return;
+    S.pdf.ficha = { ...S.pdf.ficha, ...coletado, paginas: pags };
+    render();
+  }
   function coletarPdf() {
     const box = $('#pdfForm');
     const d = formData(box);
@@ -552,7 +563,14 @@
     const fotos = [...antes.filter(x => marcadas.includes(x)), ...marcadas.filter(x => !antes.includes(x))].slice(0, 10);
     const modelo = d.pdfModelo || (S.pdf && S.pdf.ficha && S.pdf.ficha.modelo) || 'A';
     const paleta = d.pdfPaleta || (S.pdf && S.pdf.ficha && S.pdf.ficha.paleta) || 'principal';
-    const paginas = (S.pdf && S.pdf.ficha && Array.isArray(S.pdf.ficha.paginas)) ? S.pdf.ficha.paginas : null;
+    const rawPaginas = (S.pdf && S.pdf.ficha && Array.isArray(S.pdf.ficha.paginas) && S.pdf.ficha.paginas.length)
+      ? S.pdf.ficha.paginas
+      : (hasOwn(d, 'pgTitulo_4') && String(d.pgTitulo_4 || '').trim()
+        ? [{ tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }]
+        : null);
+    const paginas = rawPaginas
+      ? rawPaginas.map((pg, i) => (pg && pg.tipo === 'texto' && hasOwn(d, `pgTitulo_${i}`) ? { ...pg, titulo: String(d[`pgTitulo_${i}`] ?? '') } : { ...pg }))
+      : null;
 
     return {
       titulo: d.titulo,
@@ -655,7 +673,7 @@
         <div class="row tight"><label class="btn-ghost accent" style="cursor:pointer">+ Imagem (opcional)<input type="file" id="campImg" accept="image/jpeg,image/png,image/webp"></label><span class="caption" id="campImgName">${esc(S.campImg || '')}</span>${S.campImg ? '<button class="btn-ghost" data-action="rmCampImg">remover</button>' : ''}</div>
         <div class="split top">
           <div class="stack-sm">
-            <span class="field"><span>Contatos do WhatsApp · ${S.selContacts.size} selecionado(s)</span></span>
+            <span class="field"><span>Contatos do WhatsApp · <span id="selContactsCount">${S.selContacts.size}</span> selecionado(s)</span></span>
             ${field('filtroContato', 'Filtrar', S.filtroContato || '', { type: 'search', ph: 'nome ou número' })}
             <div class="row tight"><button class="btn-ghost accent" data-action="selTodos">Selecionar filtrados</button><button class="btn-ghost" data-action="selNenhum">Limpar</button></div>
             <div class="chips" style="max-height:320px;overflow:auto">${contatos.length ? contatos.map(c => toggle(`c:${c.telefone}`, S.selContacts.has(c.telefone), `${c.nome || 'Sem nome'} · ${c.telefone}`)).join('') : '<span class="body ash">A lista aparece conforme o WhatsApp sincroniza seus contatos.</span>'}</div>
@@ -1221,6 +1239,7 @@
   }
 
   async function go() {
+    clearTimeout(S._ft);
     const navId = ++S._navSeq;
     const r = (location.hash || '#inicio').slice(1);
     S.route = views.has(r) ? r : location.pathname === '/dia-a-dia' ? 'atendimento' : 'inicio';
@@ -1595,64 +1614,40 @@
       render();
     },
     pdfAddPagina: async el => {
-      if (!S.pdf || !S.pdf.ficha) return;
-      guardarEnvioPdf();
-      const coletado = coletarPdf();
-      const tipo = el.dataset.tipo || 'foto';
-      const pags = Array.isArray(S.pdf.ficha.paginas) ? [...S.pdf.ficha.paginas] : [
-        { tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }
-      ];
-      if (pags.length >= 14) return toast('Limite máximo de 14 páginas atingido.', true);
-      if (tipo === 'foto') pags.push({ tipo: 'foto', foto: 0 });
-      else if (tipo === 'galeria') pags.push({ tipo: 'galeria', fotos: [0, 1] });
-      else if (tipo === 'texto') pags.push({ tipo: 'texto', titulo: 'Mais Detalhes' });
-      S.pdf.ficha = { ...S.pdf.ficha, ...coletado, paginas: pags };
-      render();
+      atualizarPaginasPdf(pags => {
+        if (pags.length >= 14) {
+          toast('Limite máximo de 14 páginas atingido.', true);
+          return false;
+        }
+        const tipo = el.dataset.tipo || 'foto';
+        if (tipo === 'foto') pags.push({ tipo: 'foto', foto: 0 });
+        else if (tipo === 'galeria') pags.push({ tipo: 'galeria', fotos: [0, 1] });
+        else if (tipo === 'texto') pags.push({ tipo: 'texto', titulo: 'Mais Detalhes' });
+      });
     },
     pdfRmPagina: async el => {
-      if (!S.pdf || !S.pdf.ficha) return;
-      guardarEnvioPdf();
-      const coletado = coletarPdf();
       const idx = parseInt(el.dataset.i, 10);
-      const pags = Array.isArray(S.pdf.ficha.paginas) ? [...S.pdf.ficha.paginas] : [
-        { tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }
-      ];
-      if (pags.length <= 1) return toast('A apresentação deve ter ao menos 1 página.', true);
-      pags.splice(idx, 1);
-      S.pdf.ficha = { ...S.pdf.ficha, ...coletado, paginas: pags };
-      render();
+      atualizarPaginasPdf(pags => {
+        if (pags.length <= 1) {
+          toast('A apresentação deve ter ao menos 1 página.', true);
+          return false;
+        }
+        pags.splice(idx, 1);
+      });
     },
     pdfSubirPagina: async el => {
-      if (!S.pdf || !S.pdf.ficha) return;
-      guardarEnvioPdf();
-      const coletado = coletarPdf();
       const idx = parseInt(el.dataset.i, 10);
-      const pags = Array.isArray(S.pdf.ficha.paginas) ? [...S.pdf.ficha.paginas] : [
-        { tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }
-      ];
-      if (idx > 0) {
-        const tmp = pags[idx];
-        pags[idx] = pags[idx - 1];
-        pags[idx - 1] = tmp;
-        S.pdf.ficha = { ...S.pdf.ficha, ...coletado, paginas: pags };
-        render();
-      }
+      atualizarPaginasPdf(pags => {
+        if (idx <= 0) return false;
+        [pags[idx], pags[idx - 1]] = [pags[idx - 1], pags[idx]];
+      });
     },
     pdfDescerPagina: async el => {
-      if (!S.pdf || !S.pdf.ficha) return;
-      guardarEnvioPdf();
-      const coletado = coletarPdf();
       const idx = parseInt(el.dataset.i, 10);
-      const pags = Array.isArray(S.pdf.ficha.paginas) ? [...S.pdf.ficha.paginas] : [
-        { tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }
-      ];
-      if (idx < pags.length - 1) {
-        const tmp = pags[idx];
-        pags[idx] = pags[idx + 1];
-        pags[idx + 1] = tmp;
-        S.pdf.ficha = { ...S.pdf.ficha, ...coletado, paginas: pags };
-        render();
-      }
+      atualizarPaginasPdf(pags => {
+        if (idx >= pags.length - 1) return false;
+        [pags[idx], pags[idx + 1]] = [pags[idx + 1], pags[idx]];
+      });
     },
     pdfSalvar: async () => {
       if (!S.pdf) return;
@@ -1733,15 +1728,15 @@
     selTodos: () => {
       const f = (S.filtroContato || '').toLowerCase();
       S.contatos.filter(c => !f || (c.nome + c.telefone).toLowerCase().includes(f)).forEach(c => S.selContacts.add(c.telefone));
-      render();
+      render({ manterCampos: true });
     },
     selNenhum: () => {
       S.selContacts.clear();
-      render();
+      render({ manterCampos: true });
     },
     rmCampImg: () => {
       S.campImg = '';
-      render();
+      render({ manterCampos: true });
     },
     criarCampanha: el => criarCampanha(true, el),
     criarRascunho: el => criarCampanha(false, el),
@@ -1894,6 +1889,8 @@
       const k = tg.dataset.toggle;
       if (k.startsWith('c:')) {
         on ? S.selContacts.add(k.slice(2)) : S.selContacts.delete(k.slice(2));
+        const cnt = $('#selContactsCount');
+        if (cnt) cnt.textContent = String(S.selContacts.size);
         return;
       }
       if (k.startsWith('g:')) applyGroupFilter('vit');
@@ -1949,10 +1946,12 @@
       if (n === 'busca') S.filtro = e.target.value;
       else if (n === 'filtroContato') S.filtroContato = e.target.value;
       else S.filtroBairro = e.target.value;
+      const rota = S.route;
       clearTimeout(S._ft);
       S._ft = setTimeout(() => {
+        if (S.route !== rota) return;
         const pos = e.target.selectionStart;
-        render();
+        render({ manterCampos: true });
         const again = $(`[name="${CSS.escape(n)}"]`);
         if (again) {
           again.focus();

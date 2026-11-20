@@ -107,8 +107,10 @@
     if (!safeFam || /^(sans-serif|serif)$/.test(safeFam)) return;
     await listaFontes();
     const ps = pesosDe(safeFam);
-    // ital,wght pede itálico e normal de todos os pesos (família sem itálico: o Google devolve erro 400 -> tenta sem)
-    const ok = await linkFonte(`https://fonts.googleapis.com/css2?family=${famUrl(safeFam)}:ital,wght@${[0, 1].flatMap(i => ps.map(w => `${i},${w}`)).join(';')}&display=swap`);
+    // ital,wght só quando itálico está ativo (evita HTTP 400 em famílias sem itálico no uso normal)
+    const ok = italico
+      ? await linkFonte(`https://fonts.googleapis.com/css2?family=${famUrl(safeFam)}:ital,wght@${[0, 1].flatMap(i => ps.map(w => `${i},${w}`)).join(';')}&display=swap`)
+      : false;
     if (!ok) await linkFonte(`https://fonts.googleapis.com/css2?family=${famUrl(safeFam)}:wght@${ps.join(';')}&display=swap`);
     fontesCarregadas.add(safeFam);
     try {
@@ -1081,9 +1083,12 @@
           return add({ id: uid(), tipo: 'degrade', nome: 'Degradê', x: 0, y: Math.round(H / 2), w: W, h: Math.round(H / 2), rot: 0, opacidade: 1, visivel: true, travada: false, cor1: '#00000000', cor2: '#000000cc', angulo: 180 });
         case 'addFoto':
           return add({ ...modeloPronto('classico', E.doc.tamanho).camadas[0], id: uid(), nome: 'Foto 2', x: W / 2 - 250, y: H / 2 - 250, w: 500, h: 500, raio: 24, indiceFoto: Math.min(1, Math.max(0, fotosDe(E.prop).length - 1)) });
-        case 'duplicar':
+        case 'duplicar': {
           if (!c) return;
-          return add({ ...copia(c), id: uid(), nome: `${c.nome} (cópia)`, x: c.x + 30, y: c.y + 30 });
+          const dup = { ...copia(c), id: uid(), nome: `${c.nome} (cópia)`, x: c.x + 30, y: c.y + 30 };
+          if (dup.tipo === 'logo' && E.R.logos[c.id]) E.R.logos[dup.id] = E.R.logos[c.id];
+          return add(dup);
+        }
         case 'apagar':
           if (!c) return;
           marcar();

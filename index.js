@@ -3,7 +3,7 @@ require('dotenv').config({ quiet: true });
 if (process.env.DATA_DIR) require('dotenv').config({ path: require('path').join(process.env.DATA_DIR, '.env'), override: true, quiet: true });
 // O processo hospedeiro é sempre a BIGA do administrador do SaaS
 delete process.env.BIGA_PAPEL;
-const { app, tenancy } = require('./src/app');
+const { app, tenancy, shutdown: appShutdown } = require('./src/app');
 const { DATA_DIR } = require('./src/paths');
 const sheets = require('./src/sheets');
 const wa = require('./src/whatsapp');
@@ -38,7 +38,7 @@ async function shutdown() {
     metrics.flush();
     anuncios.persist(true);
     pdfManager.shutdown();
-    if (typeof app.shutdown === 'function') app.shutdown();
+    if (typeof appShutdown === 'function') appShutdown();
     if (tenancy) await tenancy.shutdown();
   } catch (err) {
     console.error('Erro no encerramento gracioso:', err);

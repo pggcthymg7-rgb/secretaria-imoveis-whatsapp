@@ -10,15 +10,15 @@ const os = require('os');
 
 const LOCK_FILE = path.join(os.tmpdir(), 'biga-pdf-generator.lock');
 
-async function adquirirTrava({ timeoutMs = 15000, retryIntervalMs = 100, maxAgeMs = 120000 } = {}) {
+async function adquirirTrava({ timeoutMs = 15000, retryIntervalMs = 100, maxAgeMs = 120000, lockFile = LOCK_FILE } = {}) {
   const t0 = Date.now();
   while (true) {
     try {
-      const handle = await fs.promises.open(LOCK_FILE, 'wx', 0o600);
+      const handle = await fs.promises.open(lockFile, 'wx', 0o600);
       try {
         await handle.writeFile(String(process.pid), 'utf8');
       } catch (writeErr) {
-        await fs.promises.unlink(LOCK_FILE).catch(() => {});
+        await fs.promises.unlink(lockFile).catch(() => {});
         throw writeErr;
       } finally {
         await handle.close().catch(() => {});
@@ -28,9 +28,9 @@ async function adquirirTrava({ timeoutMs = 15000, retryIntervalMs = 100, maxAgeM
         if (liberado) return;
         liberado = true;
         try {
-          const lido = await fs.promises.readFile(LOCK_FILE, 'utf8').catch(() => null);
+          const lido = await fs.promises.readFile(lockFile, 'utf8').catch(() => null);
           if (lido && parseInt(lido.trim(), 10) === process.pid) {
-            await fs.promises.unlink(LOCK_FILE).catch(() => {});
+            await fs.promises.unlink(lockFile).catch(() => {});
           }
         } catch {}
       };
@@ -38,8 +38,8 @@ async function adquirirTrava({ timeoutMs = 15000, retryIntervalMs = 100, maxAgeM
       if (err.code === 'EEXIST') {
         try {
           const [lido, st] = await Promise.all([
-            fs.promises.readFile(LOCK_FILE, 'utf8').catch(() => null),
-            fs.promises.stat(LOCK_FILE).catch(() => null)
+            fs.promises.readFile(lockFile, 'utf8').catch(() => null),
+            fs.promises.stat(lockFile).catch(() => null)
           ]);
           const idadeMs = st ? Math.max(0, Date.now() - st.mtimeMs) : 0;
           const lockPid = lido ? parseInt(lido.trim(), 10) : NaN;
@@ -59,14 +59,14 @@ async function adquirirTrava({ timeoutMs = 15000, retryIntervalMs = 100, maxAgeM
           }
 
           if (removerOrfa) {
-            await fs.promises.unlink(LOCK_FILE).catch(() => {});
+            await fs.promises.unlink(lockFile).catch(() => {});
             continue;
           }
         } catch {}
       }
 
       if (Date.now() - t0 >= timeoutMs) {
-        throw new Error(`Timeout de ${timeoutMs}ms aguardando trava do gerador de PDF (${LOCK_FILE})`);
+        throw new Error(`Timeout de ${timeoutMs}ms aguardando trava do gerador de PDF (${lockFile})`);
       }
       const pausa = retryIntervalMs + Math.floor(Math.random() * 50);
       await new Promise(r => setTimeout(r, pausa));

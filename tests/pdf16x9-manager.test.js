@@ -12,23 +12,23 @@ const { gerarPdfComFallback, invalidarCache, carregarKit, salvarKit, salvarFicha
 const { FOTOS_DIR, DATA_DIR } = require('../src/paths');
 
 test('PDF 16:9 Manager: Trava atômica via PID e recuperação de trava órfã', async () => {
-  // Limpa trava se houver
-  try { fs.unlinkSync(LOCK_FILE); } catch {}
+  const testLock = path.join(DATA_DIR, 'test-pid-1.lock');
+  try { fs.unlinkSync(testLock); } catch {}
 
   // 1. Aquisição normal
-  const liberar = await adquirirTrava({ timeoutMs: 1000 });
-  assert.ok(fs.existsSync(LOCK_FILE), 'arquivo de trava deve existir');
-  const conteudo = fs.readFileSync(LOCK_FILE, 'utf8').trim();
+  const liberar = await adquirirTrava({ timeoutMs: 1000, lockFile: testLock });
+  assert.ok(fs.existsSync(testLock), 'arquivo de trava deve existir');
+  const conteudo = fs.readFileSync(testLock, 'utf8').trim();
   assert.equal(conteudo, String(process.pid), 'trava contém o PID do processo atual');
   await liberar();
-  assert.ok(!fs.existsSync(LOCK_FILE), 'arquivo de trava removido após liberar');
+  assert.ok(!fs.existsSync(testLock), 'arquivo de trava removido após liberar');
 
   // 2. Trava órfã: simulando um PID inexistente (ex: 9999999)
-  fs.writeFileSync(LOCK_FILE, '9999999', 'utf8');
+  fs.writeFileSync(testLock, '9999999', 'utf8');
   // Deve detectar ESRCH, limpar a trava velha e adquirir com sucesso
-  const liberarOrfa = await adquirirTrava({ timeoutMs: 2000 });
-  assert.ok(fs.existsSync(LOCK_FILE));
-  assert.equal(fs.readFileSync(LOCK_FILE, 'utf8').trim(), String(process.pid));
+  const liberarOrfa = await adquirirTrava({ timeoutMs: 2000, lockFile: testLock });
+  assert.ok(fs.existsSync(testLock));
+  assert.equal(fs.readFileSync(testLock, 'utf8').trim(), String(process.pid));
   await liberarOrfa();
 });
 
@@ -100,20 +100,21 @@ test('PDF 16:9 Manager: Geração de PDF via Worker Thread e Fallback A4', async
 });
 
 test('Agente 5: lock vazio/corrompido expira, id traversal fica preso no cache, logoPath externo é bloqueado, protótipo barrado e cache PDF tem LRU', async () => {
-  try { fs.unlinkSync(LOCK_FILE); } catch {}
+  const testLock = path.join(DATA_DIR, 'test-pid-2.lock');
+  try { fs.unlinkSync(testLock); } catch {}
 
   // Lock vazio antigo (>5s) é recuperado com segurança
-  fs.writeFileSync(LOCK_FILE, '', 'utf8');
+  fs.writeFileSync(testLock, '', 'utf8');
   const antigo = new Date(Date.now() - 10000);
-  fs.utimesSync(LOCK_FILE, antigo, antigo);
-  const libVazio = await adquirirTrava({ timeoutMs: 2000 });
-  assert.equal(fs.readFileSync(LOCK_FILE, 'utf8').trim(), String(process.pid));
+  fs.utimesSync(testLock, antigo, antigo);
+  const libVazio = await adquirirTrava({ timeoutMs: 2000, lockFile: testLock });
+  assert.equal(fs.readFileSync(testLock, 'utf8').trim(), String(process.pid));
   await libVazio();
 
   // Trava viva antiga (>maxAgeMs) é recuperada
-  fs.writeFileSync(LOCK_FILE, String(process.pid), 'utf8');
-  fs.utimesSync(LOCK_FILE, antigo, antigo);
-  const libVelho = await adquirirTrava({ timeoutMs: 2000, maxAgeMs: 2000 });
+  fs.writeFileSync(testLock, String(process.pid), 'utf8');
+  fs.utimesSync(testLock, antigo, antigo);
+  const libVelho = await adquirirTrava({ timeoutMs: 2000, maxAgeMs: 2000, lockFile: testLock });
   await libVelho();
 
   // logoPath fora de DATA_DIR/FOTOS_DIR é rejeitado; dentro de DATA_DIR é aceito

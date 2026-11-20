@@ -21,6 +21,7 @@ const ARQUIVO_KIT = 'kit_marca.json';
 const ARQUIVO_FICHAS_16X9 = 'fichas_16x9.json';
 const TETO_CACHE_PDF_BYTES = 100 * 1024 * 1024; // 100 MB
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const TIPOS_PAGINA_VALIDOS = new Set(['capa', 'resumo', 'foto', 'galeria', 'texto', 'contato']);
 
 // Fila serial local para garantir concurrency = 1 por processo
 let filaPromise = Promise.resolve();
@@ -139,11 +140,48 @@ function salvarFicha16x9(idImovel, dados) {
   const id = String(idImovel ?? '');
   if (!id || isForbiddenKey(id)) throw Object.assign(new Error('Imóvel inválido.'), { status: 400 });
   const limpos = sanitizePlain(dados);
+  if ('paginas' in limpos) {
+    const pags = sanitizarPaginas(limpos.paginas);
+    if (pags) limpos.paginas = pags;
+    else delete limpos.paginas;
+  }
   const todas = carregarFichas16x9();
   const atual = Object.prototype.hasOwnProperty.call(todas, id) && todas[id] && typeof todas[id] === 'object' ? todas[id] : {};
   todas[id] = { ...atual, ...limpos };
   writeJson(ARQUIVO_FICHAS_16X9, todas);
   return todas[id];
+}
+
+function restaurarFicha16x9(idImovel) {
+  const id = String(idImovel ?? '');
+  if (!id || isForbiddenKey(id)) throw Object.assign(new Error('Imóvel inválido.'), { status: 400 });
+  const todas = carregarFichas16x9();
+  if (Object.prototype.hasOwnProperty.call(todas, id)) {
+    delete todas[id];
+    writeJson(ARQUIVO_FICHAS_16X9, todas);
+  }
+  return {};
+}
+
+function sanitizarPaginas(pags) {
+  if (!Array.isArray(pags) || !pags.length) return null;
+  const out = [];
+  for (const pg of pags.slice(0, 14)) {
+    if (!pg || typeof pg !== 'object' || Array.isArray(pg)) continue;
+    const tipo = String(pg.tipo || '');
+    if (!TIPOS_PAGINA_VALIDOS.has(tipo)) continue;
+    const item = { tipo };
+    if (tipo === 'foto') {
+      item.foto = Math.max(0, Math.min(30, parseInt(pg.foto, 10) || 0));
+    } else if (tipo === 'galeria') {
+      item.fotos = (Array.isArray(pg.fotos) ? pg.fotos : []).slice(0, 10).map(n => Math.max(0, Math.min(30, parseInt(n, 10) || 0)));
+    } else if (tipo === 'texto') {
+      if (typeof pg.titulo === 'string') item.titulo = pg.titulo.replace(/[\u0000-\u001F]/g, ' ').trim().slice(0, 120);
+      if (typeof pg.texto === 'string') item.texto = pg.texto.slice(0, 20000);
+    }
+    out.push(item);
+  }
+  return out.length ? out : null;
 }
 
 /**
@@ -192,7 +230,7 @@ function comporDadosImovel(propriedade, fichaEditada = {}, kit = carregarKit()) 
 /** Resolve caminhos locais das fotos do imóvel */
 function resolverFotosLocais(propriedade, fichaEditada = {}) {
   const p = propriedade || {};
-  const fotosLista = fichaEditada.fotos && fichaEditada.fotos.length
+  const fotosLista = Array.isArray(fichaEditada.fotos)
     ? fichaEditada.fotos
     : (Array.isArray(p.fotos) ? p.fotos : String(p.fotos || '').split(/[,;\n]/));
 
@@ -286,6 +324,7 @@ async function gerarPdfComFallback(propriedade, opcoes = {}) {
   const fotosCaminhos = resolverFotosLocais(propriedade, fichaEditada);
   const logoSeguro = validarLogoPath(kit.logoPath);
   const coresAtivas = paleta === 'segunda' ? kit.cores2 : kit.cores1;
+  const paginasEfetivas = sanitizarPaginas(opcoes.paginas) || sanitizarPaginas(fichaEditada.paginas) || null;
 
   // Chave de cache do PDF pronto (inclui marca, paleta efetiva, logo e páginas)
   const hashInsumos = calcularHashInsumos({
@@ -298,7 +337,7 @@ async function gerarPdfComFallback(propriedade, opcoes = {}) {
     kitCores: coresAtivas,
     kitFonte: kit.fonte,
     logoPath: logoSeguro,
-    paginas: opcoes.paginas || null
+    paginas: paginasEfetivas
   });
   fs.mkdirSync(CACHE_PDF_DIR, { recursive: true });
   const pdfCachePath = path.join(CACHE_PDF_DIR, `ficha_${safeId}_${hashInsumos}.pdf`);
@@ -334,7 +373,7 @@ async function gerarPdfComFallback(propriedade, opcoes = {}) {
         },
         dados,
         fotosCaminhos,
-        paginas: opcoes.paginas || null,
+        paginas: paginasEfetivas,
         destinoPath: pdfCachePath,
         cacheFotosDir: CACHE_FOTOS_DIR
       };
@@ -405,6 +444,8 @@ module.exports = {
   salvarKit,
   carregarFichas16x9,
   salvarFicha16x9,
+  restaurarFicha16x9,
+  sanitizarPaginas,
   comporDadosImovel,
   resolverFotosLocais,
   gerarPdfComFallback,
