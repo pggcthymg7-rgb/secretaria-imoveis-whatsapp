@@ -2,7 +2,7 @@ const { prop } = require('./helpers');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const F = require('./fixtures-mensagens-reais');
-const { analyzeMessageAndMatch, formatOutreachMessage } = require('../src/matcher');
+const { analyzeMessageAndMatch, formatOutreachMessage } = require('../src/domain/matcher');
 const { parseRequest } = require('../src/brain/parser');
 
 // Imóvel REAL da carteira que foi enviado por engano para o pedido do "Flat Metropolitan"
@@ -174,7 +174,7 @@ test('Aluguel não recebe imóvel de venda', async () => {
 });
 
 test('Nome do remetente é limpo ("Marline Pinheiro - Corretora De Imóveis" -> Marline)', () => {
-  const { firstNameOf } = require('../src/matcher');
+  const { firstNameOf } = require('../src/domain/matcher');
   assert.equal(firstNameOf('Marline Pinheiro - Corretora De Imóveis'), 'Marline');
   assert.equal(firstNameOf('Marcela de Sá | Corretora'), 'Marcela');
   assert.equal(firstNameOf('corretor Alves'), 'Alves');
@@ -237,8 +237,8 @@ test('Vocabulário: piscina privativa x do condomínio, casa com piscina, sinôn
 });
 
 test('Casa de condomínio é categoria própria: no cadastro, no pedido e nos filtros da Busca', async () => {
-  const { tipoCanonico } = require('../src/busca-filtros');
-  const { parsePropertyFromText } = require('../src/assistant');
+  const { tipoCanonico } = require('../src/integrations/busca/filtros');
+  const { parsePropertyFromText } = require('../src/whatsapp/assistant');
   assert.equal(tipoCanonico('casa de condomínio'), 'Casa de condomínio');
   assert.equal(tipoCanonico('Casa'), 'Casa');
   assert.equal(parsePropertyFromText('cadastrar casa de condomínio 4 suítes 350m2 no Jardins Itália 3,2 milhões').tipo, 'Casa de condomínio');
@@ -247,7 +247,7 @@ test('Casa de condomínio é categoria própria: no cadastro, no pedido e nos fi
   const rua = prop({ id: 'c2', tipo: 'Casa', setor: 'Setor Bueno', quartos: 4, valor: 3000000 });
   const r = await run('Busco casa de condomínio 4 quartos até 3,5 milhões', [cond, rua]);
   assert.deepEqual(r.matches.map(m => m.id), ['c1']);
-  const bi = require('../src/busca-inteligente');
+  const bi = require('../src/integrations/busca/inteligente');
   const { criterios } = bi.entenderFiltros({ tipo: 'Casa de condomínio', negocio: 'VENDA' });
   assert.deepEqual([criterios.tipos, criterios.subtipo_casa], [['Casa'], 'CONDOMINIO']);
 });
@@ -262,7 +262,7 @@ test('Agente 4: parser/matcher toleram entradas nulas/enormes, preservam $ na de
   const inv = await run(12345, null);
   assert.deepEqual([inv.isLookingForProperty, inv.decision], [false, 'IGNORAR']);
 
-  const { formatOutreachMessage } = require('../src/matcher');
+  const { formatOutreachMessage } = require('../src/domain/matcher');
   const out = formatOutreachMessage('Carlos', 'Procuro apto com $& e $1 no texto', prop({
     id: '99',
     tipo: 'Apartamento',

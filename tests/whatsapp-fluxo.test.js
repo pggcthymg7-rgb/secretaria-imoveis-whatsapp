@@ -43,11 +43,11 @@ require.cache[baileysPath] = {
   }
 };
 
-const sheets = require('../src/sheets');
-const { saveSettings } = require('../src/settings');
-const contacts = require('../src/contacts');
-const wa = require('../src/whatsapp');
-const radar = require('../src/radar');
+const sheets = require('../src/domain/sheets');
+const { saveSettings } = require('../src/config/settings');
+const contacts = require('../src/whatsapp/contacts');
+const wa = require('../src/whatsapp/client');
+const radar = require('../src/domain/radar');
 
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const nowTs = () => Math.floor(Date.now() / 1000);
@@ -145,7 +145,7 @@ test('1ª mensagem: novo recebe; quem já conversou comigo pelo LID+telefone nã
 });
 
 test.after(() => {
-  require('../src/contacts').flush();
+  require('../src/whatsapp/contacts').flush();
 });
 
 test('Pareamento: depois de ler o QR (515) reconecta quase na hora; QR vencido (408) volta rápido', () => {
@@ -189,7 +189,7 @@ test('Comando recente que chega como "append" é atendido; antigo não; e fica r
 
 // ---------------------------------------------------------------------------
 // Busca inteligente (memória de anúncios, histórico, conversa exportada, comando "busca")
-const anunciosMem = require('../src/anuncios');
+const anunciosMem = require('../src/domain/anuncios');
 const F2 = require('./fixtures-mensagens-reais');
 
 test('Anúncio postado em QUALQUER grupo vai para a memória (sem mudar o fluxo de pedidos)', async () => {
@@ -257,7 +257,7 @@ test('Conversa exportada mandada no "Mensagem para mim" vira anúncios', async (
 });
 
 test('Configurações da busca pelo "Mensagem para mim" (as mesmas do painel)', async () => {
-  const bi = require('../src/busca-inteligente');
+  const bi = require('../src/integrations/busca/inteligente');
   const cmd = async t => {
     sent.length = 0;
     fakeSock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: `${SELF}@s.whatsapp.net`, id: 'CF' + Math.random(), fromMe: true }, messageTimestamp: nowTs(), message: { conversation: t } }] });
@@ -292,7 +292,7 @@ test('Configurações da busca pelo "Mensagem para mim" (as mesmas do painel)', 
 });
 
 test('Grupos da busca pelo "Mensagem para mim": listar, escolher, e anúncio de grupo fora da lista não é guardado', async () => {
-  const bi = require('../src/busca-inteligente');
+  const bi = require('../src/integrations/busca/inteligente');
   const cmd = async t => {
     sent.length = 0;
     fakeSock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: `${SELF}@s.whatsapp.net`, id: 'GB' + Math.random(), fromMe: true }, messageTimestamp: nowTs(), message: { conversation: t } }] });
@@ -445,8 +445,8 @@ test('Agente 3: startWhatsAppAgent concorrente não duplica socket, stopWhatsApp
   await assert.doesNotReject(() => wa.onMessagesUpsert(undefined));
 
   // Timers aguardados com await (esperarHistorico, withTimeout, timeout Gemini) não podem usar .unref()
-  const waSrc = require('fs').readFileSync(path.join(__dirname, '..', 'src', 'whatsapp.js'), 'utf8');
-  const matcherSrc = require('fs').readFileSync(path.join(__dirname, '..', 'src', 'matcher.js'), 'utf8');
+  const waSrc = require('fs').readFileSync(path.join(__dirname, '..', 'src', 'whatsapp', 'client.js'), 'utf8');
+  const matcherSrc = require('fs').readFileSync(path.join(__dirname, '..', 'src', 'domain', 'matcher.js'), 'utf8');
   assert.ok(!/esperarHistorico[\s\S]{0,400}w\.timer\.unref/.test(waSrc), 'esperarHistorico não deve chamar unref() no timer aguardado');
   assert.ok(!/function withTimeout[\s\S]{0,300}timer\.unref/.test(waSrc), 'withTimeout não deve chamar unref() no timer aguardado');
   assert.ok(!matcherSrc.includes('.unref('), 'matcher.js não deve chamar unref() no timeout aguardado do Gemini');

@@ -4,8 +4,8 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { prop } = require('./helpers');
-const { FOTOS_DIR } = require('../src/paths');
-const fichaPdf = require('../src/pdf-ficha');
+const { FOTOS_DIR } = require('../src/config/paths');
+const fichaPdf = require('../src/pdf/ficha-a4');
 
 // JPEG mínimo válido (1x1) para a capa e a galeria
 const JPG = Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=', 'base64');

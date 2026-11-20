@@ -6,8 +6,8 @@ const zlib = require('zlib');
 const F = require('./fixtures-mensagens-reais');
 const { detectPrice, detectArea } = require('../src/brain/parser');
 const { normalize } = require('../src/brain/text');
-const anuncios = require('../src/anuncios');
-const bi = require('../src/busca-inteligente');
+const anuncios = require('../src/domain/anuncios');
+const bi = require('../src/integrations/busca/inteligente');
 
 const preco = t => {
   const a = detectArea(normalize(t));
@@ -236,7 +236,7 @@ test('Painel › Busca: exige login, busca, guarda no histórico, valida configu
     assert.equal(r.status, 400, 'chave inválida não é gravada');
     r = await fetch(`${base}/api/config`, { method: 'POST', headers: J, body: JSON.stringify({ geminiApiKey: 'chave com espaço e ; rm -rf', resumoDiarioHorario: '07:00' }) });
     assert.equal(r.status, 400, 'Ajustes também confere a chave');
-    assert.notEqual(require('../src/settings').loadSettings().resumoDiarioHorario, '07:00', 'nada é salvo se a chave for recusada');
+    assert.notEqual(require('../src/config/settings').loadSettings().resumoDiarioHorario, '07:00', 'nada é salvo se a chave for recusada');
     r = await fetch(`${base}/api/busca/config`, { method: 'POST', headers: J, body: JSON.stringify({ limiteDia: 5, olx: false, zap: true, vivareal: false }) });
     const cfg = (await r.json()).config;
     assert.deepEqual([cfg.limiteDia, cfg.olx, cfg.zap, cfg.vivareal], [5, false, true, false]);
@@ -264,7 +264,7 @@ test('Painel › Busca: exige login, busca, guarda no histórico, valida configu
 });
 
 test('Chave do Gemini: limpa o que vem colado e confere no Google (caso João: chave nova recusada)', async () => {
-  const g = require('../src/gemini-chave');
+  const g = require('../src/integrations/gemini/chave');
   const k = CHAVE_FALSA;
   for (const colado of [k, ` ${k}\n`, `"${k}"`, `GEMINI_API_KEY=${k}`, k.slice(0, 7) + '​' + k.slice(7)]) assert.equal(g.limparChave(colado), k);
   assert.ok(g.formatoValido('AQ.Ab8RN6Kx-formato.novo_com_ponto_123'), 'formato novo com ponto');
@@ -303,7 +303,7 @@ test('Grupos da busca são separados dos grupos de pedidos (padrão: todos; conv
 });
 
 test('Testar chave salva: corrige chave "suja" salva pela versão antiga de Ajustes e diz se funciona', async () => {
-  const g = require('../src/gemini-chave');
+  const g = require('../src/integrations/gemini/chave');
   const antes = process.env.GEMINI_API_KEY;
   try {
     process.env.GEMINI_API_KEY = '';
@@ -326,7 +326,7 @@ test('Testar chave salva: corrige chave "suja" salva pela versão antiga de Ajus
 // ---------------------------------------------------------------------------
 // Modelo do Gemini descoberto (caso real do João: "gemini-2.5-flash is no longer available to new users")
 test('Modelo do Gemini: escolhe o flash estável mais novo que a chave pode usar', () => {
-  const M = require('../src/gemini-modelo');
+  const M = require('../src/integrations/gemini/modelo');
   const gc = ['generateContent'];
   const lista = [
     { name: 'models/gemini-2.5-flash', supportedGenerationMethods: gc },
@@ -347,7 +347,7 @@ test('Modelo do Gemini: escolhe o flash estável mais novo que a chave pode usar
 });
 
 test('Portais (Gemini + Google): fila de modelos começa pelo 2.5 e passa ao próximo em 404/429, sem gastar outra busca do dia', async () => {
-  const M = require('../src/gemini-modelo');
+  const M = require('../src/integrations/gemini/modelo');
   const fonte = { redirect: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/ZZZ', url: 'https://go.olx.com.br/grande-goiania-e-anapolis/imoveis/apto-marista-777', titulo: 'olx' };
   const item = { titulo: 'Apto Marista', portal: 'OLX', link: fonte.url, preco: 900000, area_m2: 120, quartos: 3, bairro: 'Setor Marista', anunciante: 'Particular', tipo_anunciante: 'particular' };
   const usados = [];
@@ -406,7 +406,7 @@ test('Portais (Gemini + Google): fila de modelos começa pelo 2.5 e passa ao pr�
 // ---------------------------------------------------------------------------
 // Filtros iguais aos dos portais (pedido do João: cidade, bairro, condomínio/edifício, valor, quartos, tamanho…)
 test('Filtros: valores, faixas e campos em branco (o que não é preenchido fica aberto)', () => {
-  const Fl = require('../src/busca-filtros');
+  const Fl = require('../src/integrations/busca/filtros');
   const n = b => Fl.normalizarFiltros(b);
   assert.deepEqual(n({ valor: 'de 4 milhões até 5 milhões' }).filtros, { valorMin: 4000000, valorMax: 5000000 });
   assert.deepEqual(n({ valor: '4 a 5 milhões' }).filtros, { valorMin: 4000000, valorMax: 5000000 }, '4 herda a unidade do 5');
@@ -428,7 +428,7 @@ test('Filtros: valores, faixas e campos em branco (o que não é preenchido fica
 });
 
 test('Filtros -> critérios: confere nome por nome (o mapa errava "Goiânia" -> Goianira e "Xyzabc Park" -> outro condomínio)', () => {
-  const Fl = require('../src/busca-filtros');
+  const Fl = require('../src/integrations/busca/filtros');
   const crit = b => bi.entenderFiltros(Fl.normalizarFiltros(b).filtros);
   let { criterios: c, avisos } = crit({ cidade: 'Goiânia', bairro: 'Setor Marista', tipo: 'apto', area: 'a partir de 100', valor: '800 mil a 1 milhão' });
   assert.deepEqual(c.local.cidades, ['Goiânia'], 'Goiânia é Goiânia');
@@ -471,7 +471,7 @@ test('Busca por filtros nos grupos: condomínio + 4 suítes + de 4 a 5 milhões 
   assert.deepEqual(aberto.grupos.map(g => g.fontes[0].autor).sort(), ['Ana', 'Caio', 'Duda']);
   // o mesmo pedido escrito em texto livre (caso real do João) dá os mesmos critérios dos campos
   const livre = bi.entenderPedido(F.pedidoJardinsItalia).criterios;
-  const porCampos = bi.entenderFiltros(require('../src/busca-filtros').normalizarFiltros({ tipo: 'casa', local: 'Jardins Itália', suites: '4', valor: 'de 4 milhões até 5 milhões' }).filtros).criterios;
+  const porCampos = bi.entenderFiltros(require('../src/integrations/busca/filtros').normalizarFiltros({ tipo: 'casa', local: 'Jardins Itália', suites: '4', valor: 'de 4 milhões até 5 milhões' }).filtros).criterios;
   assert.deepEqual([livre.tipos, livre.valor_min, livre.valor_max, livre.suites_min, livre.local.condominios.map(x => x.name)], [porCampos.tipos, porCampos.valor_min, porCampos.valor_max, porCampos.suites_min, porCampos.local.condominios.map(x => x.name)]);
   // sem nenhum campo: recusa
   await assert.rejects(() => bi.buscarComFiltros({ negocio: 'VENDA' }, { env: {}, guardar: false }), /Preencha pelo menos um campo/);
@@ -518,8 +518,8 @@ test('Painel › Busca por filtros (API): valida, usa os campos e o texto livre 
 // ---------------------------------------------------------------------------
 // Caso real do João: "a cota grátis acabou" sem ele ter usado nada (429 da busca com Google)
 test('Diagnóstico do Gemini: separa "chave gera texto" de "busca com Google sem cota" e mostra o motivo exato do Google', async () => {
-  const g = require('../src/gemini-chave');
-  const M = require('../src/gemini-modelo');
+  const g = require('../src/integrations/gemini/chave');
+  const M = require('../src/integrations/gemini/modelo');
   M.esquecer('k-diag');
   const msg429 = 'You exceeded your current quota. * Quota exceeded for metric: generate_content_free_tier_grounding_requests, limit: 0';
   const fetcher = async (url, o = {}) => {
@@ -565,14 +565,14 @@ test('Portais com 429: o relatório mostra a mensagem do Google e a busca recusa
 // ---------------------------------------------------------------------------
 // Busca nos portais por camadas: links com o local, busca desacoplada (Tavily/Serper/Brave) + Gemini sem google_search,
 // trava anti-invenção e Apify opcional
-const Serp = require('../src/busca-serp');
+const Serp = require('../src/integrations/busca/serp');
 
 const ZAP_AD = 'https://www.zapimoveis.com.br/imovel/venda-casa-4-quartos-jardins-italia-goiania-go-369m2-id-2700000001/';
 const VIVA_AD = 'https://www.vivareal.com.br/imovel/casa-de-condominio-4-quartos-jardins-italia-bairros-goiania-com-garagem-355m2-venda-RS4520000-id-2587529552/';
 const OLX_AD = 'https://go.olx.com.br/grande-goiania-e-anapolis/imoveis/casa-no-condominio-jardins-italia-1234567890';
 const OLX_LISTA = 'https://www.olx.com.br/imoveis/venda/estado-go/grande-goiania-e-anapolis/goiania?q=casa+jardins+italia';
 
-const pedidoJardins = filtros => bi.entenderFiltros(require('../src/busca-filtros').normalizarFiltros(filtros).filtros).criterios;
+const pedidoJardins = filtros => bi.entenderFiltros(require('../src/integrations/busca/filtros').normalizarFiltros(filtros).filtros).criterios;
 
 test('Links prontos: o local (condomínio/bairro) e as suítes entram na OLX, no ZAP e no VivaReal (caso Jardins Itália)', () => {
   const c = pedidoJardins({ tipo: 'casa', local: 'Jardins Itália', quartos: '3', suites: '3', valor: '3 a 7 milhões' });
@@ -780,7 +780,7 @@ test('Apify (opcional): OLX, ZAP e VivaReal estruturados, filtros enviados, toke
 });
 
 test('Apify: tipo do pedido vira unitTypes; cidade fora da lista do robô vai em citiesCustom', () => {
-  const A = require('../src/busca-apify');
+  const A = require('../src/integrations/busca/apify');
   const apto = pedidoJardins({ tipo: 'apartamento', bairro: 'Setor Marista', quartos: '3', valor: '1 a 1,6 milhão' });
   const z = A.corpoDaConsulta(apto, 'VIVA_REAL');
   assert.deepEqual([z.unitTypes, z.usageTypes, z.neighborhoods, z.minPrice, z.maxPrice, z.minBedrooms], [['APARTMENT'], ['RESIDENTIAL'], ['setor-marista'], 1000000, 1600000, 3]);
@@ -794,7 +794,7 @@ test('Apify: tipo do pedido vira unitTypes; cidade fora da lista do robô vai em
 });
 
 test('"testar apify": roda cada robô com 1 anúncio, mostra preço/link e o gasto do mês; token recusado ou ausente é explicado', async () => {
-  const A = require('../src/busca-apify');
+  const A = require('../src/integrations/busca/apify');
   const chamadas = [];
   const fetcher = async (u, o = {}) => {
     const url = String(u);
@@ -826,7 +826,7 @@ test('"testar apify": roda cada robô com 1 anúncio, mostra preço/link e o gas
 });
 
 test('Diagnóstico: mostra os motores da busca nos portais, testa o principal e diz qual está ativo', async () => {
-  const g = require('../src/gemini-chave');
+  const g = require('../src/integrations/gemini/chave');
   const antes = { gem: process.env.GEMINI_API_KEY, tav: process.env.TAVILY_API_KEY, sp: process.env.SERPER_API_KEY, ap: process.env.APIFY_API_TOKEN };
   const fetcher = async (u, o = {}) => {
     if (/api\.tavily\.com/.test(String(u))) return { ok: true, status: 200, json: async () => ({ results: [{ url: ZAP_AD, title: 'x', content: 'y' }] }) };
@@ -862,7 +862,7 @@ test('Diagnóstico: mostra os motores da busca nos portais, testa o principal e 
 });
 
 test('Chaves dos motores de busca: limpa o que foi colado, confere no serviço e explica o erro', async () => {
-  const B = require('../src/busca-chaves');
+  const B = require('../src/integrations/busca/chaves');
   const k = 'tvly-dev-AbC123xyz456_7890';
   assert.equal(B.limparChave(` "${k}"\n`), k);
   assert.equal(B.limparChave(`TAVILY_API_KEY=${k}`), k);
@@ -903,7 +903,7 @@ test('Ajustes (API): chave de busca com formato estranho é recusada antes de sa
     r = await fetch(`${base}/api/config`, { method: 'POST', headers: J, body: JSON.stringify({ tavilyApiKey: 'chave com ç ; rm -rf', resumoDiarioHorario: '08:00' }) });
     assert.equal(r.status, 400);
     assert.match((await r.json()).error, /não parece uma chave do Tavily/);
-    assert.notEqual(require('../src/settings').loadSettings().resumoDiarioHorario, '08:00', 'nada é salvo se a chave for recusada');
+    assert.notEqual(require('../src/config/settings').loadSettings().resumoDiarioHorario, '08:00', 'nada é salvo se a chave for recusada');
     r = await fetch(`${base}/api/config`, { headers: J });
     const cfg = (await fetch(`${base}/api/status`, { headers: J }).then(x => x.json())).config;
     assert.equal(typeof cfg.hasTavilyKey, 'boolean');
@@ -918,8 +918,8 @@ test('Ajustes (API): chave de busca com formato estranho é recusada antes de sa
 // ---------------------------------------------------------------------------
 // Caso real do João (diagnóstico de 03/11): 2.5 "indisponível para usuários novos", gemini-3.8-flash com 503 "alta demanda"
 test('Curadoria resiliente: 404 lembra, 503 tenta de novo e depois passa ao próximo modelo (lite primeiro)', async () => {
-  const M = require('../src/gemini-modelo');
-  const { curar } = require('../src/busca-curadoria');
+  const M = require('../src/integrations/gemini/modelo');
+  const { curar } = require('../src/integrations/busca/curadoria');
   const catalogo = [{ id: 1, portal: 'OLX', dominio: 'olx.com.br', url: OLX_AD, titulo: 'Casa', conteudo: 'R$ 4.500.000' }];
   const modelos = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.5-flash'].map(n => ({ name: `models/${n}`, supportedGenerationMethods: ['generateContent'] }));
   const montar = comportamento => {
@@ -980,8 +980,8 @@ test('Busca com o Gemini sobrecarregado: o relatório explica e mostra os anúnc
 });
 
 test('Diagnóstico: a resposta simples passa por outros modelos quando o principal dá 503, e o 503 é explicado como passageiro', async () => {
-  const g = require('../src/gemini-chave');
-  const M = require('../src/gemini-modelo');
+  const g = require('../src/integrations/gemini/chave');
+  const M = require('../src/integrations/gemini/modelo');
   const modelos = ['gemini-3.8-flash', 'gemini-3.5-flash-lite'].map(n => ({ name: `models/${n}`, supportedGenerationMethods: ['generateContent'] }));
   const fabrica = ok => async (u, o = {}) => {
     if (/\/models\?pageSize/.test(String(u))) return { ok: true, status: 200, json: async () => ({ models: modelos }) };

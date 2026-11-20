@@ -5,8 +5,8 @@ const fs = require('fs');
 const path = require('path');
 
 const { prop } = require('./helpers');
-const { FOTOS_DIR } = require('../src/paths');
-const { gerarPdfComFallback, carregarKit, salvarKit } = require('../src/pdf16x9/manager');
+const { FOTOS_DIR } = require('../src/config/paths');
+const { gerarPdfComFallback, carregarKit, salvarKit } = require('../src/pdf/deck16x9/manager');
 
 test('PDF 16:9 Rotas & Integração: gerarPdfComFallback atende imóvel com fotos reais e gera PDF válido', async () => {
   fs.mkdirSync(FOTOS_DIR, { recursive: true });

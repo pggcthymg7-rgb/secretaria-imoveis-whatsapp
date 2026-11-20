@@ -15,7 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
 const pino = require('pino');
-const { reconnectDelay } = require('../whatsapp-reconexao');
+const { reconnectDelay } = require('../whatsapp/reconexao');
 const { validateTenantId, tenantPath } = require('./tenant-store');
 
 const FORWARDED_EVENTS = ['messaging-history.set', 'chats.upsert', 'contacts.upsert', 'contacts.update', 'groups.upsert', 'call'];

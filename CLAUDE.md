@@ -1,5 +1,5 @@
 # Biga PropTech — memória raiz
-Leia `ESTADO_ATUAL.md` antes de qualquer tarefa. Comandos e mapa do código: `.claude/ENGENHARIA.md` (`npm run verify` com 0 erros).
+Leia `ESTADO_ATUAL.md` antes de qualquer tarefa. Visão prática das pastas: `MAPA_DO_PROJETO.md`. Comandos e mapa técnico: `.claude/ENGENHARIA.md` (`npm run verify` com 0 erros).
 
 ## Tese: "Come for the tool, stay for the network"
 1. Ferramenta: Assistente WhatsApp (Radar de grupos) + Designer de PDFs/Artes.

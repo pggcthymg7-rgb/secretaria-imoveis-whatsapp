@@ -1,7 +1,7 @@
 const { prop } = require('./helpers');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const QP = require('../src/quem-procura');
+const QP = require('../src/domain/quem-procura');
 
 const agora = Date.now();
 const dia = 86400000;

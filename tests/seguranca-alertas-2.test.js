@@ -6,8 +6,8 @@ const fs = require('fs');
 const path = require('path');
 
 test('Chaves coladas: aspas, prefixo e espaços saem como antes — e em tempo linear (a regex antiga era quadrática)', () => {
-  const g = require('../src/gemini-chave');
-  const b = require('../src/busca-chaves');
+  const g = require('../src/integrations/gemini/chave');
+  const b = require('../src/integrations/busca/chaves');
   assert.equal(g.limparChave('  "AIzaSyABC DEF"  '), 'AIzaSyABCDEF');
   assert.equal(g.limparChave('GEMINI_API_KEY=AIzaSyABC'), 'AIzaSyABC');
   assert.equal(g.limparChave(`'\`"x"\`'`), 'x');
@@ -24,7 +24,7 @@ test('Chaves coladas: aspas, prefixo e espaços saem como antes — e em tempo l
 
 test('Bearer: token certo entra, errado não, e cabeçalho enorme não trava', () => {
   process.env.API_TOKEN = 'token-de-teste-bem-comprido-123';
-  const auth = require('../src/auth');
+  const auth = require('../src/config/auth');
   const req = h => ({ headers: { authorization: h } });
   assert.equal(auth.isAuthenticated(req('Bearer token-de-teste-bem-comprido-123')), true);
   assert.equal(auth.isAuthenticated(req('bearer   token-de-teste-bem-comprido-123')), true, 'maiúscula/minúscula e vários espaços');
@@ -38,7 +38,7 @@ test('Bearer: token certo entra, errado não, e cabeçalho enorme não trava', (
 });
 
 test('Vitrine: id "__proto__" ou "constructor" não mexe em Object.prototype', () => {
-  const vitrine = require('../src/vitrine');
+  const vitrine = require('../src/domain/vitrine');
   assert.equal(vitrine.setStatus('__proto__', 'APROVADO'), null);
   assert.equal(vitrine.setStatus('constructor', 'APROVADO'), null);
   assert.equal(({}).status, undefined, 'Object.prototype.status não pode existir');
@@ -66,7 +66,7 @@ test('Painel (app.js): rota da URL que não é página (#constructor) cai no in�
 });
 
 test('Vitrine: nomes do protótipo e id inexistente nunca chegam à atribuição (guarda inline)', () => {
-  const vitrine = require('../src/vitrine');
+  const vitrine = require('../src/domain/vitrine');
   for (const id of ['__proto__', 'constructor', 'prototype', 'toString', 'hasOwnProperty', 'nao-existe', '', undefined, null, {}]) {
     assert.equal(vitrine.setStatus(id, 'APROVADO'), null, `id ${String(id)}`);
   }
@@ -76,12 +76,12 @@ test('Vitrine: nomes do protótipo e id inexistente nunca chegam à atribuição
 });
 
 test('Agente 2: vitrine.upsertPost e sistema.corretores bloqueiam prototype e esquemas perigosos', () => {
-  const vitrine = require('../src/vitrine');
+  const vitrine = require('../src/domain/vitrine');
   assert.equal(vitrine.upsertPost({ id: '__proto__' }), null);
   assert.equal(vitrine.upsertPost({ id: 'constructor' }), null);
   assert.equal(({}).texto, undefined);
 
-  const sistema = require('../src/sistema');
+  const sistema = require('../src/config/sistema');
   fs.writeFileSync(path.join(tmp, 'corretores.json'), JSON.stringify([
     { nome: 'ana', url: 'https://ana.biga.test' },
     { nome: 'evil', url: 'javascript:alert(1)' }
@@ -146,10 +146,10 @@ test('Agente 6: frontend (app.js, capas.js, biga-art.js) sem erros de sintaxe e 
 });
 
 test('Passada 2: app.shutdown() limpa timers de pdf16x9/rateLimit/anuncios, rotas usam hasOwn e WA cria FOTOS_DIR', () => {
-  const pdf16x9 = require('../src/pdf16x9/manager');
-  const appMod = require('../src/app');
-  const waSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'whatsapp.js'), 'utf8');
-  const appSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'app.js'), 'utf8');
+  const pdf16x9 = require('../src/pdf/deck16x9/manager');
+  const appMod = require('../src/web/app');
+  const waSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'whatsapp', 'client.js'), 'utf8');
+  const appSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'app.js'), 'utf8');
 
   assert.match(waSrc, /fs\.mkdirSync\(FOTOS_DIR,\s*\{\s*recursive:\s*true\s*\}\)/);
   assert.match(appSrc, /Object\.prototype\.hasOwnProperty\.call\(fichas16,\s*pidStr\)/);

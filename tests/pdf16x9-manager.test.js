@@ -6,10 +6,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const { LOCK_FILE, adquirirTrava } = require('../src/pdf16x9/lock');
-const { hashArquivo, obterFotoReduzida, limparCacheSeNecessario } = require('../src/pdf16x9/cache-fotos');
-const { gerarPdfComFallback, invalidarCache, carregarKit, salvarKit, salvarFicha16x9, validarLogoPath, limparCachePdfSeNecessario, shutdown, CACHE_PDF_DIR } = require('../src/pdf16x9/manager');
-const { FOTOS_DIR, DATA_DIR } = require('../src/paths');
+const { LOCK_FILE, adquirirTrava } = require('../src/pdf/deck16x9/lock');
+const { hashArquivo, obterFotoReduzida, limparCacheSeNecessario } = require('../src/pdf/deck16x9/cache-fotos');
+const { gerarPdfComFallback, invalidarCache, carregarKit, salvarKit, salvarFicha16x9, validarLogoPath, limparCachePdfSeNecessario, shutdown, CACHE_PDF_DIR } = require('../src/pdf/deck16x9/manager');
+const { FOTOS_DIR, DATA_DIR } = require('../src/config/paths');
 
 test('PDF 16:9 Manager: Trava atômica via PID e recuperação de trava órfã', async () => {
   const testLock = path.join(DATA_DIR, 'test-pid-1.lock');

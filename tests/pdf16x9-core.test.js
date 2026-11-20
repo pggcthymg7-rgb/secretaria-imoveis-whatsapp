@@ -6,9 +6,9 @@ const path = require('path');
 const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
 
-const { lum, contraste, derivar, conferir } = require('../src/pdf16x9/kit');
-const { tipoNeg, preco, destaques, waLink, formatarFone, paragrafos, VAZIO } = require('../src/pdf16x9/dados');
-const { gerar, COMPATIVEIS, MODELOS } = require('../src/pdf16x9/gerar');
+const { lum, contraste, derivar, conferir } = require('../src/pdf/deck16x9/kit');
+const { tipoNeg, preco, destaques, waLink, formatarFone, paragrafos, VAZIO } = require('../src/pdf/deck16x9/dados');
+const { gerar, COMPATIVEIS, MODELOS } = require('../src/pdf/deck16x9/gerar');
 
 const DIR_FONTES = path.join(__dirname, '..', 'fonts');
 function carregarFontes() {

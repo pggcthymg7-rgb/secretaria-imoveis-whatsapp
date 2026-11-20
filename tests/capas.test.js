@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const capas = require('../src/capas');
+const capas = require('../src/domain/capas');
 
 test('Capas: modelo salvo só com campos conhecidos e números dentro da faixa', () => {
   const r = capas.salvar({

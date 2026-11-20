@@ -6,11 +6,15 @@
 - Rodar local: `PAINEL_SENHA=algumasenha npm start` → http://localhost:3000
 
 ## Mapa do código
-- `src/brain/` — cérebro: mapa de Goiânia (`gazetteer.js`), localização (`locations.js`), intérprete de pedidos (`parser.js`), motor de compatibilidade (`engine.js`)
-- `src/matcher.js` — decisão ENVIAR/AVISAR/SILÊNCIO e mensagem humana
-- `src/whatsapp.js` — conexão Baileys e roteamento; `src/atendimento-diario.js` — 1ª mensagem e ligações; `src/contacts.js` — memória de contatos (telefone + LID)
-- `src/assistant.js` — comandos no "Mensagem para mim"; `src/vitrine.js`, `src/prospeccao.js`, `src/scheduler.js`, `src/radar.js`
-- `index.js` — só a partida; o app web (painel + API) fica em `src/app.js` e é o MESMO para admin e corretor (`BIGA_PAPEL=corretor` no contêiner do tenant tira a estrutura do SaaS).
-- `src/tenancy/` — multi-tenant em camada de aplicação (`MULTI_TENANT=1` + `ADMIN_TOKEN` ≥ 32): `session-manager.js` (WhatsAppSessionManager, `Map<tenantId, socket>`, sessões em `DATA_DIR/sessions_storage/<id>`), `router.js` (WhatsAppRouter + TenantContext), `container.js` (instância isolada dos módulos de `src/` por tenant, com `process.env` próprio), `tenant-store.js` (`DATA_DIR/tenants/<id>/config.json`, 600), `routes.js` (painel do João: `/api/equipe` atrás do login; API opcional `POST /api/conectar-corretor` só com `ADMIN_TOKEN`). Regra: o domínio continua sem saber de tenant; só adapters mudam. `process.exit` de tenant recarrega só ele (timers rastreados + `dispose`). HTTPS de corretor novo: app grava `DATA_DIR/caddy-sincronizar` → systemd → `deploy/caddy-corretores.sh` (root).
-- `src/auth.js` — login do painel; `src/public/` — painel (Dala design system)
-- Mensagens reais de grupos para regressão: `tests/fixtures-mensagens-reais.js` (sempre adicione novos casos reais aqui)
+- `index.js` — única entrada em produção; inicia servidor HTTP, WhatsApp, agendador e multi-tenant.
+- `src/web/app.js` — servidor Express (painel + API), igual para admin e corretor (`BIGA_PAPEL=corretor` no contêiner do tenant tira a estrutura do SaaS).
+- `src/public/` — frontend SPA (Dala design system: `index.html`, `app.js`, `app.css`, `capas.js`, `biga-art.js`, `fontes-google.json`).
+- `src/config/` — infraestrutura e configuração (`paths.js`, `store.js`, `envfile.js`, `settings.js`, `auth.js`, `backup.js`, `metrics.js`, `sistema.js`, `timeutil.js`).
+- `src/brain/` — cérebro local: mapa de Goiânia (`gazetteer.js` + `data/mapa-osm.json`), localização (`locations.js`), intérprete de pedidos (`parser.js`), texto (`text.js`) e motor (`engine.js`).
+- `src/whatsapp/` — conexão Baileys e roteamento (`client.js`, `reconexao.js`), comandos no "Mensagem para mim" (`assistant.js`), 1ª mensagem/ligações (`atendimento-diario.js`) e memória de contatos (`contacts.js`).
+- `src/domain/` — regras de negócio: `matcher.js`, `sheets.js`, `radar.js`, `quem-procura.js`, `anuncios.js`, `vitrine.js`, `prospeccao.js`, `capas.js`, `garimpo.js`, `scheduler.js`.
+- `src/integrations/` — APIs externas: Gemini (`gemini/{chave,modelo}.js`) e busca em portais (`busca/{inteligente,anuncio,apify,chaves,curadoria,filtros,guiada,links,serp}.js`).
+- `src/pdf/` — gerador A4 (`ficha-a4.js`) e apresentação 16:9 com worker/cache (`deck16x9/*`).
+- `src/tenancy/` — multi-tenant em camada de aplicação (`MULTI_TENANT=1` + `ADMIN_TOKEN` ≥ 32): `session-manager.js`, `router.js`, `container.js` (instância isolada dos módulos de `src/` por tenant), `tenant-store.js` (`config.json`, 600), `routes.js` (`/api/equipe` e `/api/conectar-corretor`). Regra: o domínio continua sem saber de tenant; só adapters mudam. `process.exit` de tenant recarrega só ele (timers rastreados + `dispose`). HTTPS de corretor novo: app grava `DATA_DIR/caddy-sincronizar` → systemd → `deploy/caddy-corretores.sh` (root).
+- `docs/auditorias/` — relatórios históricos de auditoria técnica e E2E (`RELATORIO_AUDITORIA_FINAL.md`, `RELATORIO_AUDITORIA_FUNCIONAL_E2E.md`).
+- Mensagens reais de grupos para regressão: `tests/fixtures-mensagens-reais.js` (sempre adicione novos casos reais aqui).
