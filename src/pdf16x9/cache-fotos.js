@@ -18,14 +18,30 @@ try {
 }
 
 const TETO_CACHE_BYTES = 50 * 1024 * 1024; // 50 MB
+const MAX_INPUT_BYTES = 25 * 1024 * 1024; // 25 MB
+const MAX_INPUT_PIXELS = 40_000_000;
 const LARGURA_MAX = 1920;
 const QUALIDADE = 78;
+
+function writeAtomicSync(targetPath, data) {
+  const tmp = `${targetPath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try {
+    fs.writeFileSync(tmp, data);
+    fs.renameSync(tmp, targetPath);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch {}
+    throw err;
+  }
+}
 
 function hashArquivo(caminhoOuBuffer) {
   const hash = crypto.createHash('sha256');
   if (Buffer.isBuffer(caminhoOuBuffer)) {
+    if (caminhoOuBuffer.length > MAX_INPUT_BYTES) throw new Error('Arquivo de imagem excede o limite permitido');
     hash.update(caminhoOuBuffer);
   } else {
+    const st = fs.statSync(caminhoOuBuffer);
+    if (!st.isFile() || st.size > MAX_INPUT_BYTES) throw new Error('Arquivo de imagem excede o limite permitido');
     hash.update(fs.readFileSync(caminhoOuBuffer));
   }
   return hash.digest('hex');
@@ -34,15 +50,20 @@ function hashArquivo(caminhoOuBuffer) {
 function limparCacheSeNecessario(dirCache, tetoBytes = TETO_CACHE_BYTES) {
   if (!fs.existsSync(dirCache)) return;
   try {
-    const arquivos = fs.readdirSync(dirCache).map(nome => {
+    const agora = Date.now();
+    const arquivos = [];
+    for (const nome of fs.readdirSync(dirCache)) {
       const p = path.join(dirCache, nome);
       try {
         const stat = fs.statSync(p);
-        return { path: p, size: stat.size, mtime: stat.mtimeMs };
-      } catch {
-        return null;
-      }
-    }).filter(Boolean);
+        if (!stat.isFile()) continue;
+        if (nome.endsWith('.tmp')) {
+          if (agora - stat.mtimeMs > 5 * 60 * 1000) fs.unlinkSync(p);
+          continue;
+        }
+        arquivos.push({ path: p, size: stat.size, mtime: stat.mtimeMs });
+      } catch {}
+    }
 
     let total = arquivos.reduce((s, a) => s + a.size, 0);
     if (total <= tetoBytes) return;
@@ -66,7 +87,7 @@ function limparCacheSeNecessario(dirCache, tetoBytes = TETO_CACHE_BYTES) {
  * @returns {Promise<{buf: Buffer, w: number, h: number, nome: string}|null>}
  */
 async function obterFotoReduzida(origem, dirCache) {
-  if (!sharp) return null;
+  if (!sharp || !origem || !dirCache) return null;
   fs.mkdirSync(dirCache, { recursive: true });
 
   const nomeBase = typeof origem === 'string' ? path.basename(origem) : 'foto';
@@ -84,23 +105,27 @@ async function obterFotoReduzida(origem, dirCache) {
     try {
       const meta = JSON.parse(fs.readFileSync(metaCache, 'utf8'));
       const buf = fs.readFileSync(arquivoCache);
-      // Atualiza mtime para LRU
-      fs.utimesSync(arquivoCache, new Date(), new Date());
-      return { buf, w: meta.w, h: meta.h, nome: nomeBase };
+      if (meta && Number(meta.w) > 0 && Number(meta.h) > 0 && buf.length > 0) {
+        // Atualiza mtime em ambos para LRU
+        const now = new Date();
+        try { fs.utimesSync(arquivoCache, now, now); } catch {}
+        try { fs.utimesSync(metaCache, now, now); } catch {}
+        return { buf, w: meta.w, h: meta.h, nome: nomeBase };
+      }
     } catch {}
   }
 
   try {
     const entrada = typeof origem === 'string' ? fs.readFileSync(origem) : origem;
-    const img = sharp(entrada, { failOn: 'error' }).rotate();
+    const img = sharp(entrada, { failOn: 'error', limitInputPixels: MAX_INPUT_PIXELS }).rotate();
     const { data, info } = await img
       .resize({ width: LARGURA_MAX, height: LARGURA_MAX, fit: 'inside', withoutEnlargement: true })
       .flatten({ background: '#ffffff' })
       .jpeg({ quality: QUALIDADE, mozjpeg: true, chromaSubsampling: '4:2:0' })
       .toBuffer({ resolveWithObject: true });
 
-    fs.writeFileSync(arquivoCache, data);
-    fs.writeFileSync(metaCache, JSON.stringify({ w: info.width, h: info.height }));
+    writeAtomicSync(arquivoCache, data);
+    writeAtomicSync(metaCache, JSON.stringify({ w: info.width, h: info.height }));
     limparCacheSeNecessario(dirCache);
 
     return { buf: data, w: info.width, h: info.height, nome: nomeBase };

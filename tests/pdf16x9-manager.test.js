@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -7,7 +8,7 @@ const os = require('os');
 
 const { LOCK_FILE, adquirirTrava } = require('../src/pdf16x9/lock');
 const { hashArquivo, obterFotoReduzida, limparCacheSeNecessario } = require('../src/pdf16x9/cache-fotos');
-const { gerarPdfComFallback, invalidarCache, carregarKit, salvarKit, CACHE_PDF_DIR } = require('../src/pdf16x9/manager');
+const { gerarPdfComFallback, invalidarCache, carregarKit, salvarKit, salvarFicha16x9, validarLogoPath, limparCachePdfSeNecessario, shutdown, CACHE_PDF_DIR } = require('../src/pdf16x9/manager');
 const { FOTOS_DIR, DATA_DIR } = require('../src/paths');
 
 test('PDF 16:9 Manager: Trava atômica via PID e recuperação de trava órfã', async () => {
@@ -96,4 +97,48 @@ test('PDF 16:9 Manager: Geração de PDF via Worker Thread e Fallback A4', async
   assert.equal(resFallback.isFallback, true, 'ativa fallback automaticamente');
   assert.equal(resFallback.buffer.slice(0, 4).toString(), '%PDF', 'entrega PDF A4');
   assert.ok(resFallback.erroOriginal, 'registra o motivo do erro original');
+});
+
+test('Agente 5: lock vazio/corrompido expira, id traversal fica preso no cache, logoPath externo é bloqueado, protótipo barrado e cache PDF tem LRU', async () => {
+  try { fs.unlinkSync(LOCK_FILE); } catch {}
+
+  // Lock vazio antigo (>5s) é recuperado com segurança
+  fs.writeFileSync(LOCK_FILE, '', 'utf8');
+  const antigo = new Date(Date.now() - 10000);
+  fs.utimesSync(LOCK_FILE, antigo, antigo);
+  const libVazio = await adquirirTrava({ timeoutMs: 2000 });
+  assert.equal(fs.readFileSync(LOCK_FILE, 'utf8').trim(), String(process.pid));
+  await libVazio();
+
+  // Trava viva antiga (>maxAgeMs) é recuperada
+  fs.writeFileSync(LOCK_FILE, String(process.pid), 'utf8');
+  fs.utimesSync(LOCK_FILE, antigo, antigo);
+  const libVelho = await adquirirTrava({ timeoutMs: 2000, maxAgeMs: 2000 });
+  await libVelho();
+
+  // logoPath fora de DATA_DIR/FOTOS_DIR é rejeitado; dentro de DATA_DIR é aceito
+  assert.equal(validarLogoPath('/etc/passwd'), null);
+  assert.equal(validarLogoPath('../.env'), null);
+  const logoLocal = path.join(DATA_DIR, 'logo-teste.png');
+  fs.writeFileSync(logoLocal, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  assert.equal(validarLogoPath(logoLocal), path.resolve(logoLocal));
+  assert.equal(salvarKit({ logoPath: '/etc/passwd' }).logoPath, null);
+
+  // Bloqueio de protótipo em salvarFicha16x9 e em MODELOS['constructor']
+  assert.throws(() => salvarFicha16x9('__proto__', { titulo: 'x' }), /inválido/);
+  const fbCtor = await gerarPdfComFallback({ id: '../../evil_id', tipo: 'Apartamento', setor: 'Setor Bueno', valor: 500000 }, { modelo: 'constructor', forcar: true });
+  assert.equal(fbCtor.isFallback, true, 'chave de protótipo constructor não pode enganar MODELOS');
+  assert.equal(fbCtor.buffer.slice(0, 4).toString(), '%PDF');
+  assert.ok(!fs.existsSync(path.join(DATA_DIR, 'evil_id.pdf')));
+
+  // Evicção LRU em CACHE_PDF_DIR
+  const lruDir = path.join(DATA_DIR, 'lru_pdf_test');
+  fs.mkdirSync(lruDir, { recursive: true });
+  fs.writeFileSync(path.join(lruDir, 'a.pdf'), Buffer.alloc(600, 65));
+  fs.writeFileSync(path.join(lruDir, 'b.pdf'), Buffer.alloc(600, 66));
+  fs.utimesSync(path.join(lruDir, 'a.pdf'), antigo, antigo);
+  limparCachePdfSeNecessario(lruDir, 800);
+  assert.equal(fs.existsSync(path.join(lruDir, 'a.pdf')), false, 'PDF mais antigo deve sair na limpeza LRU');
+  assert.equal(fs.existsSync(path.join(lruDir, 'b.pdf')), true);
+  shutdown();
 });

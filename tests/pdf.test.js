@@ -14,7 +14,7 @@ const imovel = { id: 7, tipo: 'Apartamento', setor: 'Setor Marista', valor: 1200
 test('PDF da ficha do imóvel: gera um PDF válido, com e sem foto', async () => {
   fs.mkdirSync(FOTOS_DIR, { recursive: true });
   fs.writeFileSync(path.join(FOTOS_DIR, 'pdf-teste.png'), PNG);
-  for (const prop of [imovel, { ...imovel, fotos: ['pdf-teste.png'] }]) {
+  for (const prop of [imovel, { ...imovel, fotos: ['pdf-teste.png'] }, { ...imovel, fotos: 'pdf-teste.png, ../../etc/passwd' }]) {
     const buf = await buildPropertyPdf(prop, { telefone: '5562999999999' });
     assert.ok(Buffer.isBuffer(buf) && buf.length > 1000);
     assert.equal(buf.slice(0, 5).toString(), '%PDF-');

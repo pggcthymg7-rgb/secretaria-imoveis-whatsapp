@@ -26,7 +26,7 @@ class Motor {
     const fam = this.fam[f] || this.fam.b;
     const ws = this.pesos[fam] || [];
     let w = wt;
-    if (!ws.includes(wt)) {
+    if (!ws.includes(wt) && ws.length) {
       w = ws.slice().sort((a, b) => Math.abs(a - wt) - Math.abs(b - wt))[0];
       this.aviso(`peso ${wt} indisponível em ${fam}; usado ${w}`);
     }
@@ -126,7 +126,7 @@ class Motor {
 
   quebrarForcado(txt, f, wt, s, W) {
     const out = []; let cur = '';
-    for (const ch of txt) {
+    for (const ch of String(txt || '').slice(0, 2000)) {
       if (cur && this.larg(cur + ch, f, wt, s) > W) { out.push(cur); cur = ch; } else cur += ch;
     }
     if (cur) out.push(cur);
@@ -210,7 +210,7 @@ class Motor {
    */
   foto(x, y, w, h, foto, r = 0, rotulo = '') {
     const d = this.doc;
-    if (!foto || !foto.img) { this.rect(x, y, w, h, 'ph', r); return; }
+    if (!foto || !foto.img || !(foto.w > 0) || !(foto.h > 0)) { this.rect(x, y, w, h, 'ph', r); return; }
     const esc = Math.max(w / foto.w, h / foto.h);
     const dw = foto.w * esc, dh = foto.h * esc;
     const ox = x - (dw - w) / 2, oy = y - (dh - h) / 2;

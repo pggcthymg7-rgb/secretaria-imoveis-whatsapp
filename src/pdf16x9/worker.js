@@ -7,6 +7,7 @@
 const { parentPort, workerData } = require('node:worker_threads');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
 
@@ -35,6 +36,7 @@ function carregarFontes() {
 }
 
 async function executarTarefa(dadosTarefa) {
+  if (!dadosTarefa || typeof dadosTarefa !== 'object') throw new Error('Tarefa inválida');
   const t0 = process.hrtime.bigint();
   const { modelo, paleta, kit, dados, fotosCaminhos, paginas, destinoPath, cacheFotosDir } = dadosTarefa;
 
@@ -50,14 +52,15 @@ async function executarTarefa(dadosTarefa) {
     fotosProcessadas.push(reduzida);
   }
 
-  // Prepara logo do kit se houver
+  // Prepara logo do kit se houver (com teto de 10 MB)
   let logoBuffer = null;
   if (kit && kit.logoPath && fs.existsSync(kit.logoPath)) {
     try {
-      logoBuffer = fs.readFileSync(kit.logoPath);
+      const st = fs.statSync(kit.logoPath);
+      if (st.isFile() && st.size <= 10 * 1024 * 1024) logoBuffer = fs.readFileSync(kit.logoPath);
     } catch {}
   }
-  const kitParaGerar = { ...kit, logo: logoBuffer };
+  const kitParaGerar = { ...(kit || {}), logo: logoBuffer };
 
   const fontes = carregarFontes();
   const { doc, info } = gerar(PDFDocument, QRCode, {
@@ -81,7 +84,14 @@ async function executarTarefa(dadosTarefa) {
   const pdfBuffer = Buffer.concat(chunks);
   if (destinoPath) {
     fs.mkdirSync(path.dirname(destinoPath), { recursive: true });
-    fs.writeFileSync(destinoPath, pdfBuffer);
+    const tmp = `${destinoPath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+    try {
+      fs.writeFileSync(tmp, pdfBuffer);
+      fs.renameSync(tmp, destinoPath);
+    } catch (err) {
+      try { fs.unlinkSync(tmp); } catch {}
+      throw err;
+    }
   }
 
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;

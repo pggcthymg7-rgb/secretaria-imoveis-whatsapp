@@ -10,13 +10,19 @@ const os = require('os');
 
 const LOCK_FILE = path.join(os.tmpdir(), 'biga-pdf-generator.lock');
 
-async function adquirirTrava({ timeoutMs = 15000, retryIntervalMs = 100 } = {}) {
+async function adquirirTrava({ timeoutMs = 15000, retryIntervalMs = 100, maxAgeMs = 120000 } = {}) {
   const t0 = Date.now();
   while (true) {
     try {
-      const handle = await fs.promises.open(LOCK_FILE, 'wx');
-      await handle.writeFile(String(process.pid), 'utf8');
-      await handle.close();
+      const handle = await fs.promises.open(LOCK_FILE, 'wx', 0o600);
+      try {
+        await handle.writeFile(String(process.pid), 'utf8');
+      } catch (writeErr) {
+        await fs.promises.unlink(LOCK_FILE).catch(() => {});
+        throw writeErr;
+      } finally {
+        await handle.close().catch(() => {});
+      }
       let liberado = false;
       return async function liberar() {
         if (liberado) return;
@@ -31,25 +37,30 @@ async function adquirirTrava({ timeoutMs = 15000, retryIntervalMs = 100 } = {}) 
     } catch (err) {
       if (err.code === 'EEXIST') {
         try {
-          const lido = await fs.promises.readFile(LOCK_FILE, 'utf8').catch(() => null);
-          if (lido) {
-            const lockPid = parseInt(lido.trim(), 10);
-            if (!Number.isNaN(lockPid)) {
-              let processoExiste = true;
-              try {
-                process.kill(lockPid, 0);
-              } catch (killErr) {
-                if (killErr.code === 'ESRCH') {
-                  // O processo dono da trava morreu de forma abrupta
-                  processoExiste = false;
-                }
-              }
-              if (!processoExiste) {
-                // Trava órfã descartada com segurança
-                await fs.promises.unlink(LOCK_FILE).catch(() => {});
-                continue;
-              }
+          const [lido, st] = await Promise.all([
+            fs.promises.readFile(LOCK_FILE, 'utf8').catch(() => null),
+            fs.promises.stat(LOCK_FILE).catch(() => null)
+          ]);
+          const idadeMs = st ? Math.max(0, Date.now() - st.mtimeMs) : 0;
+          const lockPid = lido ? parseInt(lido.trim(), 10) : NaN;
+          let removerOrfa = false;
+
+          if (Number.isInteger(lockPid) && lockPid > 0) {
+            let processoExiste = true;
+            try {
+              process.kill(lockPid, 0);
+            } catch (killErr) {
+              if (killErr.code === 'ESRCH') processoExiste = false;
             }
+            if (!processoExiste || (st && idadeMs >= maxAgeMs)) removerOrfa = true;
+          } else if (st && idadeMs >= 5000) {
+            // Trava vazia ou corrompida deixada por crash entre open('wx') e writeFile
+            removerOrfa = true;
+          }
+
+          if (removerOrfa) {
+            await fs.promises.unlink(LOCK_FILE).catch(() => {});
+            continue;
           }
         } catch {}
       }

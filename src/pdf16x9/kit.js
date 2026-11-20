@@ -19,6 +19,7 @@ const HEX = /^#[0-9a-fA-F]{6}$/;
 
 /** Recebe {fundo, texto, principal, secundaria, destaque} e devolve a paleta completa. */
 function derivar(p) {
+  if (!p || typeof p !== 'object') throw new Error('paleta inválida');
   for (const k of ['fundo', 'texto', 'principal', 'secundaria', 'destaque']) {
     if (!HEX.test(p[k] || '')) throw new Error(`cor inválida em "${k}": ${p[k]}`);
   }
