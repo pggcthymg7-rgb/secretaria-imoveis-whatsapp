@@ -28,3 +28,9 @@ busca_historico.json
 # Multi-tenant: dados, chaves e sessões de WhatsApp por corretor
 tenants/
 sessions_storage/
+cache_pdf_16x9/
+cache_fotos_16x9/
+kit_marca.json
+fichas_16x9.json
+fichas_pdf.json
+capas.json

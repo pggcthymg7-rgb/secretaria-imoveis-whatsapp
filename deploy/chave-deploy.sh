@@ -15,6 +15,7 @@ KEY="${KEY:-/root/.ssh/biga_deploy}"
 KNOWN="/root/.ssh/known_hosts_github"
 [ "$(id -u)" = "0" ] || { echo "Rode como root (sudo)." >&2; exit 1; }
 [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "REPO inválido" >&2; exit 1; }
+[[ "$KEY" =~ ^/[A-Za-z0-9_./-]+$ ]] || { echo "KEY inválida" >&2; exit 1; }
 command -v ssh-keygen >/dev/null 2>&1 || { echo "Falta o ssh: rode  sudo apt-get install -y openssh-client" >&2; exit 1; }
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
 
@@ -24,7 +25,7 @@ chmod 644 "$KNOWN"
 SSH_CMD="ssh -i $KEY -o IdentitiesOnly=yes -o UserKnownHostsFile=$KNOWN -o StrictHostKeyChecking=yes"
 
 if [ ! -f "$KEY" ]; then
-  ssh-keygen -q -t ed25519 -N '' -C "biga-vm-deploy-$(hostname)" -f "$KEY"
+  (umask 077 && ssh-keygen -q -t ed25519 -N '' -C "biga-vm-deploy-$(hostname)" -f "$KEY")
   chmod 600 "$KEY"
 fi
 

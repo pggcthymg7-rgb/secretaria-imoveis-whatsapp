@@ -175,7 +175,7 @@ async function main(opts = {}) {
       process.stdout.write(`Baixando ${k}... `);
       try {
         raw[k] = await overpass(q);
-        console.log(`${raw[k].elements.length} itens`);
+        console.log(`${(raw[k]?.elements || []).length} itens`);
       } catch (err) {
         console.log(`falhou (${err.message})`);
         if (!k.startsWith('cidade:')) throw err;
@@ -191,9 +191,14 @@ async function main(opts = {}) {
     if (/mantendo/.test(err.message)) throw err;
   }
   fs.mkdirSync(path.dirname(saida), { recursive: true });
-  const tmp = `${saida}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(out));
-  fs.renameSync(tmp, saida);
+  const tmp = `${saida}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(out));
+    fs.renameSync(tmp, saida);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch {}
+    throw err;
+  }
   console.log(`✅ ${out.bairros.length} bairros, ${out.condominios.length} condomínios, ${out.edificios.length} edifícios -> ${saida}`);
   return { bairros: out.bairros.length, condominios: out.condominios.length, edificios: out.edificios.length };
 }

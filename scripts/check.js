@@ -7,7 +7,7 @@ const root = path.join(__dirname, '..');
 const files = [];
 (function walk(dir) {
   for (const f of fs.readdirSync(dir)) {
-    if (['node_modules', '.git', 'auth_info_baileys', 'fotos', 'tenants', 'sessions_storage'].includes(f)) continue;
+    if (['node_modules', '.git', 'auth_info_baileys', 'fotos', 'tenants', 'sessions_storage', 'cache_pdf_16x9', 'cache_fotos_16x9'].includes(f)) continue;
     const p = path.join(dir, f);
     if (fs.statSync(p).isDirectory()) walk(p);
     else if (f.endsWith('.js')) files.push(p);
@@ -24,7 +24,8 @@ for (const f of files) {
   }
 }
 // Os módulos principais precisam carregar sem erro
-process.env.DATA_DIR = fs.mkdtempSync(path.join(require('os').tmpdir(), 'check-'));
+const checkTmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'check-'));
+process.env.DATA_DIR = checkTmp;
 for (const m of ['./src/matcher', './src/sheets', './src/settings', './src/pdf16x9/manager']) {
   try {
     require(path.join(root, m));
@@ -37,33 +38,37 @@ for (const m of ['./src/matcher', './src/sheets', './src/settings', './src/pdf16
 // Trava de segurança do deploy: sharp carregado e geração de PDF mínimo válido (%PDF)
 (async () => {
   try {
-    const sharp = require('sharp');
-    if (typeof sharp !== 'function') throw new Error('sharp não exporta função');
-  } catch (err) {
-    failed++;
-    console.error(`❌ Falha ao carregar sharp: ${err.message}`);
-  }
-
-  try {
-    const PDFDocument = require('pdfkit');
-    const doc = new PDFDocument({ size: [1152, 648], margin: 0 });
-    const chunks = [];
-    doc.on('data', c => chunks.push(c));
-    await new Promise((resolve, reject) => {
-      doc.on('end', resolve);
-      doc.on('error', reject);
-      doc.fontSize(12).text('BIGA Check');
-      doc.end();
-    });
-    const buf = Buffer.concat(chunks);
-    if (buf.slice(0, 4).toString() !== '%PDF') {
-      throw new Error(`PDF gerado não inicia com %PDF (inicia com "${buf.slice(0, 4).toString()}")`);
+    try {
+      const sharp = require('sharp');
+      if (typeof sharp !== 'function') throw new Error('sharp não exporta função');
+    } catch (err) {
+      failed++;
+      console.error(`❌ Falha ao carregar sharp: ${err.message}`);
     }
-  } catch (err) {
-    failed++;
-    console.error(`❌ Falha na geração mínima de PDF: ${err.message}`);
-  }
 
-  console.log(failed ? `\n${failed} erro(s).` : `✅ ${files.length} arquivos verificados, 0 erros.`);
+    try {
+      const PDFDocument = require('pdfkit');
+      const doc = new PDFDocument({ size: [1152, 648], margin: 0 });
+      const chunks = [];
+      doc.on('data', c => chunks.push(c));
+      await new Promise((resolve, reject) => {
+        doc.on('end', resolve);
+        doc.on('error', reject);
+        doc.fontSize(12).text('BIGA Check');
+        doc.end();
+      });
+      const buf = Buffer.concat(chunks);
+      if (buf.slice(0, 4).toString() !== '%PDF') {
+        throw new Error(`PDF gerado não inicia com %PDF (inicia com "${buf.slice(0, 4).toString()}")`);
+      }
+    } catch (err) {
+      failed++;
+      console.error(`❌ Falha na geração mínima de PDF: ${err.message}`);
+    }
+
+    console.log(failed ? `\n${failed} erro(s).` : `✅ ${files.length} arquivos verificados, 0 erros.`);
+  } finally {
+    try { fs.rmSync(checkTmp, { recursive: true, force: true }); } catch {}
+  }
   process.exit(failed ? 1 : 0);
 })();
