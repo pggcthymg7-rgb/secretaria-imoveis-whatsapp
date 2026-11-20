@@ -23,7 +23,7 @@ const SESSION_DAYS = 30;
 let data = readJson(FILE, {});
 if (!data.secret) {
   data.secret = crypto.randomBytes(32).toString('hex');
-  writeJson(FILE, data);
+  writeJson(FILE, data, { mode: 0o600 });
 }
 let setupCode = null;
 
@@ -36,10 +36,12 @@ function hashPassword(pw, salt = crypto.randomBytes(16).toString('hex')) {
   return { salt, hash };
 }
 
+function digestValue(v) {
+  return crypto.createHash('sha256').update(String(v)).digest();
+}
+
 function safeEqual(a, b) {
-  const ba = Buffer.from(String(a));
-  const bb = Buffer.from(String(b));
-  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+  return crypto.timingSafeEqual(digestValue(a), digestValue(b));
 }
 
 function isConfigured() {
@@ -77,7 +79,7 @@ function setPassword(pw) {
   if (err) throw Object.assign(new Error(err), { status: 400 });
   const { salt, hash } = hashPassword(pw);
   data = { ...data, salt, hash, version: (data.version || 0) + 1 }; // nova versão invalida sessões antigas
-  writeJson(FILE, data);
+  writeJson(FILE, data, { mode: 0o600 });
   setupCode = null;
 }
 
@@ -106,13 +108,21 @@ function parseCookies(req) {
   const out = {};
   for (const part of String(req.headers.cookie || '').split(';')) {
     const i = part.indexOf('=');
-    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    if (i <= 0) continue;
+    const key = part.slice(0, i).trim();
+    const raw = part.slice(i + 1).trim();
+    try {
+      out[key] = decodeURIComponent(raw);
+    } catch {
+      out[key] = raw;
+    }
   }
   return out;
 }
 
 function isHttps(req) {
-  return req.secure || String(req.headers['x-forwarded-proto'] || '').split(',')[0] === 'https';
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  return Boolean(req.secure || proto === 'https');
 }
 
 function issueSession(req, res) {
@@ -122,33 +132,53 @@ function issueSession(req, res) {
   res.setHeader('Set-Cookie', parts.join('; '));
 }
 
-function clearSession(res) {
-  res.setHeader('Set-Cookie', `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
+function clearSession(res, req) {
+  const parts = [`${COOKIE}=`, 'Path=/', 'HttpOnly', 'SameSite=Strict', 'Max-Age=0'];
+  if (req && isHttps(req)) parts.push('Secure');
+  res.setHeader('Set-Cookie', parts.join('; '));
+}
+
+function hasValidBearer(req) {
+  const bearer = String(req.headers.authorization || '').match(/^Bearer[ \t]+(\S+)$/i);
+  return Boolean(bearer && process.env.API_TOKEN && process.env.API_TOKEN.length >= 16 && safeEqual(bearer[1], process.env.API_TOKEN));
 }
 
 function isAuthenticated(req) {
-  const bearer = String(req.headers.authorization || '').match(/^Bearer[ \t]+(\S+)$/i);
-  if (bearer && process.env.API_TOKEN && process.env.API_TOKEN.length >= 16 && safeEqual(bearer[1], process.env.API_TOKEN)) return true;
+  if (hasValidBearer(req)) return true;
   return Boolean(verify(parseCookies(req)[COOKIE]));
 }
 
 // Limite de tentativas: 8 por IP a cada 15 minutos
 const attempts = new Map();
+function pruneAttempts(now = Date.now()) {
+  for (const [ip, list] of attempts.entries()) {
+    const fresh = list.filter(t => now - t < 15 * 60 * 1000);
+    if (fresh.length) attempts.set(ip, fresh);
+    else attempts.delete(ip);
+  }
+  while (attempts.size > 5000) {
+    const oldest = attempts.keys().next().value;
+    if (oldest === undefined) break;
+    attempts.delete(oldest);
+  }
+}
 function rateLimited(ip) {
   const now = Date.now();
   const list = (attempts.get(ip) || []).filter(t => now - t < 15 * 60 * 1000);
-  attempts.set(ip, list);
-  if (attempts.size > 5000) attempts.clear();
+  if (list.length) attempts.set(ip, list);
+  else attempts.delete(ip);
   return list.length >= 8;
 }
 function registerFailure(ip) {
-  const list = attempts.get(ip) || [];
-  list.push(Date.now());
+  const now = Date.now();
+  if (attempts.size >= 5000) pruneAttempts(now);
+  const list = (attempts.get(ip) || []).filter(t => now - t < 15 * 60 * 1000);
+  list.push(now);
   attempts.set(ip, list);
 }
 
 function clientIp(req) {
-  return String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+  return String(req.ip || req.socket?.remoteAddress || '').trim();
 }
 
 function requireAuth(req, res, next) {
@@ -156,10 +186,10 @@ function requireAuth(req, res, next) {
   return res.status(401).json({ error: 'Faça login no painel.' });
 }
 
-/** Proteção extra contra CSRF: requisições que alteram dados precisam do cabeçalho do painel */
+/** Proteção extra contra CSRF: requisições que alteram dados precisam do cabeçalho do painel ou token Bearer válido */
 function requireAppHeader(req, res, next) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
-  if (req.headers['x-secretaria'] === '1' || /^Bearer /i.test(String(req.headers.authorization || ''))) return next();
+  if (req.headers['x-secretaria'] === '1' || hasValidBearer(req)) return next();
   return res.status(403).json({ error: 'Requisição bloqueada.' });
 }
 
@@ -172,9 +202,9 @@ function routes(app) {
   app.post('/api/login', (req, res) => {
     const ip = clientIp(req);
     if (rateLimited(ip)) return res.status(429).json({ error: 'Muitas tentativas. Aguarde 15 minutos.' });
-    const { senha } = req.body || {};
+    const senha = req.body && typeof req.body === 'object' ? req.body.senha : undefined;
     if (!isConfigured()) return res.status(400).json({ error: 'Crie a senha primeiro.' });
-    if (!checkPassword(senha)) {
+    if (typeof senha !== 'string' || !checkPassword(senha)) {
       registerFailure(ip);
       return res.status(401).json({ error: 'Senha incorreta.' });
     }
@@ -187,9 +217,9 @@ function routes(app) {
     const ip = clientIp(req);
     if (rateLimited(ip)) return res.status(429).json({ error: 'Muitas tentativas. Aguarde 15 minutos.' });
     if (isConfigured()) return res.status(400).json({ error: 'A senha já foi criada.' });
-    const { codigo, senha } = req.body || {};
+    const { codigo, senha } = req.body && typeof req.body === 'object' ? req.body : {};
     const code = getSetupCode();
-    if (!codigo || !safeEqual(String(codigo).trim().toUpperCase(), code)) {
+    if (typeof codigo !== 'string' || !codigo || !safeEqual(codigo.trim().toUpperCase(), code)) {
       registerFailure(ip);
       return res.status(401).json({ error: 'Código de configuração incorreto (peça a quem instalou a BIGA ou veja o log do servidor).' });
     }
@@ -198,19 +228,20 @@ function routes(app) {
     } catch (err) {
       return res.status(err.status || 400).json({ error: err.message });
     }
+    attempts.delete(ip);
     issueSession(req, res);
     res.json({ ok: true });
   });
 
   app.post('/api/logout', (req, res) => {
-    clearSession(res);
+    clearSession(res, req);
     res.json({ ok: true });
   });
 
   app.post('/api/change-password', requireAuth, (req, res) => {
     if (process.env.PAINEL_SENHA) return res.status(400).json({ error: 'A senha está definida pela variável PAINEL_SENHA no servidor.' });
-    const { atual, nova } = req.body || {};
-    if (!checkPassword(atual)) return res.status(401).json({ error: 'Senha atual incorreta.' });
+    const { atual, nova } = req.body && typeof req.body === 'object' ? req.body : {};
+    if (typeof atual !== 'string' || !checkPassword(atual)) return res.status(401).json({ error: 'Senha atual incorreta.' });
     try {
       setPassword(nova);
     } catch (err) {

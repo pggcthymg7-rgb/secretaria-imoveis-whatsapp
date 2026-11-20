@@ -63,6 +63,9 @@ app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'same-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  if (req.secure || proto === 'https') res.setHeader('Strict-Transport-Security', 'max-age=31536000');
   res.setHeader(
     'Content-Security-Policy',
     "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
@@ -102,10 +105,40 @@ app.use('/api', auth.requireAuth);
 if (IS_ADMIN) tenancyRoutes.mountPanelRoutes(app, tenancy); // /api/equipe — cadastro dos corretores (só o administrador)
 // Estrutura do SaaS: corretor não atualiza o sistema (rotas recusadas no servidor, não só escondidas)
 if (!IS_ADMIN) app.use(['/api/sistema/atualizar', '/api/equipe'], (req, res) => res.status(403).json({ error: 'Só o administrador da BIGA pode fazer isso.' }));
-app.use('/fotos', auth.requireAuth, express.static(FOTOS_DIR, { index: false, dotfiles: 'deny' }));
+app.use('/fotos', auth.requireAuth, express.static(FOTOS_DIR, {
+  index: false,
+  dotfiles: 'deny',
+  setHeaders: res => {
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  }
+}));
 
-const ah = fn => (req, res) => Promise.resolve(fn(req, res)).catch(err => res.status(err.status || 500).json({ error: err.message || 'Erro interno' }));
+const ah = fn => (req, res) =>
+  Promise.resolve(fn(req, res)).catch(err => {
+    const status = Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 500;
+    if (status >= 500) console.error('[api]', err?.message || err);
+    res.status(status).json({ error: status < 500 && err?.message ? err.message : 'Erro interno' });
+  });
 const str = (v, max = 5000) => (typeof v === 'string' ? v.slice(0, max) : '');
+const plainObj = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+
+function hasImageMagic(filePath, mimetype) {
+  let fd;
+  try {
+    fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(12);
+    const n = fs.readSync(fd, buf, 0, 12, 0);
+    if (mimetype === 'image/jpeg') return n >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+    if (mimetype === 'image/png') return n >= 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    if (mimetype === 'image/webp') return n >= 12 && buf.subarray(0, 4).toString('ascii') === 'RIFF' && buf.subarray(8, 12).toString('ascii') === 'WEBP';
+    return false;
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+  }
+}
 
 // Upload de fotos: só imagens, até 10 MB cada, nome aleatório
 const upload = multer({
@@ -201,7 +234,13 @@ app.get('/api/inventory', ah(async (req, res) => {
 app.post('/api/upload-photos', (req, res) => {
   upload.array('photos', 20)(req, res, err => {
     if (err) return res.status(err.status || 400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Foto maior que 10 MB.' : err.message });
-    res.json({ ok: true, files: (req.files || []).map(f => f.filename) });
+    const files = req.files || [];
+    const invalid = files.filter(f => !hasImageMagic(f.path, f.mimetype));
+    if (invalid.length) {
+      for (const f of files) try { fs.rmSync(f.path, { force: true }); } catch {}
+      return res.status(400).json({ error: 'Arquivo de imagem inválido ou corrompido.' });
+    }
+    res.json({ ok: true, files: files.map(f => f.filename) });
   });
 });
 
@@ -256,7 +295,7 @@ const TEXT_KEYS = { messageTemplate: 3000, humanTraining: 5000, firstContactMess
 const NUM_KEYS = { maxPhotosPerMatch: [0, 10], minCriteriosParaEnvio: [1, 6], maxOfertasPorPedido: [1, 5], firstContactAquecimentoMin: [0, 240] };
 
 app.post('/api/config', ah(async (req, res) => {
-  const b = req.body || {};
+  const b = plainObj(req.body);
   // chave do Gemini em Ajustes: mesma conferência da página Busca (antes de salvar qualquer coisa)
   let chaveGemini = null;
   if (typeof b.geminiApiKey === 'string' && b.geminiApiKey.trim()) {
@@ -280,7 +319,7 @@ app.post('/api/config', ah(async (req, res) => {
   for (const k of BOOL_KEYS) if (b[k] !== undefined) upd[k] = Boolean(b[k]);
   for (const [k, max] of Object.entries(TEXT_KEYS)) if (typeof b[k] === 'string') upd[k] = b[k].slice(0, max);
   for (const [k, [min, max]] of Object.entries(NUM_KEYS)) if (b[k] !== undefined) upd[k] = Math.min(max, Math.max(min, parseInt(b[k], 10) || 0));
-  if (typeof b.resumoDiarioHorario === 'string' && /^\d{2}:\d{2}$/.test(b.resumoDiarioHorario)) upd.resumoDiarioHorario = b.resumoDiarioHorario;
+  if (typeof b.resumoDiarioHorario === 'string' && require('./timeutil').hhmmToMinutes(b.resumoDiarioHorario) !== null) upd.resumoDiarioHorario = b.resumoDiarioHorario;
   if (Array.isArray(b.gruposMonitoradosIds)) upd.gruposMonitoradosIds = b.gruposMonitoradosIds.map(String).filter(g => /@g\.us$/.test(g)).slice(0, 100);
   if (Array.isArray(b.dailySimpleReplies)) {
     upd.dailySimpleReplies = b.dailySimpleReplies.slice(0, 50).map(r => ({ trigger: str(r.trigger, 100), response: str(r.response, 1000), active: r.active !== false })).filter(r => r.trigger && r.response);
@@ -292,7 +331,13 @@ app.post('/api/config', ah(async (req, res) => {
   for (const [k, envK] of [['googleSheetsUrl', 'GOOGLE_SHEETS_CSV_URL'], ['googleSheetsWebhookUrl', 'GOOGLE_SHEETS_WEBHOOK_URL']]) {
     if (typeof b[k] === 'string') {
       const v = b[k].trim();
-      if (v && !/^https:\/\/(docs\.google\.com|script\.google\.com)\//.test(v)) return res.status(400).json({ error: 'Use um link do Google Sheets / Apps Script (https).' });
+      if (v) {
+        let u = null;
+        try { u = new URL(v); } catch {}
+        if (!u || u.protocol !== 'https:' || u.username || u.password || !['docs.google.com', 'script.google.com'].includes(u.hostname)) {
+          return res.status(400).json({ error: 'Use um link do Google Sheets / Apps Script (https).' });
+        }
+      }
       upd[k] = v;
       envUpd[envK] = v;
     }
@@ -451,7 +496,8 @@ app.post('/api/pdf/:id/arquivo', ah(async (req, res) => {
     pdf16x9.invalidarCache(p.id);
   }
   const resultado = await pdf16x9.gerarPdfComFallback(p, { ficha: req.body || {} });
-  res.set('Content-Disposition', `attachment; filename="${resultado.nomeArquivo}"`).type('application/pdf').send(resultado.buffer);
+  const safeName = String(resultado.nomeArquivo || 'ficha.pdf').replace(/["\r\n\\]/g, '_');
+  res.set('Content-Disposition', `attachment; filename="${safeName}"`).type('application/pdf').send(resultado.buffer);
 }));
 app.post('/api/pdf/:id/enviar', ah(async (req, res) => {
   const p = await imovelOu404(req, res);
@@ -699,7 +745,11 @@ app.post('/api/daily/reset-contact', (req, res) => {
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Rota não encontrada.' }));
 // eslint-disable-next-line no-unused-vars
-app.use((err, req, res, next) => res.status(err.status || 500).json({ error: err.status ? err.message : 'Erro interno' }));
+app.use((err, req, res, next) => {
+  const status = Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 500;
+  if (status >= 500) console.error('[http]', err?.message || err);
+  res.status(status).json({ error: status < 500 && err?.message ? err.message : 'Erro interno' });
+});
 
 function shutdown() {
   try { rateLimitStore.shutdown(); } catch {}

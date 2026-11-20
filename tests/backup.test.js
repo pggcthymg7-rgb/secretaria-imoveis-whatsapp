@@ -49,6 +49,8 @@ test('Backup malicioso não grava fora da pasta nem arquivos desconhecidos', () 
 test('Arquivo que não é backup é recusado', () => {
   assert.throws(() => backup.restoreBackup(Buffer.from('não sou backup nenhum aqui')), /backup/);
   assert.throws(() => backup.restoreBackup(zlib.gzipSync(Buffer.from('{"formato":"outro"}'))), /backup/);
+  assert.throws(() => backup.restoreBackup(zlib.gzipSync(Buffer.from('{"formato":"secretaria-backup","versao":1,"arquivos":null,"fotos":{}}'))), /backup/);
+  assert.throws(() => backup.restoreBackup(zlib.gzipSync(Buffer.from('{"formato":"secretaria-backup","versao":1,"arquivos":[],"fotos":{}}'))), /backup/);
 });
 
 test('API: baixar e restaurar backup exige login', async () => {

@@ -1,5 +1,5 @@
 // Alertas do CodeQL (04/11/2026): regex lenta, Bearer, protótipo no vitrine e rota do painel
-require('./helpers');
+const { tmp } = require('./helpers');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -71,6 +71,22 @@ test('Vitrine: nomes do protótipo e id inexistente nunca chegam à atribuição
   assert.equal(({}).status, undefined);
   assert.equal(({}).aprovadoEm, undefined);
   assert.equal(Object.prototype.status, undefined);
+});
+
+test('Agente 2: vitrine.upsertPost e sistema.corretores bloqueiam prototype e esquemas perigosos', () => {
+  const vitrine = require('../src/vitrine');
+  assert.equal(vitrine.upsertPost({ id: '__proto__' }), null);
+  assert.equal(vitrine.upsertPost({ id: 'constructor' }), null);
+  assert.equal(({}).texto, undefined);
+
+  const sistema = require('../src/sistema');
+  fs.writeFileSync(path.join(tmp, 'corretores.json'), JSON.stringify([
+    { nome: 'ana', url: 'https://ana.biga.test' },
+    { nome: 'evil', url: 'javascript:alert(1)' }
+  ]));
+  const lista = sistema.corretores();
+  assert.equal(lista.length, 1);
+  assert.equal(lista[0].nome, 'ana');
 });
 
 test('Painel (app.js): campos de filtro gravam em propriedades FIXAS de S (sem S[chave] dinâmica) e a digitação continua funcionando', () => {

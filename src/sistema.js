@@ -14,7 +14,9 @@ function version() {
     let head = fs.readFileSync(path.join(gitDir, 'HEAD'), 'utf-8').trim();
     if (head.startsWith('ref:')) {
       const ref = head.slice(5).trim();
-      const refFile = path.join(gitDir, ref);
+      if (!/^refs\/[\w./-]+$/.test(ref) || ref.includes('..')) return null;
+      const refFile = path.resolve(gitDir, ref);
+      if (!refFile.startsWith(path.resolve(gitDir) + path.sep)) return null;
       if (fs.existsSync(refFile)) head = fs.readFileSync(refFile, 'utf-8').trim();
       else {
         const packed = fs.readFileSync(path.join(gitDir, 'packed-refs'), 'utf-8');
@@ -39,8 +41,9 @@ function requestUpdate() {
 }
 
 function lastResults(n = 5) {
+  const limit = Math.min(100, Math.max(1, parseInt(n, 10) || 5));
   try {
-    return fs.readFileSync(dataPath('atualizacao.log'), 'utf-8').trim().split('\n').filter(Boolean).slice(-n).reverse();
+    return fs.readFileSync(dataPath('atualizacao.log'), 'utf-8').trim().split('\n').filter(Boolean).slice(-limit).reverse();
   } catch {
     return [];
   }
@@ -50,7 +53,9 @@ function lastResults(n = 5) {
 function corretores() {
   try {
     const lista = JSON.parse(fs.readFileSync(dataPath('corretores.json'), 'utf-8'));
-    return Array.isArray(lista) ? lista.filter(c => c && typeof c.nome === 'string' && typeof c.url === 'string') : [];
+    return Array.isArray(lista)
+      ? lista.filter(c => c && typeof c.nome === 'string' && typeof c.url === 'string' && /^https?:\/\//i.test(c.url))
+      : [];
   } catch {
     return [];
   }

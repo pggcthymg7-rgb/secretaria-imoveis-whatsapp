@@ -9,10 +9,13 @@ function today() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
 }
 
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function inc(name, n = 1) {
+  if (typeof name !== 'string' || !name || UNSAFE_KEYS.has(name) || !Number.isFinite(Number(n))) return;
   const d = today();
-  data[d] = data[d] || {};
-  data[d][name] = (data[d][name] || 0) + n;
+  if (!Object.hasOwn(data, d) || !data[d] || typeof data[d] !== 'object') data[d] = {};
+  data[d][name] = (data[d][name] || 0) + Number(n);
   const keys = Object.keys(data).sort();
   while (keys.length > 60) delete data[keys.shift()];
   if (!timer) {

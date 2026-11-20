@@ -14,6 +14,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const zlib = require('zlib');
 const { DATA_DIR, FOTOS_DIR } = require('./paths');
 
@@ -43,7 +44,15 @@ const MAX_BYTES = 200 * 1024 * 1024; // 200 MB descompactado
 
 function listPhotos() {
   if (!fs.existsSync(FOTOS_DIR)) return [];
-  return fs.readdirSync(FOTOS_DIR).filter(f => PHOTO_RX.test(f) && fs.statSync(path.join(FOTOS_DIR, f)).isFile());
+  return fs.readdirSync(FOTOS_DIR).filter(f => {
+    if (!PHOTO_RX.test(f) || f.startsWith('.') || f.includes('..')) return false;
+    try {
+      const st = fs.lstatSync(path.join(FOTOS_DIR, f));
+      return st.isFile() && !st.isSymbolicLink();
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** Gera o backup (Buffer .json.gz) */
@@ -72,17 +81,36 @@ function parseBackup(buf) {
   } catch {
     throw Object.assign(new Error('Não é um backup da BIGA (arquivo corrompido ou de outro tipo).'), { status: 400 });
   }
-  if (!json || json.formato !== FORMAT || typeof json.arquivos !== 'object' || typeof json.fotos !== 'object') {
+  if (
+    !json ||
+    json.formato !== FORMAT ||
+    !json.arquivos || typeof json.arquivos !== 'object' || Array.isArray(json.arquivos) ||
+    !json.fotos || typeof json.fotos !== 'object' || Array.isArray(json.fotos)
+  ) {
     throw Object.assign(new Error('Não é um backup da BIGA.'), { status: 400 });
   }
   if (json.versao > VERSION) throw Object.assign(new Error('Backup feito por uma versão mais nova da BIGA. Atualize antes de restaurar.'), { status: 400 });
   return json;
 }
 
-function atomicWrite(file, data) {
-  const tmp = `${file}.restore.tmp`;
-  fs.writeFileSync(tmp, data);
-  fs.renameSync(tmp, file);
+function atomicWrite(file, data, mode = 0o600) {
+  const dir = path.dirname(file);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  try {
+    if (fs.existsSync(file) && fs.lstatSync(file).isSymbolicLink()) {
+      throw Object.assign(new Error(`Destino inválido (symlink): ${path.basename(file)}`), { status: 400 });
+    }
+  } catch (err) {
+    if (err.status) throw err;
+  }
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.restore.tmp`;
+  try {
+    fs.writeFileSync(tmp, data, { mode });
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    try { fs.rmSync(tmp, { force: true }); } catch {}
+    throw err;
+  }
 }
 
 /**
@@ -92,8 +120,15 @@ function atomicWrite(file, data) {
 function restoreBackup(buf) {
   const json = parseBackup(buf);
   const restored = { arquivos: [], fotos: 0, ignorados: [] };
+  const dataRoot = path.resolve(DATA_DIR);
+  const fotosRoot = path.resolve(FOTOS_DIR);
   for (const [name, b64] of Object.entries(json.arquivos)) {
-    if (!DATA_FILES.includes(name) || typeof b64 !== 'string') {
+    if (name === '__proto__' || name === 'constructor' || name === 'prototype' || !DATA_FILES.includes(name) || typeof b64 !== 'string') {
+      restored.ignorados.push(name);
+      continue;
+    }
+    const target = path.resolve(dataRoot, name);
+    if (!target.startsWith(dataRoot + path.sep) || path.dirname(target) !== dataRoot) {
       restored.ignorados.push(name);
       continue;
     }
@@ -106,16 +141,21 @@ function restoreBackup(buf) {
         continue;
       }
     }
-    atomicWrite(path.join(DATA_DIR, name), data);
+    atomicWrite(target, data, 0o600);
     restored.arquivos.push(name);
   }
   if (!fs.existsSync(FOTOS_DIR)) fs.mkdirSync(FOTOS_DIR, { recursive: true });
   for (const [name, b64] of Object.entries(json.fotos)) {
-    if (!PHOTO_RX.test(name) || name !== path.basename(name) || typeof b64 !== 'string') {
+    if (name === '__proto__' || name === 'constructor' || name === 'prototype' || !PHOTO_RX.test(name) || name.startsWith('.') || name.includes('..') || name !== path.basename(name) || typeof b64 !== 'string') {
       restored.ignorados.push(name);
       continue;
     }
-    atomicWrite(path.join(FOTOS_DIR, name), Buffer.from(b64, 'base64'));
+    const target = path.resolve(fotosRoot, name);
+    if (!target.startsWith(fotosRoot + path.sep) || path.dirname(target) !== fotosRoot) {
+      restored.ignorados.push(name);
+      continue;
+    }
+    atomicWrite(target, Buffer.from(b64, 'base64'), 0o644);
     restored.fotos++;
   }
   return { ...restored, criadoEm: json.criadoEm };
