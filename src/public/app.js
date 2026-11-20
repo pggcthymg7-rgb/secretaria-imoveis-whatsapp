@@ -1221,6 +1221,7 @@
   }
 
   async function go() {
+    clearTimeout(S._ft);
     const navId = ++S._navSeq;
     const r = (location.hash || '#inicio').slice(1);
     S.route = views.has(r) ? r : location.pathname === '/dia-a-dia' ? 'atendimento' : 'inicio';
@@ -1949,8 +1950,10 @@
       if (n === 'busca') S.filtro = e.target.value;
       else if (n === 'filtroContato') S.filtroContato = e.target.value;
       else S.filtroBairro = e.target.value;
+      const rota = S.route;
       clearTimeout(S._ft);
       S._ft = setTimeout(() => {
+        if (S.route !== rota) return;
         const pos = e.target.selectionStart;
         render();
         const again = $(`[name="${CSS.escape(n)}"]`);

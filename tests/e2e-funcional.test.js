@@ -50,3 +50,31 @@ test('Agente 1 E2E: setup/login/troca de senha, CSRF, maxPhotosPerMatch=0 e deep
   const created = await sheets.createProperty({ tipo: 'Apartamento', setor: 'Setor Bueno', valor: 700000 });
   assert.ok(created.id);
 });
+
+test('Agente 2 E2E: rotas HTML / e /dia-a-dia, assets versionados, CSP e proteção contra race de filtro', async t => {
+  const srv = http.createServer(app);
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  t.after(() => new Promise(r => srv.close(r)));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+
+  for (const p of ['/', '/dia-a-dia']) {
+    const r = await fetch(`${base}${p}`);
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-security-policy') || '', /script-src 'self'/);
+    assert.match(r.headers.get('cache-control') || '', /no-store/);
+    const html = await r.text();
+    assert.match(html, /\/assets\/biga-art\.js\?v=/);
+    assert.match(html, /\/assets\/capas\.js\?v=/);
+    assert.match(html, /\/assets\/app\.js\?v=/);
+    assert.match(html, /\/assets\/app\.css\?v=/);
+  }
+
+  for (const asset of ['/assets/app.js', '/assets/capas.js', '/assets/biga-art.js', '/assets/app.css', '/assets/fontes-google.json']) {
+    const r = await fetch(`${base}${asset}`);
+    assert.equal(r.status, 200, `Asset ${asset} deve servir 200`);
+  }
+
+  const appJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'app.js'), 'utf-8');
+  assert.match(appJs, /async function go\(\) \{\s*clearTimeout\(S\._ft\);/);
+  assert.ok(appJs.includes('if (S.route !== rota) return;'), 'Debounce de filtro deve checar se a rota mudou');
+});
