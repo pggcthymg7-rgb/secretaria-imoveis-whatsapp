@@ -147,7 +147,6 @@ TEXTO:
   try {
     const timeout = new Promise((_, rej) => {
       timeoutId = setTimeout(() => rej(new Error('timeout Gemini')), 8000);
-      if (typeof timeoutId.unref === 'function') timeoutId.unref();
     });
     const response = await Promise.race([call, timeout]);
     let parsed = {};

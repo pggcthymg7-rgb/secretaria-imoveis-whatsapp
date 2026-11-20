@@ -68,6 +68,20 @@ function lerEndereco(url) {
 /** Número do anúncio na OLX = últimos dígitos do endereço */
 const idDoLink = url => primeiro(String(url || '').split('?')[0].replace(/\/+$/, ''), /-(\d{6,})$/);
 
+/** Busca `${prefixo}${id}` seguido de caractere não numérico (substitui RegExp dinâmico sem risco de ReDoS) */
+function encontrarCampoId(texto, prefixo, id, inicio = 0) {
+  const alvo = `${prefixo}${id}`;
+  let pos = inicio;
+  while (pos < texto.length) {
+    const i = texto.indexOf(alvo, pos);
+    if (i < 0) return -1;
+    const next = texto.charCodeAt(i + alvo.length);
+    if (!(next >= 48 && next <= 57)) return i;
+    pos = i + alvo.length;
+  }
+  return -1;
+}
+
 /**
  * Dados estruturados da PÁGINA do anúncio na OLX (campos do JSON da própria página).
  * Âncora: o número do anúncio (do endereço). Página que não cita esse número (captcha, lista, redirecionada)
@@ -83,12 +97,31 @@ function lerPaginaOlx(html, idAnuncio) {
   }
   let bloco = h;
   if (idLimpo) {
-    const m = h.match(new RegExp(`"listId":${idLimpo}(?!\\d)`)); // (?!\d): "1" não casa com "1509799842"
-    if (!m) return null;
-    bloco = h.slice(m.index, m.index + 1500);
+    const idx = encontrarCampoId(h, '"listId":', idLimpo); // garante fronteira de dígito: "1" não casa com "1509799842"
+    if (idx < 0) return null;
+    bloco = h.slice(idx, idx + 1500);
   }
   const prof = primeiro(bloco, /"professionalAd":(true|false)/);
-  const preco = (idLimpo && primeiro(h, new RegExp(`"list_id":${idLimpo}(?!\\d)[^}]{0,400}?"price":"(\\d+)"`))) || primeiro(bloco, /"price":"(\d+)"/) || primeiro(h, /"price":"(\d+)"/);
+  let precoPorId = '';
+  if (idLimpo) {
+    let pos = 0;
+    const prefixo = '"list_id":';
+    while (pos < h.length) {
+      const idx = encontrarCampoId(h, prefixo, idLimpo, pos);
+      if (idx < 0) break;
+      const fim = idx + prefixo.length + idLimpo.length;
+      const trecho = h.slice(fim, fim + 450);
+      const fecha = trecho.indexOf('}');
+      const janela = fecha >= 0 ? trecho.slice(0, fecha) : trecho;
+      const mPreco = janela.match(/"price":"(\d+)"/);
+      if (mPreco && mPreco.index <= 400) {
+        precoPorId = mPreco[1];
+        break;
+      }
+      pos = fim;
+    }
+  }
+  const preco = precoPorId || primeiro(bloco, /"price":"(\d+)"/) || primeiro(h, /"price":"(\d+)"/);
   const titulo = primeiro(h, /<title>([^<]{5,200})<\/title>/).replace(/\s*\|\s*OLX.*$/i, '');
   const desc = primeiro(h, /"@type":"Product","name":"[^"]*","url":"[^"]*","description":"((?:[^"\\]|\\.){0,1500})"/);
   const texto = `${titulo} ${desc}`.replace(/<br\s*\/?>/gi, ' ');

@@ -36,12 +36,14 @@ function hashPassword(pw, salt = crypto.randomBytes(16).toString('hex')) {
   return { salt, hash };
 }
 
-function digestValue(v) {
-  return crypto.createHash('sha256').update(String(v)).digest();
-}
-
 function safeEqual(a, b) {
-  return crypto.timingSafeEqual(digestValue(a), digestValue(b));
+  const ba = Buffer.from(String(a), 'utf8');
+  const bb = Buffer.from(String(b), 'utf8');
+  if (ba.length !== bb.length) {
+    if (bb.length > 0) crypto.timingSafeEqual(bb, bb);
+    return false;
+  }
+  return ba.length === 0 ? true : crypto.timingSafeEqual(ba, bb);
 }
 
 function isConfigured() {

@@ -65,7 +65,6 @@ function withTimeout(promise, ms, label = 'operação WhatsApp') {
   let timer = null;
   const timeout = new Promise((_, rej) => {
     timer = setTimeout(() => rej(new Error(`Timeout (${ms}ms) em ${label}`)), ms);
-    if (timer.unref) timer.unref();
   });
   return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
 }
@@ -599,7 +598,6 @@ function esperarHistorico(grupoId, tsAntes, ms) {
       esperasHistorico.delete(w);
       resolve(false);
     }, ms);
-    if (w.timer.unref) w.timer.unref();
   });
 }
 
@@ -952,6 +950,11 @@ function stopWhatsAppAgent() {
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
+  }
+  for (const w of [...esperasHistorico]) {
+    clearTimeout(w.timer);
+    esperasHistorico.delete(w);
+    w.resolve(false);
   }
   cleanupSocket(sock);
   sock = null;

@@ -237,7 +237,10 @@ test('Brave: a página 2 usa offset=1; Tavily continua com uma rodada só (já �
 
 test('Agente 4: parser OLX rejeita id não numérico, Gemini faz fallback após 502 HTML e Apify bloqueia link não HTTP', async () => {
   assert.equal(L.lerPaginaOlx(Fx.talkMarista, '1509799842).*'), null);
-  assert.equal(L.lerPaginaOlx(Fx.talkMarista, '(a+)+$'), null);
+  assert.equal(L.lerPaginaOlx(Fx.talkMarista, '1509799842|999'), null);
+  assert.equal(L.lerPaginaOlx(Fx.talkMarista, 'abc-invalido'), null);
+  assert.equal(L.lerPaginaOlx('{"listId":1509799842,"sellerName":"Ok","professionalAd":true,"list_id":1509799842,"price":"1450000"}', '150979984'), null);
+  assert.equal(L.lerPaginaOlx('{"listId":999,"sellerName":"Ok","professionalAd":true,"list_id":999,"price":"850000"}', '999').preco, 850000);
 
   const apify = require('../src/busca-apify');
   assert.equal(apify.normalizar({ link: 'javascript:alert(1)' }, 'ZAP').link, '');

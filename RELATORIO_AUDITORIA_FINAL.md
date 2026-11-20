@@ -65,3 +65,21 @@
 - **Passada 4 (`2/2`):** Reexecução independente integral de todos os gates sem nenhuma alteração de código entre passadas (`189/189` testes em `53372 ms`, `0` erros no `check.js`, `0` vulnerabilidades no `npm audit`, `6/6` scripts shell válidos, árvore sem resíduos).
 - **Faxina Final (Fase 3):** `.audit_checkpoint.md` removido antes do commit deste relatório; nenhum diretório temporário (`cache_pdf_16x9`, `cache_fotos_16x9`, `*.tmp`, `*.log`, `.DS_Store`) deixado na raiz; arquivos operacionais documentados (`ESTADO_ATUAL.md`, `GUIA_VM_GRATUITA.md`) preservados integralmente.
 - **Preservação de Negócio:** Nenhuma regra de atendimento, limites da Vitrine, pontuação do Matcher/Cérebro ou comportamento de `BIGA_PAPEL=corretor` foi alterada.
+
+---
+
+## 4. Correções de CI (Node 22) e CodeQL na PR #57
+
+Após a abertura da PR #57 (`audit/escala-producao` → `main`), dois checks remotos falharam e foram corrigidos integralmente:
+
+1. **`CI/testes` (Node 22 em `ubuntu-latest`)**
+   - **Causa raiz:** `esperarHistorico` em `src/whatsapp.js` usava `.unref()` em um `setTimeout` ativamente aguardado via `await`. No Node 22, quando não há outros handles ativos no event loop, `.unref()` permite o encerramento prematuro do processo com `ERR_TEST_FAILURE: Promise resolution is still pending but the event loop has already resolved` em `tests/whatsapp-fluxo.test.js:222` (cancelando os testes 181–189). O mesmo padrão latente existia em `withTimeout` (`src/whatsapp.js`) e no timeout do Gemini (`src/matcher.js`).
+   - **Correção:** Remoção de `.unref()` nesses três timeouts ativamente aguardados (preservando `.unref()` apenas em timers em background) e limpeza imediata de `esperasHistorico` dentro de `stopWhatsAppAgent()` em `src/whatsapp.js`.
+
+2. **`CodeQL` — Alerta #30 (`js/insufficient-password-hash`, High 8.1) em `src/auth.js:40`**
+   - **Causa raiz:** `safeEqual()` utilizava `crypto.createHash('sha256')` antes de `crypto.timingSafeEqual`, acionando o detector de hash fraco em fluxo vindo de `API_TOKEN`/`PAINEL_SENHA`.
+   - **Correção:** Remoção de `digestValue()` e comparação direta em tempo constante sobre `Buffer.from(..., 'utf8')` com `crypto.timingSafeEqual`.
+
+3. **`CodeQL` — Alerta #29 (`js/redos`, High 7.5) em `tests/busca-anuncio.test.js:240`**
+   - **Causa raiz:** `lerPaginaOlx()` (`src/busca-anuncio.js`) construía `new RegExp(...)` com `idLimpo` e o teste em `tests/busca-anuncio.test.js:240` passava a literal `'(a+)+$'`.
+   - **Correção:** Substituição de ambos os `new RegExp` por busca linear pura via `indexOf` e checagem de fronteira de dígito (`encontrarCampoId` em `src/busca-anuncio.js`), e troca da literal no teste por entradas inválidas sem padrão ReDoS (`1509799842|999`, `abc-invalido`) mantendo a cobertura de rejeição.

@@ -430,7 +430,6 @@ test('Chaves da busca nos portais pelo "Mensagem para mim": chave tavily/serper/
 });
 
 test('Agente 3: startWhatsAppAgent concorrente não duplica socket, stopWhatsAppAgent limpa listeners e onMessagesUpsert aceita entrada inválida', async () => {
-  const beforeCalls = [];
   const orig = fakeSock;
   const p1 = wa.startWhatsAppAgent();
   const p2 = wa.startWhatsAppAgent();
@@ -444,6 +443,13 @@ test('Agente 3: startWhatsAppAgent concorrente não duplica socket, stopWhatsApp
   // onMessagesUpsert com payload malformado não lança erro
   await assert.doesNotReject(() => wa.onMessagesUpsert({ messages: null, type: 'notify' }));
   await assert.doesNotReject(() => wa.onMessagesUpsert(undefined));
+
+  // Timers aguardados com await (esperarHistorico, withTimeout, timeout Gemini) não podem usar .unref()
+  const waSrc = require('fs').readFileSync(path.join(__dirname, '..', 'src', 'whatsapp.js'), 'utf8');
+  const matcherSrc = require('fs').readFileSync(path.join(__dirname, '..', 'src', 'matcher.js'), 'utf8');
+  assert.ok(!/esperarHistorico[\s\S]{0,400}w\.timer\.unref/.test(waSrc), 'esperarHistorico não deve chamar unref() no timer aguardado');
+  assert.ok(!/function withTimeout[\s\S]{0,300}timer\.unref/.test(waSrc), 'withTimeout não deve chamar unref() no timer aguardado');
+  assert.ok(!/timeout Gemini[\s\S]{0,120}timeoutId\.unref/.test(matcherSrc), 'timeout do Gemini não deve chamar unref()');
 
   wa.stopWhatsAppAgent();
   assert.equal(fakeSock.ev.listenerCount('messages.upsert'), 0);

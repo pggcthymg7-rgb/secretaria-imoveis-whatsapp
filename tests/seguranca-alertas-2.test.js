@@ -29,6 +29,8 @@ test('Bearer: token certo entra, errado não, e cabeçalho enorme não trava', (
   assert.equal(auth.isAuthenticated(req('Bearer token-de-teste-bem-comprido-123')), true);
   assert.equal(auth.isAuthenticated(req('bearer   token-de-teste-bem-comprido-123')), true, 'maiúscula/minúscula e vários espaços');
   assert.equal(auth.isAuthenticated(req('Bearer outro-token-qualquer-123456')), false);
+  assert.equal(auth.isAuthenticated(req('Bearer token-de-teste-bem-comprido-1234')), false);
+  assert.equal(auth.isAuthenticated(req('Bearer curto')), false);
   assert.equal(auth.isAuthenticated(req('Bearer')), false);
   const t = Date.now();
   assert.equal(auth.isAuthenticated(req('Bearer' + ' '.repeat(200000) + '\u0000')), false);
