@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { app } = require('../index');
-const { sanitizePhotoRef, normalizePropertyRecord, serializeCsv } = require('../src/sheets');
+const { sanitizePhotoRef, normalizePropertyRecord, serializeCsv } = require('../src/domain/sheets');
 
 let server;
 let base;

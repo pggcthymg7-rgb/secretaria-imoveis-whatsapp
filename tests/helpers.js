@@ -12,7 +12,7 @@ process.env.GOOGLE_SHEETS_CSV_URL = '';
 process.env.PAINEL_SENHA = 'senha-de-teste-123';
 process.env.SESSION_SECRET = 'segredo-de-teste';
 
-const { normalizePropertyRecord } = require('../src/sheets');
+const { normalizePropertyRecord } = require('../src/domain/sheets');
 
 function prop(fields) {
   return normalizePropertyRecord({ ativo: true, ...fields });

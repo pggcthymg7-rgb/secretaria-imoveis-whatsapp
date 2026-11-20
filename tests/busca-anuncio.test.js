@@ -2,8 +2,8 @@
 require('./helpers');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const L = require('../src/busca-anuncio');
-const bi = require('../src/busca-inteligente');
+const L = require('../src/integrations/busca/anuncio');
+const bi = require('../src/integrations/busca/inteligente');
 const Fx = require('./fixtures-olx-anuncio');
 
 const PEDIDO = 'Apartamento à venda no Marista, Goiânia, de R$ 1 mi a R$ 1,6 mi, 3 quartos, 2 suítes, 1 vaga';
@@ -41,7 +41,7 @@ test('Avaliar: reprova só com dado lido; dado ausente vira "conferir"', () => {
 });
 
 test('Só abre endereço de ANÚNCIO da OLX (https, host da OLX) — nunca um endereço qualquer', async () => {
-  const serp = require('../src/busca-serp');
+  const serp = require('../src/integrations/busca/serp');
   const abertos = [];
   const fetcher = async url => {
     abertos.push(url);
@@ -112,7 +112,7 @@ test('Revisão: endereço — tipo vem do início do slug e RS só vale como "RS
 });
 
 test('Revisão: resposta sem Content-Length acima do teto é abortada (não vira HTML cortado)', async () => {
-  const serp = require('../src/busca-serp');
+  const serp = require('../src/integrations/busca/serp');
   const grande = new ReadableStream({ start(ctl) { for (let i = 0; i < 5; i++) ctl.enqueue(new Uint8Array(1024 * 1024)); ctl.close(); } });
   const fetcher = async () => ({ ok: true, status: 200, headers: { get: () => null }, body: grande });
   const r = await L.lerAnuncios({ catalogo: [{ id: 1, portal: 'OLX', dominio: 'olx.com.br', url: OLX_TALK, titulo: 't', conteudo: '' }], criterios: bi.entenderPedido(PEDIDO).criterios, fetcher, portalDaUrl: serp.portalDaUrl, ehPaginaDeAnuncio: serp.ehPaginaDeAnuncio });
@@ -126,7 +126,7 @@ test('Revisão: "Canedo" (apelido) continua cidade; "Goiânia" não vira Goianir
 });
 
 test('Falha na leitura da OLX: a linha do buscador diz o MOTIVO (HTTP 403, tempo esgotado, página sem dados)', async () => {
-  const serp = require('../src/busca-serp');
+  const serp = require('../src/integrations/busca/serp');
   const cat = [OLX_TALK, OLX_SPOT, OLX_BOTANIC].map((url, i) => ({ id: i + 1, portal: 'OLX', dominio: 'olx.com.br', url, titulo: 't', conteudo: '' }));
   const c = bi.entenderPedido(PEDIDO).criterios;
   const ler = fetcher => L.lerAnuncios({ catalogo: cat, criterios: c, fetcher, portalDaUrl: serp.portalDaUrl, ehPaginaDeAnuncio: serp.ehPaginaDeAnuncio });
@@ -190,7 +190,7 @@ function serperFalso(porConsulta) {
 }
 
 test('ZAP com 1 anúncio na consulta precisa: a solta e a página 2 completam (sem repetir) — antes ficava em 1', async () => {
-  const Serp = require('../src/busca-serp');
+  const Serp = require('../src/integrations/busca/serp');
   const w = serperFalso({ 1: [zapN(0)], 2: [zapN(0), zapN(1), zapN(2), zapN(3), zapN(4)], 3: [zapN(5), zapN(6), zapN(7), zapN(8)] });
   const r = await Serp.buscarAnuncios({ criterios: bi.entenderPedido(PEDIDO).criterios, dominios: ['zapimoveis.com.br'], env: { SERPER_API_KEY: 'x'.repeat(20) }, fetcher: w.fetcher });
   assert.equal(r.catalogo.length, 9, '1 + 4 novos + 4 da página 2, sem repetir o zapN(0)');
@@ -201,7 +201,7 @@ test('ZAP com 1 anúncio na consulta precisa: a solta e a página 2 completam (s
 });
 
 test('Portal que já tem 8+ anúncios na 1ª rodada não gasta mais consultas', async () => {
-  const Serp = require('../src/busca-serp');
+  const Serp = require('../src/integrations/busca/serp');
   const w = serperFalso({ 1: Array.from({ length: 10 }, (_, i) => zapN(i)) });
   const r = await Serp.buscarAnuncios({ criterios: bi.entenderPedido(PEDIDO).criterios, dominios: ['zapimoveis.com.br'], env: { SERPER_API_KEY: 'x'.repeat(20) }, fetcher: w.fetcher });
   assert.equal(r.catalogo.length, 10);
@@ -209,7 +209,7 @@ test('Portal que já tem 8+ anúncios na 1ª rodada não gasta mais consultas', 
 });
 
 test('BUSCA_RODADAS controla o custo: 1 = só a precisa; 4 = inclui a consulta por número de quartos', async () => {
-  const Serp = require('../src/busca-serp');
+  const Serp = require('../src/integrations/busca/serp');
   const c = bi.entenderPedido(PEDIDO).criterios;
   let w = serperFalso({});
   await Serp.buscarAnuncios({ criterios: c, dominios: ['zapimoveis.com.br'], env: { SERPER_API_KEY: 'x'.repeat(20), BUSCA_RODADAS: '1' }, fetcher: w.fetcher });
@@ -223,7 +223,7 @@ test('BUSCA_RODADAS controla o custo: 1 = só a precisa; 4 = inclui a consulta p
 });
 
 test('Brave: a página 2 usa offset=1; Tavily continua com uma rodada só (já é semântico)', async () => {
-  const Serp = require('../src/busca-serp');
+  const Serp = require('../src/integrations/busca/serp');
   const c = bi.entenderPedido(PEDIDO).criterios;
   const urls = [];
   await Serp.buscarAnuncios({ criterios: c, dominios: ['zapimoveis.com.br'], env: { BRAVE_SEARCH_API_KEY: 'b'.repeat(20) }, fetcher: async url => { urls.push(String(url)); return { ok: true, status: 200, json: async () => ({ web: { results: [] } }) }; } });
@@ -242,11 +242,11 @@ test('Agente 4: parser OLX rejeita id não numérico, Gemini faz fallback após 
   assert.equal(L.lerPaginaOlx('{"listId":1509799842,"sellerName":"Ok","professionalAd":true,"list_id":1509799842,"price":"1450000"}', '150979984'), null);
   assert.equal(L.lerPaginaOlx('{"listId":999,"sellerName":"Ok","professionalAd":true,"list_id":999,"price":"850000"}', '999').preco, 850000);
 
-  const apify = require('../src/busca-apify');
+  const apify = require('../src/integrations/busca/apify');
   assert.equal(apify.normalizar({ link: 'javascript:alert(1)' }, 'ZAP').link, '');
   assert.equal(apify.normalizarOlx(null).link, '');
 
-  const garimpo = require('../src/garimpo');
+  const garimpo = require('../src/domain/garimpo');
   assert.doesNotThrow(() => garimpo.updateConfig(null));
 
   const modelosChamados = [];

@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
-const backup = require('../src/backup');
+const backup = require('../src/config/backup');
 const { app } = require('../index');
 
 const FOTOS = path.join(tmp, 'fotos');

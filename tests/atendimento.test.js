@@ -1,9 +1,9 @@
 require('./helpers');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const contacts = require('../src/contacts');
-const { shouldSendFirstContact } = require('../src/atendimento-diario');
-const { loadSettings } = require('../src/settings');
+const contacts = require('../src/whatsapp/contacts');
+const { shouldSendFirstContact } = require('../src/whatsapp/atendimento-diario');
+const { loadSettings } = require('../src/config/settings');
 
 const now = () => Math.floor(Date.now() / 1000);
 function msg({ jid, alt, ts = now(), quoted = false }) {

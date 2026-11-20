@@ -64,7 +64,7 @@ async function resumoCorretor({ tenantStore, sessionManager, router }, id) {
   const d = record.ativo === false ? null : router.domains.get(id);
   if (d) {
     painel.url = d.container.env.PUBLIC_URL || null;
-    const auth = d.container.require('auth');
+    const auth = d.container.require('config/auth');
     if (!auth.isConfigured()) painel.codigoConvite = auth.getSetupCode();
   }
   return {

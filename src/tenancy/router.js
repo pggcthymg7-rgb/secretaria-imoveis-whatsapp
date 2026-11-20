@@ -53,7 +53,7 @@ class WhatsAppRouter {
     // Configuração que VALE (o corretor pode ter mudado no painel dele depois do cadastro)
     const { container } = this.domain(tenantId);
     const env = container.env;
-    const s = container.require('settings').loadSettings();
+    const s = container.require('config/settings').loadSettings();
     return Object.freeze({
       tenantId,
       nome: cfg.nome,
@@ -85,7 +85,7 @@ class WhatsAppRouter {
       env: buildTenantEnv({ baseEnv: process.env, dataDir, configIA: cfg.configIA, tenantId }),
       onExit: () => setImmediate(() => this.reloadTenant(tenantId).catch(err => console.error(`[tenant:${tenantId}] recarga falhou: ${err.message}`)))
     });
-    const wa = container.require('whatsapp');
+    const wa = container.require('whatsapp/client');
     const domain = { container, wa, app: null };
     this.domains.set(tenantId, domain);
     const sock = this.sm.getSession(tenantId);
@@ -93,7 +93,7 @@ class WhatsAppRouter {
       this._bindSocket(tenantId, sock);
       if (this.sm.getStatus(tenantId).status === 'CONECTADO') wa.onConnectionState({ connection: 'open' }).catch(() => {});
     }
-    if (this.startScheduler) container.require('scheduler').start(wa.api, wa.addLog);
+    if (this.startScheduler) container.require('domain/scheduler').start(wa.api, wa.addLog);
     return domain;
   }
 
@@ -106,7 +106,7 @@ class WhatsAppRouter {
     const { container } = this.domain(tenantId);
     const keys = {};
     for (const [field, envKey] of Object.entries(CONFIG_TO_ENV)) if (typeof configIA[field] === 'string' && configIA[field]) keys[envKey] = configIA[field];
-    if (Object.keys(keys).length) container.require('envfile').updateEnvFile(keys);
+    if (Object.keys(keys).length) container.require('config/envfile').updateEnvFile(keys);
     if (configIA.geminiModel) container.env.GEMINI_MODEL = configIA.geminiModel; // não é chave do .env
     this._applySettings(container, configIA);
   }
@@ -114,7 +114,7 @@ class WhatsAppRouter {
   /** App web (painel + API) da BIGA do corretor — mesmo código do admin, papel 'corretor' */
   tenantApp(tenantId) {
     const d = this.domain(tenantId);
-    if (!d.app) d.app = d.container.require('app').app;
+    if (!d.app) d.app = d.container.require('web/app').app;
     return d.app;
   }
 
@@ -140,7 +140,7 @@ class WhatsAppRouter {
   _applySettings(container, configIA = {}) {
     const updates = {};
     for (const k of CONFIG_TO_SETTINGS) if (configIA[k] !== undefined && configIA[k] !== '') updates[k] = configIA[k];
-    if (Object.keys(updates).length) container.require('settings').saveSettings(updates);
+    if (Object.keys(updates).length) container.require('config/settings').saveSettings(updates);
   }
 
   _bindSocket(tenantId, sock) {
@@ -162,7 +162,7 @@ class WhatsAppRouter {
   efetivo(tenantId) {
     const d = this.domains.get(tenantId);
     if (!d) return null;
-    const s = d.container.require('settings').loadSettings();
+    const s = d.container.require('config/settings').loadSettings();
     const env = d.container.env;
     return {
       meuWhatsappAlerta: s.meuWhatsappAlerta || '',
@@ -182,16 +182,16 @@ class WhatsAppRouter {
     const d = this.domains.get(tenantId);
     if (!d) return;
     try {
-      d.container.require('scheduler').stop();
+      d.container.require('domain/scheduler').stop();
     } catch {}
     if (flush) {
-      for (const [mod, fn] of [['contacts', 'flush'], ['radar', 'flush'], ['metrics', 'flush']]) {
+      for (const [mod, fn] of [['whatsapp/contacts', 'flush'], ['domain/radar', 'flush'], ['config/metrics', 'flush']]) {
         try { d.container.require(mod)[fn]?.(); } catch {}
       }
-      try { d.container.require('anuncios').persist?.(true); } catch {}
+      try { d.container.require('domain/anuncios').persist?.(true); } catch {}
     }
     if (d.app) {
-      try { d.container.require('app').shutdown?.(); } catch {}
+      try { d.container.require('web/app').shutdown?.(); } catch {}
     }
     d.container.dispose();
     this.domains.delete(tenantId);

@@ -1,10 +1,10 @@
 const { prop } = require('./helpers');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const assistant = require('../src/assistant');
-const prospeccao = require('../src/prospeccao');
-const vitrine = require('../src/vitrine');
-const sheets = require('../src/sheets');
+const assistant = require('../src/whatsapp/assistant');
+const prospeccao = require('../src/domain/prospeccao');
+const vitrine = require('../src/domain/vitrine');
+const sheets = require('../src/domain/sheets');
 
 test('Assistente entende o cadastro por texto livre', () => {
   const p = assistant.parsePropertyFromText('cadastrar apto 3q 2 suítes 98m² setor Bueno ed. Solar das Flores 650 mil aceita permuta 2 vagas condomínio 700');
@@ -134,13 +134,13 @@ test('Agente 3: prototype guard em assistant/radar, zip corrompido em anuncios, 
   assert.equal(assistant.applyFieldEdit(p, 'constructor qualquer coisa'), false);
   assert.equal(assistant.applyFieldEdit(p, 'toString algo'), false);
 
-  const radar = require('../src/radar');
+  const radar = require('../src/domain/radar');
   const item = radar.add({ grupo: 'G', texto: 't', decision: 'AVISAR', tipos: [], locais: [], candidatos: [] });
   radar.update(item.code, JSON.parse('{"__proto__":{"polluted":true},"motivo":"ok"}'));
   assert.equal(({}).polluted, undefined);
   assert.equal(item.motivo, 'ok');
 
-  const anuncios = require('../src/anuncios');
+  const anuncios = require('../src/domain/anuncios');
   // ZIP truncado com signature EOCD mas offset local fora do buffer deve lançar erro limpo (não RangeError)
   const badZip = Buffer.alloc(64);
   badZip.writeUInt32LE(0x06054b50, 42);
@@ -152,6 +152,6 @@ test('Agente 3: prototype guard em assistant/radar, zip corrompido em anuncios, 
   Buffer.from('a.txt').copy(badZip, 46);
   assert.throws(() => anuncios.textoDoZip(badZip), /inválido|corrompido/);
 
-  const { humanSend } = require('../src/atendimento-diario');
+  const { humanSend } = require('../src/whatsapp/atendimento-diario');
   await assert.rejects(() => humanSend(null, '5562999999999@s.whatsapp.net', 'oi', 0), /desconectado/);
 });

@@ -26,7 +26,7 @@ require.cache[baileysPath] = { id: baileysPath, filename: baileysPath, loaded: t
 
 process.env.MULTI_TENANT = '1';
 process.env.DOMINIO = 'biga.test';
-const { app, tenancy, PAPEL } = require('../src/app');
+const { app, tenancy, PAPEL } = require('../src/web/app');
 
 let server;
 let port;
@@ -124,7 +124,7 @@ test('process.exit da BIGA de um corretor recarrega só ela (o SaaS segue no ar)
   const depois = tenancy.router.domain('lia').container;
   assert.notEqual(depois, antes, 'instância nova carregada do disco');
   assert.equal(antes.timersAtivos, 0, 'timers da instância antiga foram parados');
-  assert.throws(() => antes.require('radar'), /recarregada/);
+  assert.throws(() => antes.require('domain/radar'), /recarregada/);
   assert.equal((await req('GET', '/api/status', { cookie: admin })).status, 200, 'admin no ar');
   assert.equal((await req('GET', '/api/status', { host: LIA, cookie: lia })).status, 200, 'mesma senha/sessão após recarregar');
 });

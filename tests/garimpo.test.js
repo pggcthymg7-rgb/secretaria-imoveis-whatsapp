@@ -1,7 +1,7 @@
 const { prop } = require('./helpers');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const garimpo = require('../src/garimpo');
+const garimpo = require('../src/domain/garimpo');
 
 const inventory = [
   prop({ id: '1', tipo: 'Apartamento', setor: 'Setor Bueno', quartos: 3, suites: 1, valor: 600000 }),

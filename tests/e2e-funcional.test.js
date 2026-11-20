@@ -6,9 +6,9 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const { app, shutdown } = require('../src/app');
-const settings = require('../src/settings');
-const sheets = require('../src/sheets');
+const { app, shutdown } = require('../src/web/app');
+const settings = require('../src/config/settings');
+const sheets = require('../src/domain/sheets');
 
 // Encerramento limpo do rateLimitStore/timers no fim do arquivo de testes
 test.after(() => {
@@ -80,10 +80,10 @@ test('Agente 2 E2E: rotas HTML / e /dia-a-dia, assets versionados, CSP e proteç
 });
 
 test('Agente 3 E2E: Carteira CRUD, Vitrine ciclo completo, Quem Procura e Prospecção', async t => {
-  const vitrine = require('../src/vitrine');
-  const prospeccao = require('../src/prospeccao');
-  const radar = require('../src/radar');
-  const contacts = require('../src/contacts');
+  const vitrine = require('../src/domain/vitrine');
+  const prospeccao = require('../src/domain/prospeccao');
+  const radar = require('../src/domain/radar');
+  const contacts = require('../src/whatsapp/contacts');
 
   const srv = http.createServer(app);
   await new Promise(r => srv.listen(0, '127.0.0.1', r));
@@ -195,10 +195,9 @@ test('Agente 4 E2E: API Capas, fontes, SVG BIGA_ART, duplicação de logo e carr
 });
 
 test('Agente 5 E2E: PDF 16:9 respeita páginas customizadas, fotos=[], restaurar ficha_16x9, pgTitulo e concorrência', async t => {
-  const { FOTOS_DIR } = require('../src/paths');
-  const { buildPropertyPdf } = require('../src/pdf');
-  const fichaPdf = require('../src/pdf-ficha');
-  const pdf16x9 = require('../src/pdf16x9/manager');
+  const { FOTOS_DIR } = require('../src/config/paths');
+  const fichaPdf = require('../src/pdf/ficha-a4');
+  const pdf16x9 = require('../src/pdf/deck16x9/manager');
 
   const countPdfPages = buf => (buf.toString('latin1').match(/\/Type\s*\/Page\b(?!s)/g) || []).length;
 
@@ -261,8 +260,7 @@ test('Agente 5 E2E: PDF 16:9 respeita páginas customizadas, fotos=[], restaurar
   assert.equal(restRes.ficha.titulo, 'Edifício Original E2E');
   assert.equal(pdf16x9.carregarFichas16x9()[String(pid)], undefined, 'fichas_16x9.json deve remover overrides ao restaurar');
 
-  // Legacy pdf.js e A4 fallback com e sem fotos
-  assert.equal((await buildPropertyPdf(propCreated)).slice(0, 4).toString(), '%PDF');
+  // A4 fallback sem fotos e validação de photos=[]
   assert.equal((await fichaPdf.gerar({ id: 'semfoto', tipo: 'Casa', setor: 'Sul', valor: 500000, fotos: [] })).slice(0, 4).toString(), '%PDF');
   assert.equal(pdf16x9.resolverFotosLocais(propCreated, { fotos: [] }).length, 0, 'Array vazio de fotos deve ser respeitado');
 
@@ -271,11 +269,11 @@ test('Agente 5 E2E: PDF 16:9 respeita páginas customizadas, fotos=[], restaurar
 });
 
 test('Agente 6 E2E: Cérebro extremo, Busca/Garimpo com fallback 502/429/timeout, atendimento e scheduler limpo', async t => {
-  const { analyzeMessageAndMatch } = require('../src/matcher');
-  const garimpo = require('../src/garimpo');
-  const scheduler = require('../src/scheduler');
-  const daily = require('../src/atendimento-diario');
-  const anuncios = require('../src/anuncios');
+  const { analyzeMessageAndMatch } = require('../src/domain/matcher');
+  const garimpo = require('../src/domain/garimpo');
+  const scheduler = require('../src/domain/scheduler');
+  const daily = require('../src/whatsapp/atendimento-diario');
+  const anuncios = require('../src/domain/anuncios');
 
   const srv = http.createServer(app);
   await new Promise(r => srv.listen(0, '127.0.0.1', r));
@@ -350,7 +348,7 @@ test('Agente 6 E2E: Cérebro extremo, Busca/Garimpo com fallback 502/429/timeout
 
 test('Agente 7 E2E: saúde, métricas, backup/restore com capas.json e shutdown()', async t => {
   const zlib = require('zlib');
-  const capas = require('../src/capas');
+  const capas = require('../src/domain/capas');
 
   const srv = http.createServer(app);
   await new Promise(r => srv.listen(0, '127.0.0.1', r));

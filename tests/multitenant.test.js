@@ -70,7 +70,7 @@ const { createTenancy } = require('../src/tenancy');
 const { createTenantContainer, buildTenantEnv } = require('../src/tenancy/container');
 const { TenantStore } = require('../src/tenancy/tenant-store');
 const { mountTenantRoutes } = require('../src/tenancy/routes');
-const { analyzeMessageAndMatch } = require('../src/matcher');
+const { analyzeMessageAndMatch } = require('../src/domain/matcher');
 
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const nowTs = () => Math.floor(Date.now() / 1000);
@@ -89,23 +89,23 @@ test('Contêiner: estado, arquivos e process.env isolados por tenant', () => {
   try {
     assert.equal(a.env.GEMINI_API_KEY, 'KEY_ANA');
     assert.equal(b.env.GEMINI_API_KEY, undefined, 'chave do hospedeiro nunca vaza para tenant');
-    assert.equal(a.require('paths').DATA_DIR, path.join(base, 'ana'));
+    assert.equal(a.require('config/paths').DATA_DIR, path.join(base, 'ana'));
 
-    a.require('settings').saveSettings({ meuWhatsappAlerta: '5562911112222' });
-    assert.equal(a.require('settings').loadSettings().meuWhatsappAlerta, '5562911112222');
-    assert.notEqual(b.require('settings').loadSettings().meuWhatsappAlerta, '5562911112222');
+    a.require('config/settings').saveSettings({ meuWhatsappAlerta: '5562911112222' });
+    assert.equal(a.require('config/settings').loadSettings().meuWhatsappAlerta, '5562911112222');
+    assert.notEqual(b.require('config/settings').loadSettings().meuWhatsappAlerta, '5562911112222');
 
-    a.require('radar').add({ grupo: 'G', texto: 'x', decision: 'AVISAR', tipos: [], locais: [], candidatos: [] });
-    assert.equal(a.require('radar').list({ limit: 10 }).length, 1);
-    assert.equal(b.require('radar').list({ limit: 10 }).length, 0);
-    assert.notEqual(a.require('radar'), b.require('radar'), 'instâncias de módulo diferentes');
+    a.require('domain/radar').add({ grupo: 'G', texto: 'x', decision: 'AVISAR', tipos: [], locais: [], candidatos: [] });
+    assert.equal(a.require('domain/radar').list({ limit: 10 }).length, 1);
+    assert.equal(b.require('domain/radar').list({ limit: 10 }).length, 0);
+    assert.notEqual(a.require('domain/radar'), b.require('domain/radar'), 'instâncias de módulo diferentes');
 
-    a.require('envfile').updateEnvFile({ GEMINI_API_KEY: 'KEY_ANA_2' });
+    a.require('config/envfile').updateEnvFile({ GEMINI_API_KEY: 'KEY_ANA_2' });
     assert.equal(a.env.GEMINI_API_KEY, 'KEY_ANA_2');
     assert.equal(process.env.GEMINI_API_KEY, 'CHAVE-DO-HOSPEDEIRO', 'hospedeiro intacto');
     assert.match(fs.readFileSync(path.join(base, 'ana', '.env'), 'utf-8'), /KEY_ANA_2/);
   } finally {
-    a.require('radar').flush();
+    a.require('domain/radar').flush();
     process.env.GEMINI_API_KEY = '';
   }
 });
@@ -156,10 +156,10 @@ test('Ponta a ponta: 2 corretores no mesmo processo, cada um responde pela próp
   for (const id of ['ana', 'bia']) {
     const d = t.router.prepareTenant(id);
     t.router.applyConfig(id, t.tenantStore.get(id).configIA); // cadastro do admin = configuração inicial
-    d.container.require('settings').saveSettings({ gruposMonitoradosIds: ['g1@g.us'], firstContactAquecimentoMin: 0, maxPhotosPerMatch: 0 });
+    d.container.require('config/settings').saveSettings({ gruposMonitoradosIds: ['g1@g.us'], firstContactAquecimentoMin: 0, maxPhotosPerMatch: 0 });
   }
   // Só a Ana tem o imóvel na carteira
-  const sheetsAna = t.router.domain('ana').container.require('sheets');
+  const sheetsAna = t.router.domain('ana').container.require('domain/sheets');
   await sheetsAna.saveAllPropertiesToSpreadsheet([
     sheetsAna.normalizePropertyRecord({ id: '1', tipo: 'Apartamento', setor: 'Setor Oeste', quartos: 1, tamanho_m2: 45, valor: 300000, descricao: 'Apto 1 quarto', ativo: true })
   ]);
@@ -204,8 +204,8 @@ test('Ponta a ponta: 2 corretores no mesmo processo, cada um responde pela próp
   assert.equal(sockBia.sent.length, 0, 'Bia não tem o imóvel: nada sai, e nada da Ana sai pela sessão da Bia');
   assert.deepEqual(geminiCalls.map(c => c.apiKey).sort(), ['KEY_ANA', 'KEY_BIA'], 'cada tenant usa a própria chave de IA');
   assert.ok(geminiCalls.some(c => c.apiKey === 'KEY_ANA' && c.model === 'm-ana'));
-  const radarAna = t.router.domain('ana').container.require('radar').list({ limit: 10 });
-  const radarBia = t.router.domain('bia').container.require('radar').list({ limit: 10 });
+  const radarAna = t.router.domain('ana').container.require('domain/radar').list({ limit: 10 });
+  const radarBia = t.router.domain('bia').container.require('domain/radar').list({ limit: 10 });
   assert.equal(radarAna.length, 1);
   assert.equal(radarAna[0].decision, 'AVISAR');
   assert.equal(radarBia.length, 1);
@@ -247,7 +247,7 @@ test('POST /api/conectar-corretor: token de admin, validação, persistência e 
     assert.equal(body.corretor.configIA.hasGeminiApiKey, true);
     assert.equal(t.tenantStore.get('laura').configIA.geminiApiKey, 'KEY_LAURA');
     assert.ok(t.sessionManager.getSession('laura'), 'initializeTenant chamado');
-    assert.equal(t.router.domain('laura').container.require('settings').loadSettings().humanTraining, 'Seja breve.');
+    assert.equal(t.router.domain('laura').container.require('config/settings').loadSettings().humanTraining, 'Seja breve.');
 
     assert.equal((await post({ corretorId: 'laura', nome: 'Laura' })).status, 200, 'reenvio atualiza');
 
@@ -335,7 +335,7 @@ test('tenantPath: pasta do corretor nunca sai da pasta base', () => {
 });
 
 test('Agente 1: isolamento extra, prototype lookup, host reservado, concorrência de sessão e pausa', { timeout: 15000 }, async () => {
-  const { dataPath } = require('../src/paths');
+  const { dataPath } = require('../src/config/paths');
   assert.throws(() => dataPath('..', 'fora.txt'), /fora de DATA_DIR/);
 
   // Segredos arbitrários do hospedeiro e exitCode não vazam para tenant
@@ -350,7 +350,7 @@ test('Agente 1: isolamento extra, prototype lookup, host reservado, concorrênci
   const c = createTenantContainer({ tenantId: 'carol', dataDir: path.join(tmp, 'iso2'), env });
   c.process.exitCode = 42;
   assert.notEqual(process.exitCode, 42);
-  c.require('radar').add({ grupo: 'G', texto: 't', decision: 'AVISAR', tipos: [], locais: [], candidatos: [] });
+  c.require('domain/radar').add({ grupo: 'G', texto: 't', decision: 'AVISAR', tipos: [], locais: [], candidatos: [] });
   assert.ok(c.timersAtivos >= 1, 'timer rastreado dentro do contêiner');
   c.dispose();
   assert.equal(c.timersAtivos, 0);
@@ -405,7 +405,7 @@ test('Agente 1: isolamento extra, prototype lookup, host reservado, concorrênci
 test('Matcher REST: extrai JSON (inclusive em bloco markdown), faz fallback de modelo e degrada sem SDK @google/genai', async () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
   assert.equal(Object.hasOwn(pkg.dependencies || {}, '@google/genai'), false, '@google/genai removido de package.json');
-  const matcherSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'matcher.js'), 'utf8');
+  const matcherSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'domain', 'matcher.js'), 'utf8');
   assert.equal(/require\(['"]@google\/genai['"]\)/.test(matcherSrc), false, 'matcher.js não importa @google/genai');
 
   // 1) JSON dentro de cerca markdown reforça o local e usa x-goog-api-key apenas no header

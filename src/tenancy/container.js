@@ -15,7 +15,7 @@ const path = require('path');
 const vm = require('vm');
 const Module = require('module');
 const dotenv = require('dotenv');
-const { ENV_ALLOWED } = require('../envfile');
+const { ENV_ALLOWED } = require('../config/envfile');
 
 const SRC_DIR = path.join(__dirname, '..');
 const TENANCY_DIR = __dirname;

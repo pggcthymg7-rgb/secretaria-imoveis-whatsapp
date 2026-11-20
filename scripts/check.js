@@ -26,7 +26,7 @@ for (const f of files) {
 // Os módulos principais precisam carregar sem erro
 const checkTmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'check-'));
 process.env.DATA_DIR = checkTmp;
-for (const m of ['./src/matcher', './src/sheets', './src/settings', './src/pdf16x9/manager']) {
+for (const m of ['./src/domain/matcher', './src/domain/sheets', './src/config/settings', './src/pdf/deck16x9/manager']) {
   try {
     require(path.join(root, m));
   } catch (err) {

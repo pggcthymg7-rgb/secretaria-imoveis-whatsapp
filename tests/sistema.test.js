@@ -3,8 +3,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const sistema = require('../src/sistema');
-const assistant = require('../src/assistant');
+const sistema = require('../src/config/sistema');
+const assistant = require('../src/whatsapp/assistant');
 const { app } = require('../index');
 
 test('Versão em uso vem do git', () => {
@@ -79,9 +79,9 @@ test('corretores.sh recusa linhas perigosas ou repetidas (roda como root)', () =
 test('SETUP_CODE fixo vira o código de criar senha da BIGA nova (e só enquanto não há senha)', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'biga-nova-'));
   const env = { ...process.env, DATA_DIR: dir, SETUP_CODE: 'abcdef1234', PAINEL_SENHA: '' };
-  const code = execFileSync(process.execPath, ['-e', "process.stdout.write(String(require('./src/auth').getSetupCode()))"], { cwd: ROOT, env, encoding: 'utf-8' });
+  const code = execFileSync(process.execPath, ['-e', "process.stdout.write(String(require('./src/config/auth').getSetupCode()))"], { cwd: ROOT, env, encoding: 'utf-8' });
   assert.equal(code.trim().split('\n').pop(), 'ABCDEF1234');
-  const fraco = execFileSync(process.execPath, ['-e', "process.stdout.write(String(require('./src/auth').getSetupCode()))"], { cwd: ROOT, env: { ...env, SETUP_CODE: '12' }, encoding: 'utf-8' });
+  const fraco = execFileSync(process.execPath, ['-e', "process.stdout.write(String(require('./src/config/auth').getSetupCode()))"], { cwd: ROOT, env: { ...env, SETUP_CODE: '12' }, encoding: 'utf-8' });
   assert.notEqual(fraco.trim().split('\n').pop(), '12', 'código curto demais é ignorado');
 });
 

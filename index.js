@@ -3,17 +3,17 @@ require('dotenv').config({ quiet: true });
 if (process.env.DATA_DIR) require('dotenv').config({ path: require('path').join(process.env.DATA_DIR, '.env'), override: true, quiet: true });
 // O processo hospedeiro é sempre a BIGA do administrador do SaaS
 delete process.env.BIGA_PAPEL;
-const { app, tenancy, shutdown: appShutdown } = require('./src/app');
-const { DATA_DIR } = require('./src/paths');
-const sheets = require('./src/sheets');
-const wa = require('./src/whatsapp');
-const contacts = require('./src/contacts');
-const radar = require('./src/radar');
-const metrics = require('./src/metrics');
-const anuncios = require('./src/anuncios');
-const scheduler = require('./src/scheduler');
-const pdfManager = require('./src/pdf16x9/manager');
-const auth = require('./src/auth');
+const { app, tenancy, shutdown: appShutdown } = require('./src/web/app');
+const { DATA_DIR } = require('./src/config/paths');
+const sheets = require('./src/domain/sheets');
+const wa = require('./src/whatsapp/client');
+const contacts = require('./src/whatsapp/contacts');
+const radar = require('./src/domain/radar');
+const metrics = require('./src/config/metrics');
+const anuncios = require('./src/domain/anuncios');
+const scheduler = require('./src/domain/scheduler');
+const pdfManager = require('./src/pdf/deck16x9/manager');
+const auth = require('./src/config/auth');
 
 let server = null;
 let keepAliveTimer = null;
