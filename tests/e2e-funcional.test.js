@@ -347,3 +347,75 @@ test('Agente 6 E2E: Cérebro extremo, Busca/Garimpo com fallback 502/429/timeout
   scheduler.start({ isConnected: () => false }, () => {});
   scheduler.stop();
 });
+
+test('Agente 7 E2E: saúde, métricas, backup/restore com capas.json e shutdown()', async t => {
+  const zlib = require('zlib');
+  const capas = require('../src/capas');
+
+  const srv = http.createServer(app);
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  t.after(() => new Promise(r => srv.close(r)));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+
+  // Saúde pública
+  const ping = await (await fetch(`${base}/ping`)).json();
+  assert.equal(ping.ok, true);
+  const health = await (await fetch(`${base}/health`)).json();
+  assert.equal(health.ok, true);
+
+  // Login e validação de status/sistema
+  const loginRes = await fetch(`${base}/api/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-secretaria': '1' },
+    body: JSON.stringify({ senha: process.env.PAINEL_SENHA })
+  });
+  const cookie = loginRes.headers.get('set-cookie').split(';')[0];
+
+  const st = await (await fetch(`${base}/api/status`, { headers: { cookie } })).json();
+  assert.ok(st.hoje && Array.isArray(st.semana));
+  const sys = await (await fetch(`${base}/api/sistema`, { headers: { cookie } })).json();
+  assert.equal(typeof sys.versao, 'string');
+
+  // Salvar modelo de capa e confirmar inclusão no backup + restauração completa
+  capas.salvar({
+    nome: 'Capa E2E Agente 7',
+    tamanho: 'feed',
+    fundo: '#111111',
+    camadas: [{ tipo: 'retangulo', x: 0, y: 0, w: 100, h: 100 }]
+  });
+  const bkRes = await fetch(`${base}/api/backup`, { headers: { cookie } });
+  assert.equal(bkRes.status, 200);
+  const bkBuf = Buffer.from(await bkRes.arrayBuffer());
+  const bkJson = JSON.parse(zlib.gunzipSync(bkBuf).toString('utf-8'));
+  assert.ok(bkJson.arquivos && bkJson.arquivos['capas.json'], 'Backup deve conter capas.json');
+  assert.ok(Buffer.from(bkJson.arquivos['capas.json'], 'base64').toString('utf-8').includes('Capa E2E Agente 7'));
+
+  const capasFile = path.join(process.env.DATA_DIR, 'capas.json');
+  fs.rmSync(capasFile, { force: true });
+
+  const formOk = new FormData();
+  formOk.append('backup', new Blob([bkBuf]), 'backup.json.gz');
+  const restOk = await fetch(`${base}/api/restore`, {
+    method: 'POST',
+    headers: { cookie, 'x-secretaria': '1' },
+    body: formOk
+  });
+  assert.equal(restOk.status, 200);
+  assert.equal(fs.existsSync(capasFile), true);
+  assert.ok(fs.readFileSync(capasFile, 'utf-8').includes('Capa E2E Agente 7'));
+
+  const formBad = new FormData();
+  formBad.append('backup', new Blob([Buffer.from('nao-e-gzip')]), 'lixo.gz');
+  const restBad = await fetch(`${base}/api/restore`, {
+    method: 'POST',
+    headers: { cookie, 'x-secretaria': '1' },
+    body: formBad
+  });
+  assert.equal(restBad.status, 400);
+
+  // shutdown() exportado e usado corretamente no index.js
+  assert.equal(typeof shutdown, 'function');
+  const idxSrc = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf-8');
+  assert.ok(idxSrc.includes('shutdown: appShutdown'), 'index.js deve importar shutdown de src/app');
+  assert.equal(/app\.shutdown/.test(idxSrc), false, 'index.js não deve chamar app.shutdown');
+});

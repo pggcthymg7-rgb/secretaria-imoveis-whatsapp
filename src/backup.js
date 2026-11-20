@@ -37,7 +37,8 @@ const DATA_FILES = [
   'busca_historico.json',
   'fichas_pdf.json',
   'kit_marca.json',
-  'fichas_16x9.json'
+  'fichas_16x9.json',
+  'capas.json'
 ];
 const PHOTO_RX = /^[A-Za-z0-9._-]+\.(jpe?g|png|webp)$/i;
 const MAX_BYTES = 200 * 1024 * 1024; // 200 MB descompactado
