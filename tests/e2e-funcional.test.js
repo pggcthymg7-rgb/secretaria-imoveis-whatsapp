@@ -193,3 +193,79 @@ test('Agente 4 E2E: API Capas, fontes, SVG BIGA_ART, duplicação de logo e carr
   assert.ok(capasJs.includes('if (dup.tipo === \'logo\' && E.R.logos[c.id]) E.R.logos[dup.id] = E.R.logos[c.id]'), 'Duplicar logo deve copiar imagem carregada para novo ID');
   assert.ok(capasJs.includes('const ok = italico'), 'carregarFonte só deve tentar ital,wght quando italico estiver ativo');
 });
+
+test('Agente 5 E2E: PDF 16:9 respeita páginas customizadas, fotos=[], restaurar ficha_16x9, pgTitulo e concorrência', async t => {
+  const { FOTOS_DIR } = require('../src/paths');
+  const { buildPropertyPdf } = require('../src/pdf');
+  const fichaPdf = require('../src/pdf-ficha');
+  const pdf16x9 = require('../src/pdf16x9/manager');
+
+  const countPdfPages = buf => (buf.toString('latin1').match(/\/Type\s*\/Page\b(?!s)/g) || []).length;
+
+  const srv = http.createServer(app);
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  t.after(() => new Promise(r => srv.close(r)));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+
+  fs.mkdirSync(FOTOS_DIR, { recursive: true });
+  const JPG = Buffer.from('/9j/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCABkAGQDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAYI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AnQCOaRAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/2Q==', 'base64');
+  fs.writeFileSync(path.join(FOTOS_DIR, 'pdf_e2e_1.jpg'), JPG);
+  fs.writeFileSync(path.join(FOTOS_DIR, 'pdf_e2e_2.jpg'), JPG);
+
+  const propCreated = await sheets.createProperty({
+    tipo: 'Apartamento', edificio: 'Edifício Original E2E', setor: 'Setor Bueno',
+    valor: 920000, quartos: 3, vagas: 2, tamanho_m2: 115,
+    fotos: ['pdf_e2e_1.jpg', 'pdf_e2e_2.jpg'], descricao: 'Descrição completa.'
+  });
+  const pid = propCreated.id;
+
+  const loginRes = await fetch(`${base}/api/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-secretaria': '1' },
+    body: JSON.stringify({ senha: process.env.PAINEL_SENHA })
+  });
+  const cookie = loginRes.headers.get('set-cookie').split(';')[0];
+  const H = { 'Content-Type': 'application/json', 'x-secretaria': '1', cookie };
+
+  // Salvar ficha customizada (modelo B, 3 páginas, fotos: [], pgTitulo)
+  const pagsCustom = [{ tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'texto', titulo: 'Acabamento E2E' }, { tipo: 'contato' }];
+  const saveRes = await (await fetch(`${base}/api/pdf/${pid}`, {
+    method: 'POST',
+    headers: H,
+    body: JSON.stringify({
+      titulo: 'Título Editado E2E',
+      modelo: 'B',
+      paleta: 'segunda',
+      corretor: 'Corretor E2E',
+      telefone: '62999998888',
+      fotos: [],
+      paginas: pagsCustom
+    })
+  })).json();
+  assert.equal(saveRes.ok, true);
+  assert.equal(saveRes.ficha.paginas[2].titulo, 'Acabamento E2E');
+
+  // Duas gerações concorrentes via HTTP devem usar paginas e retornar PDF válido sem .tmp preso
+  const [buf1, buf2] = await Promise.all([
+    fetch(`${base}/api/pdf/${pid}/arquivo`, { method: 'POST', headers: H, body: JSON.stringify({}) }).then(async r => Buffer.from(await r.arrayBuffer())),
+    fetch(`${base}/api/pdf/${pid}/arquivo`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 'D', paginas: [{ tipo: 'capa' }, { tipo: 'resumo' }] }) }).then(async r => Buffer.from(await r.arrayBuffer()))
+  ]);
+  assert.equal(buf1.slice(0, 4).toString(), '%PDF');
+  assert.equal(buf2.slice(0, 4).toString(), '%PDF');
+  assert.equal(countPdfPages(buf1), 4, 'PDF deve respeitar as 4 páginas customizadas');
+  assert.equal(countPdfPages(buf2), 2, 'PDF deve respeitar override de 2 páginas');
+
+  // Restaurar deve limpar TAMBÉM fichas_16x9.json (titulo, modelo, paleta e paginas)
+  const restRes = await (await fetch(`${base}/api/pdf/${pid}`, { method: 'POST', headers: H, body: JSON.stringify({ restaurar: true }) })).json();
+  assert.equal(restRes.ok, true);
+  assert.equal(restRes.ficha.titulo, 'Edifício Original E2E');
+  assert.equal(pdf16x9.carregarFichas16x9()[String(pid)], undefined, 'fichas_16x9.json deve remover overrides ao restaurar');
+
+  // Legacy pdf.js e A4 fallback com e sem fotos
+  assert.equal((await buildPropertyPdf(propCreated)).slice(0, 4).toString(), '%PDF');
+  assert.equal((await fichaPdf.gerar({ id: 'semfoto', tipo: 'Casa', setor: 'Sul', valor: 500000, fotos: [] })).slice(0, 4).toString(), '%PDF');
+  assert.equal(pdf16x9.resolverFotosLocais(propCreated, { fotos: [] }).length, 0, 'Array vazio de fotos deve ser respeitado');
+
+  const appJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'app.js'), 'utf-8');
+  assert.ok(appJs.includes('pgTitulo_${i}'), 'coletarPdf deve coletar títulos das páginas de texto');
+});

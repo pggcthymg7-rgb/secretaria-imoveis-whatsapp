@@ -478,9 +478,10 @@ app.post('/api/pdf/:id', ah(async (req, res) => {
   if (!p) return;
   if (req.body?.restaurar) {
     const fLegacy = fichaPdf.restaurar(p);
-    pdf16x9.salvarFicha16x9(p.id, {});
+    pdf16x9.restaurarFicha16x9(p.id);
     pdf16x9.invalidarCache(p.id);
-    return res.json({ ok: true, ficha: fLegacy });
+    const kit = pdf16x9.carregarKit();
+    return res.json({ ok: true, ficha: { ...fLegacy, modelo: kit.modelo || 'A', paleta: kit.paletaPadrao || 'principal' } });
   }
   const fLegacy = fichaPdf.salvar(p, req.body || {});
   const f16 = pdf16x9.salvarFicha16x9(p.id, req.body || {});

@@ -544,6 +544,17 @@
     const d = formData($('#pdfForm'));
     S.pdfEnvio = { tel: d.pdfTel || '', msg: d.pdfMsg || '' };
   }
+  function atualizarPaginasPdf(alterar) {
+    if (!S.pdf || !S.pdf.ficha) return;
+    guardarEnvioPdf();
+    const coletado = coletarPdf();
+    const pags = Array.isArray(coletado.paginas)
+      ? [...coletado.paginas]
+      : [{ tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }];
+    if (alterar(pags) === false) return;
+    S.pdf.ficha = { ...S.pdf.ficha, ...coletado, paginas: pags };
+    render();
+  }
   function coletarPdf() {
     const box = $('#pdfForm');
     const d = formData(box);
@@ -552,7 +563,14 @@
     const fotos = [...antes.filter(x => marcadas.includes(x)), ...marcadas.filter(x => !antes.includes(x))].slice(0, 10);
     const modelo = d.pdfModelo || (S.pdf && S.pdf.ficha && S.pdf.ficha.modelo) || 'A';
     const paleta = d.pdfPaleta || (S.pdf && S.pdf.ficha && S.pdf.ficha.paleta) || 'principal';
-    const paginas = (S.pdf && S.pdf.ficha && Array.isArray(S.pdf.ficha.paginas)) ? S.pdf.ficha.paginas : null;
+    const rawPaginas = (S.pdf && S.pdf.ficha && Array.isArray(S.pdf.ficha.paginas) && S.pdf.ficha.paginas.length)
+      ? S.pdf.ficha.paginas
+      : (hasOwn(d, 'pgTitulo_4') && String(d.pgTitulo_4 || '').trim()
+        ? [{ tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }]
+        : null);
+    const paginas = rawPaginas
+      ? rawPaginas.map((pg, i) => (pg && pg.tipo === 'texto' && hasOwn(d, `pgTitulo_${i}`) ? { ...pg, titulo: String(d[`pgTitulo_${i}`] ?? '') } : { ...pg }))
+      : null;
 
     return {
       titulo: d.titulo,
@@ -1596,64 +1614,40 @@
       render();
     },
     pdfAddPagina: async el => {
-      if (!S.pdf || !S.pdf.ficha) return;
-      guardarEnvioPdf();
-      const coletado = coletarPdf();
-      const tipo = el.dataset.tipo || 'foto';
-      const pags = Array.isArray(S.pdf.ficha.paginas) ? [...S.pdf.ficha.paginas] : [
-        { tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }
-      ];
-      if (pags.length >= 14) return toast('Limite máximo de 14 páginas atingido.', true);
-      if (tipo === 'foto') pags.push({ tipo: 'foto', foto: 0 });
-      else if (tipo === 'galeria') pags.push({ tipo: 'galeria', fotos: [0, 1] });
-      else if (tipo === 'texto') pags.push({ tipo: 'texto', titulo: 'Mais Detalhes' });
-      S.pdf.ficha = { ...S.pdf.ficha, ...coletado, paginas: pags };
-      render();
+      atualizarPaginasPdf(pags => {
+        if (pags.length >= 14) {
+          toast('Limite máximo de 14 páginas atingido.', true);
+          return false;
+        }
+        const tipo = el.dataset.tipo || 'foto';
+        if (tipo === 'foto') pags.push({ tipo: 'foto', foto: 0 });
+        else if (tipo === 'galeria') pags.push({ tipo: 'galeria', fotos: [0, 1] });
+        else if (tipo === 'texto') pags.push({ tipo: 'texto', titulo: 'Mais Detalhes' });
+      });
     },
     pdfRmPagina: async el => {
-      if (!S.pdf || !S.pdf.ficha) return;
-      guardarEnvioPdf();
-      const coletado = coletarPdf();
       const idx = parseInt(el.dataset.i, 10);
-      const pags = Array.isArray(S.pdf.ficha.paginas) ? [...S.pdf.ficha.paginas] : [
-        { tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }
-      ];
-      if (pags.length <= 1) return toast('A apresentação deve ter ao menos 1 página.', true);
-      pags.splice(idx, 1);
-      S.pdf.ficha = { ...S.pdf.ficha, ...coletado, paginas: pags };
-      render();
+      atualizarPaginasPdf(pags => {
+        if (pags.length <= 1) {
+          toast('A apresentação deve ter ao menos 1 página.', true);
+          return false;
+        }
+        pags.splice(idx, 1);
+      });
     },
     pdfSubirPagina: async el => {
-      if (!S.pdf || !S.pdf.ficha) return;
-      guardarEnvioPdf();
-      const coletado = coletarPdf();
       const idx = parseInt(el.dataset.i, 10);
-      const pags = Array.isArray(S.pdf.ficha.paginas) ? [...S.pdf.ficha.paginas] : [
-        { tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }
-      ];
-      if (idx > 0) {
-        const tmp = pags[idx];
-        pags[idx] = pags[idx - 1];
-        pags[idx - 1] = tmp;
-        S.pdf.ficha = { ...S.pdf.ficha, ...coletado, paginas: pags };
-        render();
-      }
+      atualizarPaginasPdf(pags => {
+        if (idx <= 0) return false;
+        [pags[idx], pags[idx - 1]] = [pags[idx - 1], pags[idx]];
+      });
     },
     pdfDescerPagina: async el => {
-      if (!S.pdf || !S.pdf.ficha) return;
-      guardarEnvioPdf();
-      const coletado = coletarPdf();
       const idx = parseInt(el.dataset.i, 10);
-      const pags = Array.isArray(S.pdf.ficha.paginas) ? [...S.pdf.ficha.paginas] : [
-        { tipo: 'capa' }, { tipo: 'resumo' }, { tipo: 'foto', foto: 1 }, { tipo: 'galeria', fotos: [2, 3, 4] }, { tipo: 'texto' }, { tipo: 'contato' }
-      ];
-      if (idx < pags.length - 1) {
-        const tmp = pags[idx];
-        pags[idx] = pags[idx + 1];
-        pags[idx + 1] = tmp;
-        S.pdf.ficha = { ...S.pdf.ficha, ...coletado, paginas: pags };
-        render();
-      }
+      atualizarPaginasPdf(pags => {
+        if (idx >= pags.length - 1) return false;
+        [pags[idx], pags[idx + 1]] = [pags[idx + 1], pags[idx]];
+      });
     },
     pdfSalvar: async () => {
       if (!S.pdf) return;
