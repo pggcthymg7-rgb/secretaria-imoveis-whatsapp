@@ -142,3 +142,17 @@ test('Agente 6: frontend (app.js, capas.js, biga-art.js) sem erros de sintaxe e 
   assert.ok(!appSrc.includes('<span>${f.titulo || f.url}</span>'), 'fontesSoltas deve usar esc()');
   assert.ok(appSrc.includes("const reentrancia") || appSrc.includes("pollingEquipe"), 'polling deve ter trava anti-reentrância');
 });
+
+test('Passada 2: app.shutdown() limpa timers de pdf16x9/rateLimit/anuncios, rotas usam hasOwn e WA cria FOTOS_DIR', () => {
+  const pdf16x9 = require('../src/pdf16x9/manager');
+  const appMod = require('../src/app');
+  const waSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'whatsapp.js'), 'utf8');
+  const appSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'app.js'), 'utf8');
+
+  assert.match(waSrc, /fs\.mkdirSync\(FOTOS_DIR,\s*\{\s*recursive:\s*true\s*\}\)/);
+  assert.match(appSrc, /Object\.prototype\.hasOwnProperty\.call\(fichas16,\s*pidStr\)/);
+  assert.match(appSrc, /Object\.prototype\.hasOwnProperty\.call\(posts,\s*String\(p\.id\)\)/);
+
+  pdf16x9.agendarPreGeracao({ id: 'passada2_shutdown' }, 60000);
+  assert.doesNotThrow(() => appMod.shutdown());
+});

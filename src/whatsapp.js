@@ -516,7 +516,8 @@ async function downloadImageToFotos(msg) {
     const buf = await withTimeout(downloadMediaMessage(msg, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage }), 45000, 'downloadMediaMessage');
     if (!buf || buf.length > 12 * 1024 * 1024) return null;
     const name = `${Date.now()}_wa_${crypto.randomBytes(3).toString('hex')}.jpg`;
-    fs.writeFileSync(path.join(FOTOS_DIR, name), buf);
+    fs.mkdirSync(FOTOS_DIR, { recursive: true });
+    fs.writeFileSync(path.join(FOTOS_DIR, name), buf, { mode: 0o600 });
     return name;
   } catch (err) {
     addLog('AVISO', `Não consegui baixar a foto: ${err.message}`);

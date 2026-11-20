@@ -455,7 +455,8 @@ app.get('/api/pdf/:id', ah(async (req, res) => {
   if (!p) return;
   const fLegacy = fichaPdf.ficha(p);
   const fichas16 = pdf16x9.carregarFichas16x9();
-  const f16 = fichas16[String(p.id)] || {};
+  const pidStr = String(p.id);
+  const f16 = (fichas16 && Object.prototype.hasOwnProperty.call(fichas16, pidStr)) ? (fichas16[pidStr] || {}) : {};
   const kit = pdf16x9.carregarKit();
   const fichaUnificada = {
     ...fLegacy,
@@ -526,10 +527,10 @@ app.get('/api/vitrine', (req, res) => res.json(vitrine.getState()));
 app.post('/api/vitrine/config', (req, res) => res.json({ ok: true, config: vitrine.updateConfig(req.body || {}) }));
 app.post('/api/vitrine/gerar', ah(async (req, res) => {
   const inv = await sheets.loadInventory();
+  const posts = vitrine.getState().posts || {};
   let n = 0;
-  for (const p of inv) if (!vitrine.getState().posts[p.id]) {
-    vitrine.upsertPost(p);
-    n++;
+  for (const p of inv) if (!Object.prototype.hasOwnProperty.call(posts, String(p.id))) {
+    if (vitrine.upsertPost(p)) n++;
   }
   res.json({ ok: true, criados: n, state: vitrine.getState() });
 }));
@@ -753,6 +754,8 @@ app.use((err, req, res, next) => {
 
 function shutdown() {
   try { rateLimitStore.shutdown(); } catch {}
+  try { pdf16x9.shutdown(); } catch {}
+  try { if (typeof anunciosMem.persist === 'function') anunciosMem.persist(true); } catch {}
 }
 
 module.exports = { app, tenancy, PAPEL, shutdown };
