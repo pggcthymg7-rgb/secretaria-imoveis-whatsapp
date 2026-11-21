@@ -41,10 +41,11 @@ test('Agente 1 E2E: setup/login/troca de senha, CSRF, maxPhotosPerMatch=0 e deep
   assert.equal(cfgJson.config.maxPhotosPerMatch, 0, 'maxPhotosPerMatch=0 deve persistir sem voltar para 5');
   assert.equal(settings.loadSettings().maxPhotosPerMatch, 0);
 
-  // Confirmar que app.js trata deep-link pós login/setup via go() e não desloga em 401 de /api/change-password
-  const appJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'app.js'), 'utf-8');
-  assert.ok(appJs.includes("!url.startsWith('/api/change-password')"), '401 em change-password não deve deslogar o painel');
-  assert.match(appJs, /await api\('POST', setup \? '\/api\/setup' : '\/api\/login', d\);\s*S\.authed = true;\s*S\.configured = true;\s*S\._booted = false;\s*await go\(\);/);
+  // Confirmar que js/core.js + js/inicio.js tratam deep-link pós login/setup via go() e não deslogam em 401 de /api/change-password
+  const coreJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'js', 'core.js'), 'utf-8');
+  const inicioJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'js', 'inicio.js'), 'utf-8');
+  assert.ok(coreJs.includes("!url.startsWith('/api/change-password')"), '401 em change-password não deve deslogar o painel');
+  assert.match(inicioJs, /await api\('POST', setup \? '\/api\/setup' : '\/api\/login', d\);\s*S\.authed = true;\s*S\.configured = true;\s*S\._booted = false;\s*await go\(\);/);
 
   // Criar imóvel para deixar carteira pronta
   const created = await sheets.createProperty({ tipo: 'Apartamento', setor: 'Setor Bueno', valor: 700000 });
@@ -57,6 +58,8 @@ test('Agente 2 E2E: rotas HTML / e /dia-a-dia, assets versionados, CSP e proteç
   t.after(() => new Promise(r => srv.close(r)));
   const base = `http://127.0.0.1:${srv.address().port}`;
 
+  const jsModulos = ['core', 'ui', 'inicio', 'dia', 'carteira', 'vitrine', 'pdf', 'busca', 'clientes', 'config'].map(n => `/assets/js/${n}.js`);
+
   for (const p of ['/', '/dia-a-dia']) {
     const r = await fetch(`${base}${p}`);
     assert.equal(r.status, 200);
@@ -65,11 +68,12 @@ test('Agente 2 E2E: rotas HTML / e /dia-a-dia, assets versionados, CSP e proteç
     const html = await r.text();
     assert.match(html, /\/assets\/biga-art\.js\?v=/);
     assert.match(html, /\/assets\/capas\.js\?v=/);
+    for (const m of jsModulos) assert.match(html, new RegExp(`${m.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}\\?v=`));
     assert.match(html, /\/assets\/app\.js\?v=/);
     assert.match(html, /\/assets\/app\.css\?v=/);
   }
 
-  for (const asset of ['/assets/app.js', '/assets/capas.js', '/assets/biga-art.js', '/assets/app.css', '/assets/fontes-google.json']) {
+  for (const asset of ['/assets/app.js', ...jsModulos, '/assets/capas.js', '/assets/biga-art.js', '/assets/app.css', '/assets/fontes-google.json']) {
     const r = await fetch(`${base}${asset}`);
     assert.equal(r.status, 200, `Asset ${asset} deve servir 200`);
   }
@@ -143,9 +147,9 @@ test('Agente 3 E2E: Carteira CRUD, Vitrine ciclo completo, Quem Procura e Prospe
   assert.equal(prospeccao.getCampaign(campId).status, 'ATIVA');
   await fetch(`${base}/api/prospeccao/campanha/${campId}`, { method: 'DELETE', headers: H });
 
-  const appJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'app.js'), 'utf-8');
-  assert.ok(appJs.includes('id="selContactsCount"'), 'Contador de contatos selecionados deve ter id selContactsCount');
-  assert.ok(appJs.includes("cnt.textContent = String(S.selContacts.size)"), 'Clique em contato deve atualizar selContactsCount');
+  const clientesJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'js', 'clientes.js'), 'utf-8');
+  assert.ok(clientesJs.includes('id="selContactsCount"'), 'Contador de contatos selecionados deve ter id selContactsCount');
+  assert.ok(clientesJs.includes("cnt.textContent = String(S.selContacts.size)"), 'Clique em contato deve atualizar selContactsCount');
 });
 
 test('Agente 4 E2E: API Capas, fontes, SVG BIGA_ART, duplicação de logo e carregamento sem itálico 400', async t => {
@@ -264,8 +268,8 @@ test('Agente 5 E2E: PDF 16:9 respeita páginas customizadas, fotos=[], restaurar
   assert.equal((await fichaPdf.gerar({ id: 'semfoto', tipo: 'Casa', setor: 'Sul', valor: 500000, fotos: [] })).slice(0, 4).toString(), '%PDF');
   assert.equal(pdf16x9.resolverFotosLocais(propCreated, { fotos: [] }).length, 0, 'Array vazio de fotos deve ser respeitado');
 
-  const appJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'app.js'), 'utf-8');
-  assert.ok(appJs.includes('pgTitulo_${i}'), 'coletarPdf deve coletar títulos das páginas de texto');
+  const pdfJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'js', 'pdf.js'), 'utf-8');
+  assert.ok(pdfJs.includes('pgTitulo_${i}'), 'coletarPdf deve coletar títulos das páginas de texto');
 });
 
 test('Agente 6 E2E: Cérebro extremo, Busca/Garimpo com fallback 502/429/timeout, atendimento e scheduler limpo', async t => {

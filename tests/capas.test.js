@@ -48,8 +48,8 @@ test('Painel: editor de capas carregado antes do app, rota "capas" no grupo Imó
   const pub = path.join(__dirname, '..', 'src', 'public');
   const html = fs.readFileSync(path.join(pub, 'index.html'), 'utf8');
   assert.ok(html.indexOf('/assets/capas.js') > 0 && html.indexOf('/assets/capas.js') < html.indexOf('/assets/app.js'));
-  const app = fs.readFileSync(path.join(pub, 'app.js'), 'utf8');
-  assert.match(app, /\['capas', 'Capas', [^\]]*'imoveis'/);
+  const ui = fs.readFileSync(path.join(pub, 'js', 'ui.js'), 'utf8');
+  assert.match(ui, /\['capas', 'Capas', [^\]]*'imoveis'/);
   const fontes = JSON.parse(fs.readFileSync(path.join(pub, 'fontes-google.json'), 'utf8'));
   assert.ok(fontes.familias.length > 1000);
   assert.ok(fontes.familias.some(f => f[0] === 'Playfair Display'));

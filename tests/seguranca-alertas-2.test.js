@@ -52,13 +52,23 @@ test('Vitrine: id "__proto__" ou "constructor" não mexe em Object.prototype', (
   assert.equal(vitrine.setStatus('abc123', 'APROVADO'), null);
 });
 
+function lerPainelFrontend() {
+  const pub = path.join(__dirname, '..', 'src', 'public');
+  const modNomes = ['core', 'ui', 'inicio', 'dia', 'carteira', 'vitrine', 'pdf', 'busca', 'clientes', 'config'];
+  const modulos = modNomes.map(n => ({ nome: `js/${n}.js`, src: fs.readFileSync(path.join(pub, 'js', `${n}.js`), 'utf8') }));
+  const coreSrc = modulos[0].src;
+  const appSrc = fs.readFileSync(path.join(pub, 'app.js'), 'utf8');
+  const allPanelSrc = [coreSrc, ...modulos.slice(1).map(m => m.src), appSrc].join('\n');
+  return { pub, modulos, coreSrc, appSrc, allPanelSrc };
+}
+
 test('Painel (app.js): rota da URL que não é página (#constructor) cai no início e esc() escapa os 5 caracteres', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'app.js'), 'utf8');
-  assert.match(src, /const views = new Map\(Object\.entries\(/, 'rotas num Map: #constructor não é página');
-  assert.match(src, /\(views\.get\(S\.route\) \|\| viewHome\)\(\)/);
-  assert.match(src, /S\.route = views\.has\(r\) \?/, 'a rota inicial também usa o Map');
-  assert.ok(!/views\[/.test(src), 'nenhum acesso views[...] por chave da URL');
-  const m = src.match(/const esc = s =>([\s\S]*?);\n/);
+  const { coreSrc, appSrc, allPanelSrc } = lerPainelFrontend();
+  assert.match(coreSrc, /const views = new Map\(\)/, 'rotas num Map: #constructor não é página');
+  assert.match(appSrc, /\(views\.get\(S\.route\) \|\| viewHome\)\(\)/);
+  assert.match(appSrc, /S\.route = views\.has\(r\) \?/, 'a rota inicial também usa o Map');
+  assert.ok(!/views\[/.test(allPanelSrc), 'nenhum acesso views[...] por chave da URL');
+  const m = coreSrc.match(/const esc = s =>([\s\S]*?);\n/);
   assert.ok(m, 'esc() encontrada');
   const esc = new Function(`const esc = s =>${m[1]}; return esc;`)();
   assert.equal(esc(`<img src=x onerror="a('&')">`), '&lt;img src=x onerror=&quot;a(&#39;&amp;&#39;)&quot;&gt;');
@@ -92,11 +102,11 @@ test('Agente 2: vitrine.upsertPost e sistema.corretores bloqueiam prototype e es
 });
 
 test('Painel (app.js): campos de filtro gravam em propriedades FIXAS de S (sem S[chave] dinâmica) e a digitação continua funcionando', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'app.js'), 'utf8');
-  assert.ok(!/\bS\[[^\]]+\]\s*=/.test(src), 'nenhuma escrita S[chave] = valor');
-  assert.match(src, /if \(n === 'busca'\) S\.filtro = e\.target\.value;/);
-  assert.match(src, /else if \(n === 'filtroContato'\) S\.filtroContato = e\.target\.value;/);
-  assert.match(src, /else S\.filtroBairro = e\.target\.value;/);
+  const { appSrc, allPanelSrc } = lerPainelFrontend();
+  assert.ok(!/\bS\[[^\]]+\]\s*=/.test(allPanelSrc), 'nenhuma escrita S[chave] = valor');
+  assert.match(appSrc, /if \(n === 'busca'\) S\.filtro = e\.target\.value;/);
+  assert.match(appSrc, /else if \(n === 'filtroContato'\) S\.filtroContato = e\.target\.value;/);
+  assert.match(appSrc, /else S\.filtroBairro = e\.target\.value;/);
   // mesmo comportamento de antes, simulado: cada campo vai para a sua propriedade
   const S = {};
   const digitar = (n, valor) => {
@@ -108,20 +118,20 @@ test('Painel (app.js): campos de filtro gravam em propriedades FIXAS de S (sem S
   assert.deepEqual(S, { filtro: 'casa', filtroContato: 'ana', filtroBairro: 'marista' });
 });
 
-test('Agente 6: frontend (app.js, capas.js, biga-art.js) sem erros de sintaxe e com sanitização de links, SVG, telefone e viewCarteira', () => {
-  const pub = path.join(__dirname, '..', 'src', 'public');
-  const appSrc = fs.readFileSync(path.join(pub, 'app.js'), 'utf8');
+test('Agente 6: frontend (app.js, js/*.js, capas.js, biga-art.js) sem erros de sintaxe e com sanitização de links, SVG, telefone e viewCarteira', () => {
+  const { pub, modulos, coreSrc, appSrc, allPanelSrc } = lerPainelFrontend();
   const capasSrc = fs.readFileSync(path.join(pub, 'capas.js'), 'utf8');
   const artSrc = fs.readFileSync(path.join(pub, 'biga-art.js'), 'utf8');
 
   new Function(appSrc); // eslint-disable-line no-new-func
+  for (const m of modulos) new Function(m.src); // eslint-disable-line no-new-func
   new Function(capasSrc); // eslint-disable-line no-new-func
   new Function(artSrc); // eslint-disable-line no-new-func
 
-  // Helpers obrigatórios de sanitização em app.js
-  const mh = appSrc.match(/const safeHref = u => ([^;]+);/);
-  const mw = appSrc.match(/const safeWaPhone = s => ([^;]+);/);
-  const mq = appSrc.match(/const safeQrSvg = s => \{([\s\S]*?)\};/);
+  // Helpers obrigatórios de sanitização em js/core.js
+  const mh = coreSrc.match(/const safeHref = u => ([^;]+);/);
+  const mw = coreSrc.match(/const safeWaPhone = s => ([^;]+);/);
+  const mq = coreSrc.match(/const safeQrSvg = s => \{([\s\S]*?)\};/);
   assert.ok(mh && mw && mq, 'helpers safeHref, safeWaPhone e safeQrSvg presentes');
 
   const safeHref = new Function(`return u => ${mh[1]};`)();
@@ -136,13 +146,13 @@ test('Agente 6: frontend (app.js, capas.js, biga-art.js) sem erros de sintaxe e 
   assert.equal(safeQrSvg('<svg onload="alert(1)"></svg>'), '');
   assert.equal(safeQrSvg('<svg viewBox="0 0 10 10"><rect/></svg>'), '<svg viewBox="0 0 10 10"><rect/></svg>');
 
-  // Garantia contra XSS não escapado em links e textos do app.js
-  assert.ok(!appSrc.includes('href="${esc(x.link)}"'), 'x.link deve passar por safeHref');
-  assert.ok(!appSrc.includes('href="${esc(l.link)}"'), 'l.link deve passar por safeHref');
-  assert.ok(!appSrc.includes('href="${esc(f.url)}"'), 'f.url deve passar por safeHref');
-  assert.ok(!appSrc.includes('href="${esc(u)}"'), 'u deve passar por safeHref');
-  assert.ok(!appSrc.includes('<span>${f.titulo || f.url}</span>'), 'fontesSoltas deve usar esc()');
-  assert.ok(appSrc.includes("const reentrancia") || appSrc.includes("pollingEquipe"), 'polling deve ter trava anti-reentrância');
+  // Garantia contra XSS não escapado em links e textos do painel
+  assert.ok(!allPanelSrc.includes('href="${esc(x.link)}"'), 'x.link deve passar por safeHref');
+  assert.ok(!allPanelSrc.includes('href="${esc(l.link)}"'), 'l.link deve passar por safeHref');
+  assert.ok(!allPanelSrc.includes('href="${esc(f.url)}"'), 'f.url deve passar por safeHref');
+  assert.ok(!allPanelSrc.includes('href="${esc(u)}"'), 'u deve passar por safeHref');
+  assert.ok(!allPanelSrc.includes('<span>${f.titulo || f.url}</span>'), 'fontesSoltas deve usar esc()');
+  assert.ok(allPanelSrc.includes('pollingEquipe') && allPanelSrc.includes('pollingStatus'), 'pollings devem ter trava anti-reentrância');
 });
 
 test('Passada 2: app.shutdown() limpa timers de pdf16x9/rateLimit/anuncios, rotas usam hasOwn e WA cria FOTOS_DIR', () => {

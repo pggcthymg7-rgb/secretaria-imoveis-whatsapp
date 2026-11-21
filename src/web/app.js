@@ -75,7 +75,7 @@ const INDEX_HTML = path.join(__dirname, '..', 'public', 'index.html');
 app.get(['/', '/dia-a-dia'], (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const v = sistema.version() || String(fs.statSync(INDEX_HTML).mtimeMs | 0);
-  res.type('html').send(fs.readFileSync(INDEX_HTML, 'utf-8').replace(/(\/assets\/[\w-]+\.(?:js|css))"/g, `$1?v=${v}"`));
+  res.type('html').send(fs.readFileSync(INDEX_HTML, 'utf-8').replace(/(\/assets\/[\w/-]+\.(?:js|css))"/g, `$1?v=${v}"`));
 });
 
 // Modo equipe (MULTI_TENANT=1): só a BIGA do administrador do SaaS cria e administra os corretores.
