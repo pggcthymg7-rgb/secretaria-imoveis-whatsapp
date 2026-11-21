@@ -5,7 +5,7 @@
  * Acha ANÚNCIOS INDIVIDUAIS nos portais por uma API de busca (não pelo Google Search do Gemini,
  * que no plano grátis costuma ter cota zero). Só HTTP nativo (fetch), sem dependências.
  * Devolve um catálogo numerado de resultados REAIS; a leitura e a escolha ficam por conta do
- * Gemini sem ferramentas (busca-curadoria.js) e a trava anti-invenção confere cada link.
+ * Gemini sem ferramentas (src/integrations/busca/curadoria.js) e a trava anti-invenção confere cada link.
  * ============================================================================
  */
 

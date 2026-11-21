@@ -1,5 +1,5 @@
 /**
- * Espera antes de reconectar ao WhatsApp. Compartilhado pelo modo clássico (src/whatsapp.js)
+ * Espera antes de reconectar ao WhatsApp. Compartilhado pelo modo clássico (src/whatsapp/client.js)
  * e pelo WhatsAppSessionManager (src/tenancy/session-manager.js).
  * - 515 (restartRequired): vem logo depois de ler o QR Code — o WhatsApp pede para reconectar
  *   para terminar o pareamento. Precisa ser quase na hora (1 s), senão o celular desiste do aparelho.

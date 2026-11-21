@@ -51,7 +51,7 @@ Guia simples de onde cada parte do sistema mora e onde mexer para fazer alteraç
 | **Comandos no "Mensagem para mim" (`ajuda`, `busca`, etc.)** | `src/whatsapp/assistant.js` | Interpretador de comandos do dono via WhatsApp |
 | **Atendimento diário (1ª mensagem e ligação perdida)** | `src/whatsapp/atendimento-diario.js` e `src/whatsapp/contacts.js` | Saudação inicial, cooldown e memória telefone + LID |
 | **Entendimento de pedidos, bairros e condomínios** | `src/brain/` (`parser.js`, `locations.js`, `gazetteer.js`, `engine.js`, `text.js`) | Leitura de texto imobiliário, sinônimos e mapa OSM de Goiânia |
-| **Regras de envio (ENVIAR / AVISAR / texto humano)** | `src/domain/matcher.js` | Decisão de match e montagem da resposta natural com IA |
+| **Regras de envio (ENVIAR / AVISAR / texto humano)** | `src/domain/matcher.js` | Decisão de match, montagem da resposta natural e reforço opcional de lugares via Gemini |
 | **Carteira de imóveis e integração Google Planilhas** | `src/domain/sheets.js` e `GOOGLE_SHEETS_SCRIPT.gs` | CRUD local, CSV e sincronização com planilha externa |
 | **Radar de buscas e "Quem procura"** | `src/domain/radar.js` e `src/domain/quem-procura.js` | Histórico de pedidos compatíveis e oferta reversa |
 | **Vitrine automática e Prospecção** | `src/domain/vitrine.js` e `src/domain/prospeccao.js` | Fila de divulgação em grupos e campanhas em massa |

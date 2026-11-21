@@ -71,7 +71,7 @@ function buildTenantEnv({ baseEnv = process.env, dataDir, configIA = {}, tenantI
     for (const [k, v] of Object.entries(parsed)) if (ENV_ALLOWED.has(k)) env[k] = v;
   }
   env.DATA_DIR = dataDir;
-  // Papel fixo: o app do corretor nunca vira administrador do SaaS (ver src/app.js)
+  // Papel fixo: o app do corretor nunca vira administrador do SaaS (ver src/web/app.js)
   env.BIGA_PAPEL = 'corretor';
   const dominio = String(baseEnv.DOMINIO || '').trim().toLowerCase();
   const cleanId = String(tenantId || '').trim().toLowerCase();

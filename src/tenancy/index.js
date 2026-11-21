@@ -1,6 +1,6 @@
 /**
  * Multi-tenant em camada de aplicação: monta Store + SessionManager + Router.
- * Ativado com MULTI_TENANT=1 (ver index.js). Sem a flag, nada aqui é carregado.
+ * Ativado com MULTI_TENANT=1 (ver src/web/app.js e index.js). Sem a flag, nada aqui é carregado.
  */
 const fs = require('fs');
 const path = require('path');

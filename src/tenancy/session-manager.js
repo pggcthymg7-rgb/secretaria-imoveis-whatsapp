@@ -3,7 +3,7 @@
  *
  * - Sessões em memória: Map<tenantId, Session>.
  * - Credenciais segregadas em <storageDir>/<tenantId> (useMultiFileAuthState).
- * - Reconexão com a mesma política do modo clássico (src/whatsapp-reconexao.js).
+ * - Reconexão com a mesma política do modo clássico (src/whatsapp/reconexao.js).
  * - Eventos (todos com tenantId no payload):
  *     'qr'         { tenantId, qr }
  *     'message'    { tenantId, messages, type }            (messages.upsert)
