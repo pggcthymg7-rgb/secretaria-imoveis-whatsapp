@@ -18,7 +18,7 @@ Guia simples de onde cada parte do sistema mora e onde mexer para fazer alteraç
 ├── docs/auditorias/          # Relatórios históricos das auditorias técnica e E2E
 ├── tests/                    # Testes automatizados (rodados com npm test)
 └── src/                      # Código principal da aplicação
-    ├── public/               # Telas do painel web (HTML, CSS, JS visual e editor de capas)
+    ├── public/               # Telas do painel web (index.html, app.css, app.js roteador, js/*.js por domínio, capas.js e biga-art.js)
     ├── web/                  # Servidor web Express (app.js, helpers.js e rotas por domínio em routes/)
     ├── config/               # Caminhos, gravação em JSON, .env, ajustes, login, backup, métricas e atualização
     ├── whatsapp/             # Conexão WhatsApp (Baileys), reconexão, atendimento 1ª msg/ligações, contatos e comandos
@@ -35,7 +35,15 @@ Guia simples de onde cada parte do sistema mora e onde mexer para fazer alteraç
 
 | O que você quer alterar | Pasta / Arquivo | O que fica lá |
 |---|---|---|
-| **Visual, cores, telas, botões e menus do painel** | `src/public/` | `index.html`, `app.css`, `app.js`, `biga-art.js` |
+| **Visual, cores, rotas e estrutura geral do painel** | `src/public/` | `index.html`, `app.css`, `app.js` (roteador), `js/core.js`, `js/ui.js`, `biga-art.js` |
+| **Telas de Entrada (Login, Início e Hoje)** | `src/public/js/inicio.js` | Primeiro acesso, tela inicial com menu e painel do dia + QR Code |
+| **Telas de Meu Dia (Radar e Atendimento)** | `src/public/js/dia.js` | Pedidos dos grupos, aprovações e regras de 1ª mensagem/ligação |
+| **Tela da Carteira (Imóveis e Quem Procura)** | `src/public/js/carteira.js` | Cadastro, edição, fotos e match reverso nos grupos |
+| **Tela da Vitrine (e ligação com Capas)** | `src/public/js/vitrine.js` | Publicação automática nos grupos e montagem da aba Capas |
+| **Tela de Fichas PDF (16:9)** | `src/public/js/pdf.js` | Seleção de modelos, paletas, ordem de páginas, prévia e envio WhatsApp |
+| **Tela de Busca Inteligente** | `src/public/js/busca.js` | Filtros dos portais, histórico de grupos e importação `.txt`/`.zip` |
+| **Telas de Garimpo e Prospecção** | `src/public/js/clientes.js` | Leads encontrados na web e campanhas graduais no WhatsApp |
+| **Telas de Configurar (Cérebro, Simulador, Ajustes, Corretores)** | `src/public/js/config.js` | Lugares ensinados, teste de mensagens, chaves/backup e equipe multi-tenant |
 | **Editor visual de capas no navegador** | `src/public/capas.js` e `src/public/fontes-google.json` | Canvas, camadas, presets e lista de fontes Google |
 | **Salvar/carregar modelos de capa no servidor** | `src/domain/capas.js` | Persistência dos modelos salvos (`capas.json`) |
 | **Rotas HTTP e endpoints da API (`/api/...`)** | `src/web/app.js` e `src/web/routes/*.routes.js` | Segurança HTTP em `app.js` e rotas separadas por área (`status`, `carteira`, `config`, `radar`, `pdf`, `vitrine`, `prospeccao`, `busca`) |

@@ -107,7 +107,8 @@ test('Painel carrega app.js/app.css com a versão (depois de "atualizar" o celul
   });
   try {
     const html = await (await fetch(`http://127.0.0.1:${server.address().port}/`)).text();
-    for (const f of ['app.js', 'app.css', 'biga-art.js']) assert.match(html, new RegExp(`/assets/${f.replace('.', '\\.')}\\?v=[0-9a-f]{7}"`));
+    const assets = ['app.js', 'app.css', 'biga-art.js', 'capas.js', ...['core', 'ui', 'inicio', 'dia', 'carteira', 'vitrine', 'pdf', 'busca', 'clientes', 'config'].map(n => `js/${n}.js`)];
+    for (const f of assets) assert.match(html, new RegExp(`/assets/${f.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}\\?v=[0-9a-f]{7}"`));
   } finally {
     server.close();
   }

@@ -8,7 +8,7 @@
 ## Mapa do código
 - `index.js` — única entrada em produção; inicia servidor HTTP, WhatsApp, agendador e multi-tenant.
 - `src/web/` — servidor Express em `app.js`, utilitários em `helpers.js` e rotas separadas por domínio em `routes/*.routes.js` (`status`, `carteira`, `config`, `radar`, `pdf`, `vitrine`, `prospeccao`, `busca`), igual para admin e corretor (`BIGA_PAPEL=corretor` no contêiner do tenant tira a estrutura do SaaS).
-- `src/public/` — frontend SPA (Dala design system: `index.html`, `app.js`, `app.css`, `capas.js`, `biga-art.js`, `fontes-google.json`).
+- `src/public/` — frontend SPA (Dala design system: `index.html`, `app.css`, `app.js` roteador + namespace `window.BIGA` em `js/{core,ui,inicio,dia,carteira,vitrine,pdf,busca,clientes,config}.js`, `capas.js`, `biga-art.js`, `fontes-google.json`).
 - `src/config/` — infraestrutura e configuração (`paths.js`, `store.js`, `envfile.js`, `settings.js`, `auth.js`, `backup.js`, `metrics.js`, `sistema.js`, `timeutil.js`).
 - `src/brain/` — cérebro local: mapa de Goiânia (`gazetteer.js` + `data/mapa-osm.json`), localização (`locations.js`), intérprete de pedidos (`parser.js`), texto (`text.js`) e motor (`engine.js`).
 - `src/whatsapp/` — conexão Baileys e roteamento (`client.js`, `reconexao.js`), comandos no "Mensagem para mim" (`assistant.js`), 1ª mensagem/ligações (`atendimento-diario.js`) e memória de contatos (`contacts.js`).
