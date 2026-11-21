@@ -833,7 +833,21 @@ function slideF(tipo, pal, fnt) {
   }
 }
 
-const SLIDE_BUILDERS = { A: slideA, B: slideB, D: slideD, E: slideE, F: slideF };
+function construirSlideDoModelo(modeloId, tipoSlide, pal, fnt) {
+  switch (modeloId) {
+    case 'B':
+      return slideB(tipoSlide, pal, fnt);
+    case 'D':
+      return slideD(tipoSlide, pal, fnt);
+    case 'E':
+      return slideE(tipoSlide, pal, fnt);
+    case 'F':
+      return slideF(tipoSlide, pal, fnt);
+    case 'A':
+    default:
+      return slideA(tipoSlide, pal, fnt);
+  }
+}
 
 /**
  * Cria um único slide pronto para o modelo/tipo especificado (`capa`, `resumo`, `foto`, `galeria`, `texto`, `contato`, `livre`).
@@ -843,8 +857,7 @@ function criarSlideModelo(modeloId = 'A', tipoSlide = 'capa', paletaId = 'princi
   const M = MODELOS[mid];
   const { pal } = resolverPaleta(M, paletaId, kit, opts);
   const fnt = resolverFontesModelo(M, kit);
-  const builder = SLIDE_BUILDERS[mid] || slideA;
-  return builder(String(tipoSlide || 'capa').toLowerCase(), pal, fnt);
+  return construirSlideDoModelo(mid, String(tipoSlide || 'capa').toLowerCase(), pal, fnt);
 }
 
 /**
@@ -855,13 +868,12 @@ function criarCenaModelo(modeloId = 'A', paletaId = 'principal', kit = {}, dados
   const M = MODELOS[mid];
   const { pid, pal } = resolverPaleta(M, paletaId, kit, opts);
   const fnt = resolverFontesModelo(M, kit);
-  const builder = SLIDE_BUILDERS[mid] || slideA;
 
   const tipos = Array.isArray(opts.paginas) && opts.paginas.length
     ? opts.paginas.map(p => (typeof p === 'string' ? p : p?.tipo)).filter(Boolean).slice(0, 14)
     : PAGINAS_PADRAO;
 
-  const slides = tipos.map(tp => builder(String(tp).toLowerCase(), pal, fnt));
+  const slides = tipos.map(tp => construirSlideDoModelo(mid, String(tp).toLowerCase(), pal, fnt));
 
   return {
     versao: 1,

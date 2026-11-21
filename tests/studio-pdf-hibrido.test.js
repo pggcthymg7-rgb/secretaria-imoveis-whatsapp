@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
-const { execFileSync } = require('child_process');
+const zlib = require('zlib');
 const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
 const sharp = require('sharp');
@@ -53,12 +53,115 @@ function criarTtfSintetico({ comFvar = false } = {}) {
   return buf;
 }
 
-function inspecionarPdfBinario(buf, tmpDir, nome = 'inspecao.pdf') {
-  const pdfPath = path.join(tmpDir, nome);
-  fs.writeFileSync(pdfPath, buf);
-  const info = execFileSync('/opt/homebrew/bin/pdfinfo', [pdfPath], { encoding: 'utf8' });
-  const text = execFileSync('/opt/homebrew/bin/pdftotext', [pdfPath, '-'], { encoding: 'utf8' });
-  return { info, text, pdfPath };
+function decodificarHexUtf16(hex) {
+  let out = '';
+  for (let i = 0; i < hex.length; i += 4) {
+    const code = parseInt(hex.slice(i, i + 4), 16);
+    if (Number.isFinite(code) && code > 0) out += String.fromCharCode(code);
+  }
+  return out;
+}
+
+function inspecionarPdfBinario(buf, tmpDir = null, nome = 'inspecao.pdf') {
+  if (tmpDir) fs.writeFileSync(path.join(tmpDir, nome), buf);
+  const s = buf.toString('latin1');
+  const pages = (s.match(/\/Type\s*\/Page\b(?!s)/g) || []).length;
+  const mb = s.match(/\/MediaBox\s*\[\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\]/);
+  const width = mb ? Number(mb[3]) - Number(mb[1]) : 0;
+  const height = mb ? Number(mb[4]) - Number(mb[2]) : 0;
+  const info = `Pages: ${pages}\nPage size: ${width} x ${height} pts\n`;
+
+  const objs = new Map();
+  const streams = new Map();
+  const objRx = /(\d+)\s+0\s+obj\b([\s\S]*?)endobj/g;
+  let m;
+  while ((m = objRx.exec(s)) !== null) {
+    const id = m[1];
+    const body = m[2];
+    objs.set(id, body);
+    const sm = body.match(/stream\r?\n([\s\S]*?)\r?\nendstream/);
+    if (sm) {
+      const startOff = m.index + m[0].indexOf(sm[1]);
+      const raw = buf.subarray(startOff, startOff + sm[1].length);
+      let dec = raw;
+      if (/\/FlateDecode\b/.test(body)) {
+        try { dec = zlib.inflateSync(raw); } catch {}
+      }
+      streams.set(id, dec.toString('latin1'));
+    }
+  }
+
+  const fontObjToCmap = new Map();
+  for (const [id, body] of objs) {
+    const tu = body.match(/\/ToUnicode\s+(\d+)\s+0\s+R/);
+    if (!tu || !streams.has(tu[1])) continue;
+    const cm = new Map();
+    const cs = streams.get(tu[1]);
+    for (const blk of cs.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
+      for (const p of blk[1].matchAll(/^\s*<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/gm)) {
+        cm.set(p[1].toUpperCase(), decodificarHexUtf16(p[2]));
+      }
+    }
+    for (const blk of cs.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
+      for (const r of blk[1].matchAll(/^\s*<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*\[([^\]]+)\]/gm)) {
+        const start = parseInt(r[1], 16);
+        const pad = r[1].length;
+        const arr = [...r[3].matchAll(/<([0-9a-fA-F]+)>/g)].map(x => decodificarHexUtf16(x[1]));
+        arr.forEach((ch, idx) => cm.set((start + idx).toString(16).toUpperCase().padStart(pad, '0'), ch));
+      }
+      for (const r of blk[1].matchAll(/^\s*<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/gm)) {
+        const a = parseInt(r[1], 16);
+        const b = parseInt(r[2], 16);
+        const u0 = parseInt(r[3], 16);
+        const pad = r[1].length;
+        for (let c = a; c <= b; c++) {
+          cm.set(c.toString(16).toUpperCase().padStart(pad, '0'), String.fromCharCode(u0 + (c - a)));
+        }
+      }
+    }
+    fontObjToCmap.set(id, cm);
+  }
+
+  const fontNameToCmap = new Map();
+  for (const [, body] of objs) {
+    for (const fm of body.matchAll(/\/(F\d+)\s+(\d+)\s+0\s+R/g)) {
+      if (fontObjToCmap.has(fm[2])) fontNameToCmap.set(fm[1], fontObjToCmap.get(fm[2]));
+    }
+  }
+
+  const partes = [];
+  for (const [, st] of streams) {
+    if (!/\bBT\b/.test(st)) continue;
+    let curMap = null;
+    const tokRx = /\/(F\d+)\s+[\d.]+\s+Tf|<([0-9a-fA-F]+)>\s*Tj|\[([^\]]+)\]\s*TJ|\(([^)]*)\)\s*Tj/g;
+    let tm;
+    while ((tm = tokRx.exec(st)) !== null) {
+      if (tm[1]) {
+        curMap = fontNameToCmap.get(tm[1]) || null;
+      } else if (tm[2]) {
+        const hex = tm[2].toUpperCase();
+        if (curMap) {
+          let line = '';
+          for (let i = 0; i < hex.length; i += 4) line += curMap.get(hex.slice(i, i + 4)) || '';
+          partes.push(line);
+        }
+      } else if (tm[3]) {
+        let line = '';
+        for (const hm of tm[3].matchAll(/<([0-9a-fA-F]+)>|\(([^)]*)\)/g)) {
+          if (hm[1] && curMap) {
+            const hex = hm[1].toUpperCase();
+            for (let i = 0; i < hex.length; i += 4) line += curMap.get(hex.slice(i, i + 4)) || '';
+          } else if (hm[2]) {
+            line += hm[2];
+          }
+        }
+        partes.push(line);
+      } else if (tm[4]) {
+        partes.push(tm[4]);
+      }
+    }
+  }
+  return { info, text: partes.join('\n') };
 }
 
 test('1. cache-fontes: UA Safari 5, validarBufferFonte, parseCssFontFaces, batch/fallback, single-flight, LRU e offline', async t => {
@@ -410,13 +513,13 @@ test('3. Renderização Vetorial Híbrida: 5 modelos x 2 paletas, Modo A vs B, l
     }
   }
 
-  // Validação real com pdfinfo e pdftotext
+  // Validação em JS puro de páginas, dimensões e texto decodificado no buffer PDF
   const inspA = inspecionarPdfBinario(pdfModeloA, tmpDir, 'modelo-A.pdf');
   assert.match(inspA.info, /Pages:\s+6/);
   assert.match(inspA.info, /Page size:\s+1152 x 648 pts/);
-  assert.ok(inspA.text.includes('Edifício Aurora Real'), 'pdftotext deve extrair nome real do imóvel');
-  assert.ok(inspA.text.includes('Setor Bueno'), 'pdftotext deve extrair bairro real');
-  assert.ok(inspA.text.includes('1.850.000'), 'pdftotext deve extrair preço formatado');
+  assert.ok(inspA.text.includes('Edifício Aurora Real'), 'buffer PDF deve conter nome real do imóvel');
+  assert.ok(inspA.text.includes('Setor Bueno'), 'buffer PDF deve conter bairro real');
+  assert.ok(inspA.text.includes('1.850.000'), 'buffer PDF deve conter preço formatado');
   for (const tokenCru of ['{preco}', '{nome}', '{localizacao}', '{area}', '{quartos}']) {
     assert.equal(inspA.text.includes(tokenCru), false, `Token ${tokenCru} não pode vazar cru no PDF`);
   }

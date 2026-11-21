@@ -24,7 +24,13 @@ const router = express.Router();
 function hasImageMagic(filePath, mimetype) {
   let fd;
   try {
-    fd = fs.openSync(filePath, 'r');
+    const baseRoot = path.resolve(FOTOS_DIR);
+    const resolved = path.resolve(String(filePath || ''));
+    if (!resolved.startsWith(baseRoot + path.sep)) return false;
+    const realRoot = fs.realpathSync(baseRoot);
+    const realPath = fs.realpathSync(resolved);
+    if (realPath === realRoot || !realPath.startsWith(realRoot + path.sep)) return false;
+    fd = fs.openSync(realPath, 'r');
     const buf = Buffer.alloc(12);
     const n = fs.readSync(fd, buf, 0, 12, 0);
     if (mimetype === 'image/jpeg') return n >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
@@ -96,12 +102,34 @@ router.post('/api/pdf/kit/logo', (req, res) => {
     const f = (files.logo && files.logo[0]) || (files.file && files.file[0]) || null;
     if (!f) return res.status(400).json({ error: 'Nenhum arquivo de logo enviado.' });
 
-    if (!hasImageMagic(f.path, f.mimetype)) {
-      try { fs.rmSync(f.path, { force: true }); } catch {}
+    const baseRoot = path.resolve(FOTOS_DIR);
+    const resolved = path.resolve(String(f.path || ''));
+    if (!resolved.startsWith(baseRoot + path.sep)) {
+      return res.status(400).json({ error: 'Caminho de upload inválido.' });
+    }
+    let realRoot;
+    let realPath;
+    try {
+      realRoot = fs.realpathSync(baseRoot);
+      realPath = fs.realpathSync(resolved);
+    } catch {
+      return res.status(400).json({ error: 'Arquivo de imagem inválido ou corrompido.' });
+    }
+    if (realPath === realRoot || !realPath.startsWith(realRoot + path.sep)) {
+      return res.status(400).json({ error: 'Caminho de upload inválido.' });
+    }
+
+    const safeFileName = path.basename(realPath);
+    const safeLogoPath = path.join(FOTOS_DIR, safeFileName);
+
+    if (!hasImageMagic(safeLogoPath, f.mimetype)) {
+      try {
+        if (realPath.startsWith(realRoot + path.sep)) fs.rmSync(realPath, { force: true });
+      } catch {}
       return res.status(400).json({ error: 'Arquivo de imagem inválido ou corrompido.' });
     }
 
-    const kitSalvo = pdf16x9.salvarKit({ logoPath: f.path, logoFile: f.filename });
+    const kitSalvo = pdf16x9.salvarKit({ logoPath: safeLogoPath, logoFile: safeFileName });
     const kit = kitComLogoUrl(kitSalvo);
     return res.json({ ok: true, kit, logoUrl: kit.logoUrl });
   });
