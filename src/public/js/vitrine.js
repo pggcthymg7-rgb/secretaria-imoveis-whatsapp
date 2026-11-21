@@ -9,13 +9,16 @@
   // ------------------------------------------------------------------ CAPAS (Studio)
   function viewCapas() {
     shell(`
-      ${header('Capas', 'Studio · carrossel & Instagram', 'A BIGA monta capas e carrosséis com a foto, os ícones e os dados reais do imóvel. Escolha entre 12 modelos prontos, personalize no Studio, salve com sua marca e aplique em toda a carteira.')}
-      <section class="section"><div class="container" id="capasApp"></div></section>`);
+      <div class="studio-page-head">${header('Capas', 'Studio · carrossel & Instagram', 'A BIGA monta capas e carrosséis com a foto, os ícones e os dados reais do imóvel. Escolha entre 12 modelos prontos, personalize no Studio, salve com sua marca e aplique em toda a carteira.')}</div>
+      <section class="section studio-page-section"><div class="container studio-page-container" id="capasApp"></div></section>`);
     if (!window.BIGA_CAPAS) return toast('O editor de capas não carregou. Recarregue a página.', true);
     window.BIGA_CAPAS.montar($('#capasApp'), {
       api,
       toast,
       fotoUrl,
+      onVoltar: () => {
+        location.hash = '#' + (S.lastNonStudioRoute || 'inicio');
+      },
       inventario: () => S.inventory,
       modelos: () => S.capas || { modelos: [] },
       setModelos: r => (S.capas = { modelos: r.modelos, padrao: r.padrao, tamanhos: r.tamanhos }),

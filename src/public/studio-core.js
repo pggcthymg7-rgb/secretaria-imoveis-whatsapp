@@ -41,7 +41,7 @@
     'borda', 'corBorda', 'blurFundo',
     'pontos', 'espessura', 'tracejado', 'ponta',
     'cor1', 'cor2', 'angulo',
-    'vertices', 'iconeId', 'formaFundo', 'origem', 'src', 'forma', 'corTexto',
+    'vertices', 'iconeId', 'formaFundo', 'origem', 'src', 'forma', 'corTexto', 'ocultarSemLogo',
     'url', 'corEscuro', 'corClaro', 'margem'
   ]);
 
@@ -89,6 +89,47 @@
     const m = String(h || '').trim().match(/^#([0-9a-f]{6})([0-9a-f]{2})?$/i);
     if (!m) return 0;
     return m[2] ? parseInt(m[2], 16) / 255 : 1;
+  }
+
+  function hexRgb(h) {
+    const m = String(h || '').trim().match(/^#([0-9a-f]{6})([0-9a-f]{2})?$/i);
+    if (!m) return { r: 0, g: 0, b: 0, a: 0 };
+    const n = parseInt(m[1], 16);
+    return {
+      r: (n >> 16) & 255,
+      g: (n >> 8) & 255,
+      b: n & 255,
+      a: m[2] ? parseInt(m[2], 16) / 255 : 1
+    };
+  }
+
+  function construirParadasDegrade(cor1Hex, cor2Hex) {
+    const p1 = hexRgb(cor1Hex || '#00000000');
+    const p2 = hexRgb(cor2Hex || '#000000cc');
+    let r1 = p1.r, g1 = p1.g, b1 = p1.b, a1 = p1.a;
+    let r2 = p2.r, g2 = p2.g, b2 = p2.b, a2 = p2.a;
+    if (a1 <= 0.001 && a2 > 0.001) { r1 = r2; g1 = g2; b1 = b2; }
+    else if (a2 <= 0.001 && a1 > 0.001) { r2 = r1; g2 = g1; b2 = b1; }
+    const rgba = (r, g, b, a) => `rgba(${r},${g},${b},${clamp(a, 0, 1).toFixed(3)})`;
+    if (a1 <= 0.001 && a2 > 0.001) {
+      return [
+        0, rgba(r1, g1, b1, 0),
+        0.25, rgba(r2, g2, b2, a2 * 0.14),
+        0.5, rgba(r2, g2, b2, a2 * 0.44),
+        0.75, rgba(r2, g2, b2, a2 * 0.78),
+        1, rgba(r2, g2, b2, a2)
+      ];
+    }
+    if (a2 <= 0.001 && a1 > 0.001) {
+      return [
+        0, rgba(r1, g1, b1, a1),
+        0.25, rgba(r1, g1, b1, a1 * 0.78),
+        0.5, rgba(r1, g1, b1, a1 * 0.44),
+        0.75, rgba(r1, g1, b1, a1 * 0.14),
+        1, rgba(r2, g2, b2, 0)
+      ];
+    }
+    return [0, rgba(r1, g1, b1, a1), 1, rgba(r2, g2, b2, a2)];
   }
 
   function hexParaHsv(hex) {
@@ -250,6 +291,8 @@
   // ------------------------------------------------------------------ Campos Inteligentes & Tokens
   const CAMPOS_INTELIGENTES = [
     { token: '{nome}', label: 'Nome/Edifício', icone: 'predio', cat: 'Imóvel', exemplo: 'Residencial Metropolitan' },
+    { token: '{nomeKicker}', label: 'Prefixo do nome', icone: 'predio', cat: 'Imóvel', exemplo: 'Jardim' },
+    { token: '{nomeDestaque}', label: 'Destaque do nome', icone: 'predio', cat: 'Imóvel', exemplo: 'Veneza' },
     { token: '{tipo}', label: 'Tipo', icone: 'casa', cat: 'Imóvel', exemplo: 'Apartamento' },
     { token: '{negociacao}', label: 'Negociação', icone: 'chave', cat: 'Imóvel', exemplo: 'Venda' },
     { token: '{preco}', label: 'Preço', icone: 'estrela', cat: 'Valores', exemplo: 'R$ 890.000' },
@@ -275,6 +318,24 @@
 
   const TOKENS_CONHECIDOS = new Map(CAMPOS_INTELIGENTES.map(c => [c.token, c]));
 
+  function separarNomeKickerDestaque(nome) {
+    const s = String(nome || '').trim();
+    if (!s) return { kicker: '', destaque: '' };
+    const words = s.split(/\s+/).filter(Boolean);
+    if (words.length <= 1) return { kicker: '', destaque: s };
+    const last = words[words.length - 1];
+    if (last.length <= 2 && words.length >= 3) {
+      return {
+        kicker: words.slice(0, -2).join(' '),
+        destaque: words.slice(-2).join(' ')
+      };
+    }
+    return {
+      kicker: words.slice(0, -1).join(' '),
+      destaque: last
+    };
+  }
+
   function resolverVariaveis(prop, kit, fichaOverride) {
     const p = prop || {};
     const k = kit || {};
@@ -296,6 +357,7 @@
     const nome = f.titulo
       ? String(f.titulo)
       : (p.edificio ? String(p.edificio) : (bairro ? `${tipo} no ${bairro}` : tipo));
+    const { kicker: nomeKicker, destaque: nomeDestaque } = separarNomeKickerDestaque(nome);
 
     let preco = '';
     let precoRotulo = negociacao;
@@ -353,6 +415,8 @@
 
     return {
       '{nome}': nome,
+      '{nomeKicker}': nomeKicker,
+      '{nomeDestaque}': nomeDestaque,
       '{tipo}': tipo,
       '{negociacao}': negociacao,
       '{preco}': preco,
@@ -379,11 +443,70 @@
 
   function substituirTokens(texto, vars) {
     const mapa = vars && typeof vars === 'object' ? vars : {};
-    return String(texto ?? '').replace(/\{[A-Za-z0-9_]+\}/g, token => {
+    const temToken = s => /\{[A-Za-z0-9_]+\}/.test(s);
+    const resolverUm = s => String(s ?? '').replace(/\{[A-Za-z0-9_]+\}/g, token => {
       if (Object.prototype.hasOwnProperty.call(mapa, token)) return String(mapa[token] ?? '');
       if (TOKENS_CONHECIDOS.has(token)) return '';
       return token;
     });
+    const limparVirgulas = s => s
+      .replace(/\s*,\s*,\s*/g, ', ')
+      .replace(/^\s*,\s*/, '')
+      .replace(/\s*,\s*$/, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+
+    const linhas = String(texto ?? '').split('\n');
+    const outLinhas = [];
+    for (const linha of linhas) {
+      if (!temToken(linha)) {
+        outLinhas.push(linha);
+        continue;
+      }
+      const parts = linha.split(/(\s+[·|•–—-]\s+|\s*[·|•]\s*)/);
+      if (parts.length > 1) {
+        const keptSegs = [];
+        const seps = [];
+        for (let i = 0; i < parts.length; i += 2) {
+          const seg = parts[i];
+          const sep = parts[i + 1] || '';
+          if (!temToken(seg)) {
+            const clean = limparVirgulas(seg);
+            if (clean) {
+              keptSegs.push(clean);
+              seps.push(sep);
+            }
+          } else {
+            const tks = seg.match(/\{[A-Za-z0-9_]+\}/g) || [];
+            const algumPreenchido = tks.some(tk => resolverUm(tk).trim() !== '');
+            if (algumPreenchido) {
+              const resolvedSeg = limparVirgulas(resolverUm(seg));
+              if (resolvedSeg) {
+                keptSegs.push(resolvedSeg);
+                seps.push(sep);
+              }
+            }
+          }
+        }
+        if (keptSegs.length) {
+          let joined = keptSegs[0];
+          for (let j = 1; j < keptSegs.length; j++) {
+            const rawSep = seps[j - 1] || ' · ';
+            const sepNorm = /^\s+$/.test(rawSep) ? ' · ' : ` ${rawSep.trim()} `;
+            joined += sepNorm + keptSegs[j];
+          }
+          outLinhas.push(joined);
+        }
+      } else {
+        const tks = linha.match(/\{[A-Za-z0-9_]+\}/g) || [];
+        const algumPreenchido = tks.some(tk => resolverUm(tk).trim() !== '');
+        if (algumPreenchido) {
+          const resolved = limparVirgulas(resolverUm(linha));
+          if (resolved) outLinhas.push(resolved);
+        }
+      }
+    }
+    return outLinhas.join('\n');
   }
 
   function detectarCampoVinculado(texto) {
@@ -1069,6 +1192,7 @@
     const imgsLogos = new Map();
     const qrsMap = new Map();
 
+    const fontProms = [];
     await Promise.all(camadas.map(async c => {
       if (!c || c.visivel === false) return;
       if (c.tipo === 'foto') {
@@ -1081,9 +1205,15 @@
         const url = c.url || waLink(v['{telefone}'] || k.telefone || prop?.telefone || '') || 'https://wa.me/';
         qrsMap.set(c.id, await obterMatrizQr(url));
       } else if (c.tipo === 'texto' && opts.carregarFontes) {
-        await carregarFonte(c.fonte, c.peso, c.italico);
+        fontProms.push(carregarFonte(c.fonte, c.peso, c.italico));
       }
     }));
+    if (fontProms.length) {
+      await Promise.race([
+        Promise.all(fontProms),
+        new Promise(r => setTimeout(r, 1500))
+      ]);
+    }
 
     ctx.save();
     ctx.scale(cw / docW, ch / docH);
@@ -1115,21 +1245,46 @@
           ctx.stroke();
         }
       } else if (c.tipo === 'retangulo') {
-        caminhoRaios(ctx, 0, 0, lw, lh, obterRaiosCamada(c));
+        const raios = obterRaiosCamada(c);
         if (Number(c.blurFundo) > 0) {
-          ctx.fillStyle = hexAlpha(c.cor) > 0 ? hexRgba(c.cor) : 'rgba(255,255,255,0.16)';
-          ctx.fill();
-          ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-          ctx.lineWidth = 1.5;
+          const sxScale = cw / docW;
+          const syScale = ch / docH;
+          const cx0 = clamp(Math.floor((Number(c.x) || 0) * sxScale), 0, cw - 1);
+          const cy0 = clamp(Math.floor((Number(c.y) || 0) * syScale), 0, ch - 1);
+          const cwBox = Math.max(2, Math.round(lw * sxScale));
+          const chBox = Math.max(2, Math.round(lh * syScale));
+          const gw = Math.max(1, Math.min(cw - cx0, cwBox));
+          const gh = Math.max(1, Math.min(ch - cy0, chBox));
+          const glassCv = document.createElement('canvas');
+          glassCv.width = cwBox;
+          glassCv.height = chBox;
+          const gctx = glassCv.getContext('2d');
+          if (gctx) {
+            gctx.fillStyle = hexRgba(s?.fundo || '#171721');
+            gctx.fillRect(0, 0, cwBox, chBox);
+            gctx.drawImage(cv, cx0, cy0, gw, gh, 0, 0, cwBox, chBox);
+            aplicarFiltrosPixels(glassCv, 102, 102, 105, Math.max(2, Math.min(20, Number(c.blurFundo) * sxScale * 0.65)));
+            ctx.save();
+            caminhoRaios(ctx, 0, 0, lw, lh, raios);
+            ctx.clip();
+            ctx.drawImage(glassCv, 0, 0, lw, lh);
+            ctx.fillStyle = hexAlpha(c.cor) > 0 ? hexRgba(c.cor) : 'rgba(255,255,255,0.16)';
+            ctx.fillRect(0, 0, lw, lh);
+            ctx.restore();
+          }
+          caminhoRaios(ctx, 0, 0, lw, lh, raios);
+          ctx.strokeStyle = Number(c.borda) > 0 ? hexRgba(c.corBorda || '#ffffff') : 'rgba(255,255,255,0.22)';
+          ctx.lineWidth = Number(c.borda) > 0 ? Number(c.borda) : 1.5;
           ctx.stroke();
         } else {
+          caminhoRaios(ctx, 0, 0, lw, lh, raios);
           ctx.fillStyle = hexRgba(c.cor || '#5266eb');
           ctx.fill();
-        }
-        if (Number(c.borda) > 0) {
-          ctx.lineWidth = Number(c.borda);
-          ctx.strokeStyle = hexRgba(c.corBorda || '#ffffff');
-          ctx.stroke();
+          if (Number(c.borda) > 0) {
+            ctx.lineWidth = Number(c.borda);
+            ctx.strokeStyle = hexRgba(c.corBorda || '#ffffff');
+            ctx.stroke();
+          }
         }
       } else if (c.tipo === 'circulo') {
         ctx.beginPath();
@@ -1153,11 +1308,10 @@
         ctx.stroke();
         ctx.setLineDash([]);
       } else if (c.tipo === 'degrade') {
-        const ang = rad((Number(c.angulo) ?? 180) - 90);
-        const r = Math.hypot(lw, lh) / 2;
-        const g = ctx.createLinearGradient(lw / 2 - Math.cos(ang) * r, lh / 2 - Math.sin(ang) * r, lw / 2 + Math.cos(ang) * r, lh / 2 + Math.sin(ang) * r);
-        g.addColorStop(0, hexRgba(c.cor1 || '#00000000'));
-        g.addColorStop(1, hexRgba(c.cor2 || '#000000cc'));
+        const ptsDeg = calcularPontosDegrade(lw, lh, c.angulo);
+        const g = ctx.createLinearGradient(ptsDeg.start.x, ptsDeg.start.y, ptsDeg.end.x, ptsDeg.end.y);
+        const stops = construirParadasDegrade(c.cor1 || '#00000000', c.cor2 || '#000000cc');
+        for (let si = 0; si < stops.length; si += 2) g.addColorStop(stops[si], stops[si + 1]);
         caminhoRaios(ctx, 0, 0, lw, lh, obterRaiosCamada(c));
         ctx.fillStyle = g;
         ctx.fill();
@@ -1204,7 +1358,7 @@
           const dw = img.naturalWidth * escL;
           const dh = img.naturalHeight * escL;
           ctx.drawImage(img, (lw - dw) / 2, (lh - dh) / 2, dw, dh);
-        } else {
+        } else if (!c.ocultarSemLogo) {
           const forma = c.forma || 'quadrado';
           const corBg = c.corFundo || k.cores1?.destaque || '#5266eb';
           const corTx = c.corTexto || '#ffffff';
@@ -1312,19 +1466,86 @@
   // ------------------------------------------------------------------ Motor Konva (Construção de Nó + Telemetria 1:1)
   let _instanciaAtiva = null;
 
-  function calcularPontosDegrade(w, h, anguloDeg) {
-    const a = rad((Number(anguloDeg) ?? 180) - 90);
-    const r = Math.hypot(w, h) / 2;
+  function calcularPontosDegrade(w, h, anguloDeg = 180) {
+    const deg = Number.isFinite(Number(anguloDeg)) ? Number(anguloDeg) : 180;
+    const a = rad(deg - 90);
+    const cos = Math.cos(a);
+    const sin = Math.sin(a);
+    const r = (Math.abs(cos) * w + Math.abs(sin) * h) / 2;
     return {
-      start: { x: w / 2 - Math.cos(a) * r, y: h / 2 - Math.sin(a) * r },
-      end: { x: w / 2 + Math.cos(a) * r, y: h / 2 + Math.sin(a) * r }
+      start: { x: w / 2 - cos * r, y: h / 2 - sin * r },
+      end: { x: w / 2 + cos * r, y: h / 2 + sin * r }
     };
+  }
+
+  function construirCanvasVidroKonva(c, slide, ctxRender) {
+    if (typeof document === 'undefined') return null;
+    const w = Math.max(4, Number(c.w) || 100);
+    const h = Math.max(4, Number(c.h) || 100);
+    const raios = obterRaiosCamada(c);
+    const blur = Number(c.blurFundo) || 0;
+    const scale = Math.min(1, 640 / Math.max(w, h));
+    const cw = Math.max(4, Math.round(w * scale));
+    const ch = Math.max(4, Math.round(h * scale));
+    const frostedCv = document.createElement('canvas');
+    frostedCv.width = cw;
+    frostedCv.height = ch;
+    const fctx = frostedCv.getContext('2d');
+    if (!fctx) return frostedCv;
+
+    caminhoRaios(fctx, 0, 0, cw, ch, raios.map(r => r * scale));
+    fctx.clip();
+    fctx.fillStyle = hexRgba(slide?.fundo || '#171721');
+    fctx.fillRect(0, 0, cw, ch);
+
+    const camadas = Array.isArray(slide?.camadas) ? slide.camadas : [];
+    const idxAtual = camadas.findIndex(x => x && x.id === c.id);
+    const abaixo = idxAtual > 0 ? camadas.slice(0, idxAtual) : [];
+    const loadedImgs = ctxRender && ctxRender.loadedImgs;
+
+    fctx.save();
+    fctx.scale(scale, scale);
+    fctx.translate(-(Number(c.x) || 0), -(Number(c.y) || 0));
+    for (const bg of abaixo) {
+      if (!bg || bg.visivel === false) continue;
+      if (bg.tipo === 'foto') {
+        const img = loadedImgs && loadedImgs.get(bg.id);
+        if (img && img.complete && img.naturalWidth > 0) {
+          const off = construirCanvasFotoOffscreen(bg, img, '');
+          if (off) {
+            fctx.save();
+            fctx.globalAlpha = clamp(bg.opacidade ?? 1, 0, 1);
+            fctx.translate(Number(bg.x) || 0, Number(bg.y) || 0);
+            if (bg.rot) fctx.rotate(rad(bg.rot));
+            fctx.drawImage(off, 0, 0, Number(bg.w) || 100, Number(bg.h) || 100);
+            fctx.restore();
+          }
+        }
+      } else if (bg.tipo === 'degrade') {
+        const ptsD = calcularPontosDegrade(Number(bg.w) || 100, Number(bg.h) || 100, bg.angulo);
+        fctx.save();
+        fctx.globalAlpha = clamp(bg.opacidade ?? 1, 0, 1);
+        fctx.translate(Number(bg.x) || 0, Number(bg.y) || 0);
+        const g = fctx.createLinearGradient(ptsD.start.x, ptsD.start.y, ptsD.end.x, ptsD.end.y);
+        const stops = construirParadasDegrade(bg.cor1 || '#00000000', bg.cor2 || '#000000cc');
+        for (let si = 0; si < stops.length; si += 2) g.addColorStop(stops[si], stops[si + 1]);
+        fctx.fillStyle = g;
+        fctx.fillRect(0, 0, Number(bg.w) || 100, Number(bg.h) || 100);
+        fctx.restore();
+      }
+    }
+    fctx.restore();
+
+    aplicarFiltrosPixels(frostedCv, 102, 102, 105, Math.max(2, Math.min(20, blur * scale * 0.65)));
+    fctx.fillStyle = hexAlpha(c.cor) > 0 ? hexRgba(c.cor) : 'rgba(255,255,255,0.18)';
+    fctx.fillRect(0, 0, cw, ch);
+    return frostedCv;
   }
 
   function construirGrupoCamadaKonva(c, slide, ctxRender) {
     const K = globalScope.Konva;
     if (!K) return null;
-    const { vars, kit, prop, fotoUrlFn, selecionada, onPolyVertexDrag, onPolyVertexEnd } = ctxRender;
+    const { vars, kit, prop, fotoUrlFn, selecionada, onPolyVertexDrag, onPolyVertexEnd, onFotoPronta } = ctxRender;
     const w = Math.max(4, Number(c.w) || 100);
     const h = Math.max(4, Number(c.h) || 100);
 
@@ -1359,8 +1580,10 @@
         carregarImagem(src).then(img => {
           if (!kImg.getLayer()) return;
           group.setAttr('bigaLoadedImg', img);
+          if (ctxRender.loadedImgs && img) ctxRender.loadedImgs.set(c.id, img);
           kImg.image(construirCanvasFotoOffscreen(c, img, 'Sem foto do imóvel'));
           kImg.getLayer().batchDraw();
+          if (img && typeof onFotoPronta === 'function') onFotoPronta(c.id, img);
         });
       } else {
         kImg.image(construirCanvasFotoOffscreen(c, null, prop ? 'Sem foto do imóvel' : 'Escolha um imóvel'));
@@ -1379,28 +1602,11 @@
       const raios = obterRaiosCamada(c);
       const blur = Number(c.blurFundo) || 0;
       if (blur > 0 && typeof document !== 'undefined') {
-        const bgColor = hexAlpha(c.cor) > 0 ? hexRgba(c.cor) : 'rgba(255,255,255,0.18)';
-        const frostedCv = document.createElement('canvas');
-        frostedCv.width = Math.max(4, Math.round(w));
-        frostedCv.height = Math.max(4, Math.round(h));
-        const fctx = frostedCv.getContext('2d');
-        if (fctx) {
-          caminhoRaios(fctx, 0, 0, frostedCv.width, frostedCv.height, raios);
-          fctx.clip();
-          fctx.fillStyle = hexRgba(slide?.fundo || '#171721');
-          fctx.fillRect(0, 0, frostedCv.width, frostedCv.height);
-          // Gradiente especular simulando vidro fosco
-          const g = fctx.createLinearGradient(0, 0, frostedCv.width, frostedCv.height);
-          g.addColorStop(0, 'rgba(255,255,255,0.22)');
-          g.addColorStop(0.5, 'rgba(255,255,255,0.08)');
-          g.addColorStop(1, 'rgba(255,255,255,0.16)');
-          fctx.fillStyle = g;
-          fctx.fillRect(0, 0, frostedCv.width, frostedCv.height);
-          fctx.fillStyle = bgColor;
-          fctx.fillRect(0, 0, frostedCv.width, frostedCv.height);
-          aplicarFiltrosPixels(frostedCv, 102, 102, 105, Math.min(18, blur * 0.45));
-        }
-        group.add(new K.Image({ x: 0, y: 0, width: w, height: h, image: frostedCv }));
+        const frostedCv = construirCanvasVidroKonva(c, slide, ctxRender);
+        const kGlass = new K.Image({ x: 0, y: 0, width: w, height: h, image: frostedCv });
+        group.add(kGlass);
+        group.setAttr('bigaGlassImg', kGlass);
+        group.setAttr('bigaGlassCam', c);
         group.add(new K.Rect({
           x: 0, y: 0, width: w, height: h, cornerRadius: raios,
           stroke: Number(c.borda) > 0 ? hexRgba(c.corBorda || '#ffffff') : 'rgba(255,255,255,0.25)',
@@ -1448,7 +1654,7 @@
         cornerRadius: obterRaiosCamada(c),
         fillLinearGradientStartPoint: pts.start,
         fillLinearGradientEndPoint: pts.end,
-        fillLinearGradientColorStops: [0, hexRgba(c.cor1 || '#00000000'), 1, hexRgba(c.cor2 || '#000000cc')]
+        fillLinearGradientColorStops: construirParadasDegrade(c.cor1 || '#00000000', c.cor2 || '#000000cc')
       }));
     } else if (c.tipo === 'poligono') {
       const vs = normalizarVerticesPoligono(c.vertices, w, h);
@@ -1556,6 +1762,11 @@
         align: 'center',
         verticalAlign: 'middle'
       });
+      if (c.ocultarSemLogo && !src) {
+        bgShape.visible(false);
+        monoTxt.visible(false);
+        group.add(new K.Rect({ x: 0, y: 0, width: w, height: h, fill: 'rgba(0,0,0,0)' }));
+      }
       group.add(bgShape, monoTxt);
       if (src) {
         carregarImagem(src).then(img => {
@@ -1860,6 +2071,9 @@
       uniforme: true,
       enquadrar: false,
       abaAtiva: 'modelos',
+      propPainel: null,
+      sheetModo: 'aba',
+      camadasTab: 'tudo',
       sheetAberta: false,
       menuAberto: false,
       chipsDadoAberto: false,
@@ -1957,7 +2171,7 @@
 
           <div class="studio-top-right">
             ${podeApresentar ? `<button type="button" class="studio-pill-btn" data-st="apresentar" title="Modo Apresentação"><span>Apresentar</span></button>` : ''}
-            <button type="button" class="studio-primary-btn" data-st="abrirExportar">${modo === 'pdf' ? 'Exportar / Enviar' : 'Exportar'}</button>
+            <button type="button" class="studio-primary-btn" data-st="abrirExportar">${modo === 'pdf' ? 'Exportar<span class="studio-hide-mob"> / Enviar</span>' : 'Exportar'}</button>
           </div>
         </header>
 
@@ -1988,9 +2202,16 @@
           </aside>
 
           <main class="studio-stage-area">
-            <div class="studio-context-bar hide" id="stContextBar"></div>
             <div class="studio-stage-viewport" id="stViewport">
               <div id="stage-container" tabindex="0" aria-label="Área de edição visual"></div>
+            </div>
+            <div class="studio-floating-ui hide" id="stFloatingUi">
+              <div class="studio-context-bar studio-quick-bar hide" id="stContextBar"></div>
+              <div class="studio-ext-handles hide" id="stExtHandles">
+                <button type="button" class="studio-ext-btn" data-st-ext="girar" aria-label="Girar elemento" title="Girar">↻</button>
+                <button type="button" class="studio-ext-btn" data-st-ext="mover" aria-label="Mover com precisão" title="Mover">✥</button>
+                <span class="studio-ext-deg hide" id="stExtDeg">0°</span>
+              </div>
             </div>
             <div class="studio-page-dots" id="stMobileDots"></div>
             <div class="studio-zoom-bar" id="stZoomBar">
@@ -2011,22 +2232,7 @@
 
         <footer class="studio-filmstrip" id="stFilmstrip" data-allow-scroll="1"></footer>
 
-        <nav class="studio-bottom-bar" aria-label="Menu inferior mobile">
-          ${[
-            ['modelos', 'estrela', 'Modelos'],
-            ['elementos', 'selo-exclusivo', 'Elementos'],
-            ['texto', 'selo-novo', 'Texto'],
-            ['galeria', 'casa', 'Galeria'],
-            ['marca', 'chave', 'Marca'],
-            ['ajustar', 'switch-on', 'Ajustar'],
-            ['camadas', 'area', 'Camadas']
-          ].map(([id, ic, lbl]) => `
-            <button type="button" class="studio-bottom-btn" data-st="sheet" data-aba="${id}">
-              ${svgIconeHtml(ic, 20)}
-              <span>${esc(lbl)}</span>
-            </button>
-          `).join('')}
-        </nav>
+        <nav class="studio-bottom-bar" id="stBottomBar" aria-label="Menu inferior do Studio"></nav>
 
         <div class="studio-sheet-backdrop hide" id="stSheetBackdrop" data-st="fecharSheet"></div>
         <div class="studio-sheet hide" id="stMobileSheet" role="dialog" aria-modal="true">
@@ -2038,11 +2244,12 @@
           <div class="studio-sheet-body" id="stSheetBody" data-allow-scroll="1"></div>
         </div>
 
+        <div class="studio-action-backdrop hide" id="stActionBackdrop" data-st="fecharMenu"></div>
+        <div class="studio-action-sheet hide" id="stActionSheet" role="dialog" aria-modal="true" aria-label="Mais ações"></div>
+
         <div class="studio-modal-backdrop hide" id="stModalBackdrop">
           <div class="studio-modal" id="stModalBox" data-allow-scroll="1"></div>
         </div>
-
-        <div class="studio-pres hide" id="stPresOverlay"></div>
       </div>`;
 
     const qs = s => el.querySelector(s);
@@ -2065,22 +2272,26 @@
 
     const transformer = new K.Transformer({
       borderStroke: '#5266eb',
-      borderStrokeWidth: 2,
+      borderStrokeWidth: 1.5,
       anchorStroke: '#5266eb',
       anchorFill: '#ffffff',
-      anchorSize: typeof window !== 'undefined' && window.innerWidth < 900 ? 22 : 11,
-      anchorCornerRadius: typeof window !== 'undefined' && window.innerWidth < 900 ? 11 : 3,
-      padding: 4,
-      rotateAnchorOffset: 30,
+      anchorStrokeWidth: 1.5,
+      anchorSize: 11,
+      anchorCornerRadius: 5,
+      padding: 3,
+      rotateEnabled: false,
       keepRatio: true,
-      rotationSnaps: [0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180, -15, -30, -45, -60, -75, -90, -105, -120, -135, -150, -165],
-      rotationSnapTolerance: 0,
       ignoreStroke: true
     });
     overlayLayer.add(transformer);
 
     const guidesGroup = new K.Group({ listening: false });
     overlayLayer.add(guidesGroup);
+
+    const stageArea = qs('.studio-stage-area');
+    const floatingUi = qs('#stFloatingUi');
+    const extHandles = qs('#stExtHandles');
+    const extDegEl = qs('#stExtDeg');
 
     // ---------------- Blindagem Touch Mobile (confinada apenas a #stage-container)
     const bloquearTouchPalco = ev => {
@@ -2122,11 +2333,16 @@
       contentLayer.scale({ x: scale, y: scale });
       overlayLayer.scale({ x: scale, y: scale });
 
-      const isMobile = typeof window !== 'undefined' && window.innerWidth < 900;
-      transformer.anchorSize(isMobile ? 22 : 11);
-      transformer.anchorCornerRadius(isMobile ? 11 : 3);
+      const isMob = typeof window !== 'undefined' && window.innerWidth < 900;
+      const pxVis = isMob ? 11 : 10;
+      transformer.anchorSize(pxVis);
+      transformer.anchorCornerRadius(Math.round(pxVis / 2));
+      transformer.anchorStrokeWidth(1.5);
+      transformer.borderStrokeWidth(1.5);
+      transformer.padding(3);
 
       stage.batchDraw();
+      posicionarControlesFlutuantes();
     }
 
     let resizeObs = null;
@@ -2208,31 +2424,112 @@
       overlayLayer.batchDraw();
     }
 
+    // ---------------- Controles Flutuantes (Quick Bar + Alças ↻ e ✥)
+    function posicionarControlesFlutuantes() {
+      const c = camada(E.sel);
+      const bar = qs('#stContextBar');
+      if (!floatingUi || !bar || !extHandles || !stageArea) return;
+      if (!c || c.visivel === false) {
+        floatingUi.classList.add('hide');
+        bar.classList.add('hide');
+        extHandles.classList.add('hide');
+        return;
+      }
+      const node = contentLayer.findOne(n => n.getAttr && n.getAttr('bigaId') === c.id);
+      if (!node) {
+        floatingUi.classList.add('hide');
+        return;
+      }
+      floatingUi.classList.remove('hide');
+      bar.classList.remove('hide');
+      extHandles.classList.toggle('hide', Boolean(c.travada));
+
+      const areaRect = stageArea.getBoundingClientRect();
+      const stageRect = stageContainer.getBoundingClientRect();
+      const box = node.getClientRect({ relativeTo: stage });
+      const left = (stageRect.left - areaRect.left) + box.x;
+      const top = (stageRect.top - areaRect.top) + box.y;
+      const right = left + box.width;
+      const bottom = top + box.height;
+      const cx = (left + right) / 2;
+
+      const barW = bar.offsetWidth || 210;
+      const barH = bar.offsetHeight || 34;
+      const maxX = Math.max(8, areaRect.width - barW - 8);
+      const maxY = Math.max(6, areaRect.height - barH - 6);
+      const barX = clamp(Math.round(cx - barW / 2), 8, maxX);
+      let barY = Math.round(top - barH - 10);
+      if (barY < 6) {
+        barY = Math.round(bottom + 54);
+        if (barY > maxY) barY = 6;
+      }
+      bar.style.left = `${barX}px`;
+      bar.style.top = `${clamp(barY, 6, maxY)}px`;
+
+      if (!c.travada) {
+        const hw = extHandles.offsetWidth || 84;
+        const hh = extHandles.offsetHeight || 36;
+        const hx = clamp(Math.round(cx - hw / 2), 8, Math.max(8, areaRect.width - hw - 8));
+        let hy = Math.round(bottom + 10);
+        if (hy + hh > areaRect.height - 6) {
+          hy = Math.max(6, Math.round(top - hh - 10));
+        }
+        extHandles.style.left = `${hx}px`;
+        extHandles.style.top = `${clamp(hy, 6, Math.max(6, areaRect.height - hh - 6))}px`;
+      }
+    }
+
+    function atualizarVidrosDoSlide(renderCtx) {
+      const sl = slideAtual();
+      if (!sl) return;
+      contentLayer.getChildren().forEach(grp => {
+        const kGlass = grp.getAttr && grp.getAttr('bigaGlassImg');
+        const camVidro = grp.getAttr && grp.getAttr('bigaGlassCam');
+        if (kGlass && camVidro && Number(camVidro.blurFundo) > 0) {
+          kGlass.image(construirCanvasVidroKonva(camVidro, sl, renderCtx));
+        }
+      });
+      contentLayer.batchDraw();
+    }
+
     // ---------------- Renderização do Palco Konva
     function atualizarSelecaoKonva() {
       const c = camada(E.sel);
       if (!c || !c.visivel || c.travada) {
         transformer.nodes([]);
         overlayLayer.batchDraw();
+        posicionarControlesFlutuantes();
         return;
       }
       const node = contentLayer.findOne(n => n.getAttr && n.getAttr('bigaId') === c.id);
       if (!node) {
         transformer.nodes([]);
         overlayLayer.batchDraw();
+        posicionarControlesFlutuantes();
         return;
       }
+      const box = node.getClientRect({ relativeTo: stage });
+      const pequeno = Math.min(box.width, box.height) < 90;
+      transformer.nodes([node]);
+      transformer.rotateEnabled(false);
       if (c.tipo === 'poligono') {
-        // Polígono usa alças nos 4 vértices; Transformer fica só para contorno/rotação se não conflitar
-        transformer.nodes([node]);
         transformer.resizeEnabled(false);
-        transformer.rotateEnabled(true);
+        transformer.enabledAnchors([]);
       } else {
-        transformer.nodes([node]);
         transformer.resizeEnabled(true);
-        transformer.rotateEnabled(true);
+        const corners = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+        if (pequeno || c.tipo === 'icone' || c.tipo === 'circulo') {
+          transformer.enabledAnchors(corners);
+        } else {
+          transformer.enabledAnchors([
+            'top-left', 'top-center', 'top-right',
+            'middle-right', 'middle-left',
+            'bottom-left', 'bottom-center', 'bottom-right'
+          ]);
+        }
       }
       overlayLayer.batchDraw();
+      posicionarControlesFlutuantes();
     }
 
     function desenharPalco() {
@@ -2246,13 +2543,18 @@
 
       contentLayer.destroyChildren();
       const vars = varsAtuais();
+      const renderCtx = {
+        vars,
+        kit: E.kit,
+        prop: E.prop,
+        fotoUrlFn,
+        loadedImgs: new Map(),
+        onFotoPronta: () => atualizarVidrosDoSlide(renderCtx)
+      };
 
       for (const c of sl.camadas) {
         const group = construirGrupoCamadaKonva(c, sl, {
-          vars,
-          kit: E.kit,
-          prop: E.prop,
-          fotoUrlFn,
+          ...renderCtx,
           selecionada: c.id === E.sel,
           onPolyVertexDrag: (fase, cam) => {
             if (fase === 'start') marcar();
@@ -2288,10 +2590,15 @@
           ev.cancelBubble = true;
           if (E.sel !== c.id) {
             E.sel = c.id;
+            E.propPainel = null;
+            if (E.sheetAberta && E.sheetModo === 'prop') fecharSheetUi();
             if (c.tipo === 'poligono') desenharPalco();
             else atualizarSelecaoKonva();
             renderContextBar();
+            renderBottomBar();
             renderPainel();
+          } else {
+            posicionarControlesFlutuantes();
           }
         });
 
@@ -2332,6 +2639,8 @@
           aplicarSnap(group);
           c.x = Math.round(group.x());
           c.y = Math.round(group.y());
+          atualizarVidrosDoSlide(renderCtx);
+          posicionarControlesFlutuantes();
           renderPainelPropriedadesValores();
         });
 
@@ -2345,13 +2654,15 @@
             c.x = Math.round(group.x());
             c.y = Math.round(group.y());
           }
+          atualizarVidrosDoSlide(renderCtx);
+          posicionarControlesFlutuantes();
           atualizarMiniaturaSlideAtual();
           notificarMudancaDoc();
         });
 
         group.on('transform', () => {
           transformer.keepRatio(E.uniforme !== E.shiftDown);
-          transformer.rotationSnapTolerance(E.shiftDown ? 7.5 : 0);
+          posicionarControlesFlutuantes();
         });
 
         group.on('transformstart', () => {
@@ -2405,8 +2716,11 @@
     stage.on('pointerdown touchstart mousedown', ev => {
       if (ev.target === stage) {
         E.sel = null;
+        E.propPainel = null;
+        if (E.sheetAberta && E.sheetModo === 'prop') fecharSheetUi();
         desenharPalco();
         renderContextBar();
+        renderBottomBar();
         renderPainel();
       }
     });
@@ -2507,6 +2821,16 @@
       if (selZoom) selZoom.value = String(E.zoomModo);
     }
 
+    function fecharSheetUi() {
+      E.sheetAberta = false;
+      E.propPainel = null;
+      const sheet = qs('#stMobileSheet');
+      sheet?.classList.add('hide');
+      sheet?.classList.remove('compact');
+      qs('#stSheetBackdrop')?.classList.add('hide');
+      renderBottomBar();
+    }
+
     function renderContextBar() {
       const bar = qs('#stContextBar');
       if (!bar) return;
@@ -2514,41 +2838,136 @@
       if (!c) {
         bar.classList.add('hide');
         bar.innerHTML = '';
+        posicionarControlesFlutuantes();
         return;
       }
-      bar.classList.remove('hide');
       const vinculo = c.tipo === 'texto' ? detectarCampoVinculado(c.texto) : null;
       const temReconectar = c.tipo === 'texto' && !vinculo && Boolean(c.campoVinculadoAnterior);
 
-      let extra = '';
-      if (c.tipo === 'texto') {
-        extra = `
-          ${vinculo ? `<span class="studio-badge-auto" title="Atualiza automaticamente conforme o imóvel selecionado">⚡ Automático: ${esc(vinculo)}</span>` : ''}
-          ${temReconectar ? `<button type="button" class="studio-ctx-btn accent" data-st="reconectar">⚡ Reconectar ao imóvel</button>` : ''}
-          <button type="button" class="studio-ctx-swatch" data-st="abrirAjustarRoda" data-k="cor" style="--c:${esc(hexRgba(c.cor || '#ffffff'))}" title="Cor do texto"></button>
-          <button type="button" class="studio-ctx-btn" data-st="tamMenos" title="Diminuir fonte">A−</button>
-          <span class="studio-ctx-val">${Math.round(c.tamanho || 40)}</span>
-          <button type="button" class="studio-ctx-btn" data-st="tamMais" title="Aumentar fonte">A+</button>
-        `;
-      } else if (c.tipo === 'foto') {
-        extra = `
-          <button type="button" class="studio-ctx-btn ${E.enquadrar ? 'accent' : ''}" data-st="toggleEnquadrar">${E.enquadrar ? '✓ Enquadrando foto' : 'Enquadrar foto'}</button>
-          <button type="button" class="studio-ctx-btn" data-st="aba" data-aba="galeria">Trocar foto</button>
-        `;
-      } else if (c.tipo === 'retangulo' || c.tipo === 'circulo' || c.tipo === 'poligono' || c.tipo === 'icone' || c.tipo === 'linha') {
-        extra = `<button type="button" class="studio-ctx-swatch" data-st="abrirAjustarRoda" data-k="cor" style="--c:${esc(hexRgba(c.cor || '#5266eb'))}" title="Cor"></button>`;
-      }
-
       bar.innerHTML = `
-        <span class="studio-ctx-title">${esc(c.nome || c.tipo)}</span>
-        ${extra}
-        <button type="button" class="studio-ctx-btn" data-st="abrirAjustar">Editar</button>
+        ${vinculo ? `<span class="studio-badge-auto" title="Atualiza automaticamente conforme o imóvel">⚡ Automático</span>` : ''}
+        ${temReconectar ? `<button type="button" class="studio-ctx-btn accent" data-st="reconectar" title="Reconectar ao imóvel">⚡ Reconectar</button>` : ''}
         <button type="button" class="studio-ctx-btn" data-st="duplicar" title="Duplicar (Ctrl+D)">Duplicar</button>
-        <button type="button" class="studio-ctx-btn" data-st="alinhar" data-a="ch" title="Centralizar horizontal">↔</button>
-        <button type="button" class="studio-ctx-btn" data-st="travarCamada" data-id="${esc(c.id)}" title="${c.travada ? 'Destravar' : 'Travar'}">${c.travada ? '🔒' : '🔓'}</button>
-        <button type="button" class="studio-ctx-btn danger" data-st="apagar" title="Apagar (Del)">🗑</button>
+        <button type="button" class="studio-ctx-btn" data-st="abrirCamadasRapido" title="Camadas">Camadas</button>
+        <button type="button" class="studio-ctx-btn danger" data-st="apagar" title="Apagar (Del)">Apagar</button>
       `;
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => posicionarControlesFlutuantes());
+      } else {
+        posicionarControlesFlutuantes();
+      }
     }
+
+    // Drag das 2 alças externas (↻ Girar e ✥ Mover com precisão)
+    function bindControlesFlutuantes() {
+      if (!extHandles) return;
+      let dragState = null;
+
+      extHandles.addEventListener('pointerdown', ev => {
+        const btn = ev.target.closest('[data-st-ext]');
+        if (!btn) return;
+        const c = camada(E.sel);
+        if (!c || c.travada) return;
+        const node = contentLayer.findOne(n => n.getAttr && n.getAttr('bigaId') === c.id);
+        if (!node) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+
+        const mode = btn.dataset.stExt;
+        marcar();
+        const sc = Math.max(0.15, E.stageScale || 1);
+
+        if (mode === 'girar') {
+          const sr = stageContainer.getBoundingClientRect();
+          const box = node.getClientRect({ relativeTo: stage });
+          const cxScreen = sr.left + box.x + box.width / 2;
+          const cyScreen = sr.top + box.y + box.height / 2;
+          const cxStage = box.x / sc + (box.width / sc) / 2;
+          const cyStage = box.y / sc + (box.height / sc) / 2;
+          const rot0 = Number(c.rot) || 0;
+          const ang0 = Math.atan2(ev.clientY - cyScreen, ev.clientX - cxScreen);
+          dragState = {
+            mode: 'girar', btn, c, node, sc, cxScreen, cyScreen,
+            cxStage, cyStage, p0x: node.x(), p0y: node.y(), rot0, ang0
+          };
+          if (extDegEl) {
+            extDegEl.textContent = `${Math.round(rot0)}°`;
+            extDegEl.classList.remove('hide');
+          }
+        } else {
+          dragState = {
+            mode: 'mover', btn, c, node, sc,
+            startX: ev.clientX, startY: ev.clientY,
+            origX: node.x(), origY: node.y()
+          };
+        }
+        try { btn.setPointerCapture(ev.pointerId); } catch {}
+      });
+
+      extHandles.addEventListener('pointermove', ev => {
+        if (!dragState) return;
+        const { mode, c, node, sc } = dragState;
+        if (mode === 'girar') {
+          const ang = Math.atan2(ev.clientY - dragState.cyScreen, ev.clientX - dragState.cxScreen);
+          let delta = ((ang - dragState.ang0) * 180) / Math.PI;
+          let rot = dragState.rot0 + delta;
+          if (ev.shiftKey) rot = Math.round(rot / 15) * 15;
+          else {
+            const snap45 = Math.round(rot / 45) * 45;
+            if (Math.abs(rot - snap45) <= 3.5) rot = snap45;
+          }
+          rot = Math.round(rot);
+          while (rot > 180) rot -= 360;
+          while (rot < -180) rot += 360;
+          const dRad = ((rot - dragState.rot0) * Math.PI) / 180;
+          const vx = dragState.p0x - dragState.cxStage;
+          const vy = dragState.p0y - dragState.cyStage;
+          const nx = dragState.cxStage + vx * Math.cos(dRad) - vy * Math.sin(dRad);
+          const ny = dragState.cyStage + vx * Math.sin(dRad) + vy * Math.cos(dRad);
+          node.x(nx);
+          node.y(ny);
+          node.rotation(rot);
+          c.x = Math.round(nx);
+          c.y = Math.round(ny);
+          c.rot = rot;
+          if (extDegEl) extDegEl.textContent = `${rot}°`;
+          transformer.forceUpdate();
+          contentLayer.batchDraw();
+          overlayLayer.batchDraw();
+          posicionarControlesFlutuantes();
+          renderPainelPropriedadesValores();
+        } else {
+          const dx = (ev.clientX - dragState.startX) / sc;
+          const dy = (ev.clientY - dragState.startY) / sc;
+          node.x(dragState.origX + dx);
+          node.y(dragState.origY + dy);
+          aplicarSnap(node);
+          c.x = Math.round(node.x());
+          c.y = Math.round(node.y());
+          contentLayer.batchDraw();
+          overlayLayer.batchDraw();
+          posicionarControlesFlutuantes();
+          renderPainelPropriedadesValores();
+        }
+      });
+
+      const endExt = () => {
+        if (!dragState) return;
+        const mode = dragState.mode;
+        try { dragState.btn.releasePointerCapture && dragState.btn.releasePointerCapture(); } catch {}
+        dragState = null;
+        if (extDegEl) extDegEl.classList.add('hide');
+        if (mode === 'mover') limparGuias();
+        desenharPalco();
+        renderContextBar();
+        renderPainelPropriedadesValores();
+        atualizarMiniaturaSlideAtual();
+        notificarMudancaDoc();
+      };
+      extHandles.addEventListener('pointerup', endExt);
+      extHandles.addEventListener('pointercancel', endExt);
+    }
+    bindControlesFlutuantes();
 
     // ---------------- Filmstrip & Dots de Páginas
     async function gerarMiniaturaSlide(sIdx) {
@@ -2604,6 +3023,347 @@
       }
     }
 
+    // ---------------- Barra Inferior Contextual em 2 Modos (Criação vs Edição)
+    function toolIconHtml(id, c) {
+      const svgs = {
+        editar: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+        fonte: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>',
+        tamanho: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17h4l-2-6z"/><path d="M13 19h8l-4-12z"/></svg>',
+        formato: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>',
+        espacamento: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5v14M20 5v14M8 12h8M10 10l-2 2 2 2M14 10l2 2-2 2"/></svg>',
+        efeitos: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 1.9 4.5L18.5 9l-4.6 1.5L12 15l-1.9-4.5L5.5 9l4.6-1.5Z"/><path d="M19 15v5M16.5 17.5h5"/></svg>',
+        transparencia: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 12h16M12 4v16" opacity=".5"/></svg>',
+        camadas: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 12 12 17 22 12"/><polyline points="2 17 12 22 22 17"/></svg>',
+        posicao: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20M9 5l3-3 3 3M9 19l3 3 3-3M5 9l-3 3 3 3M19 9l3 3-3 3"/></svg>',
+        substituir: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="m21 15-5-5-11 9"/></svg>',
+        enquadrar: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>',
+        ajustarFoto: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="2" y1="14" x2="6" y2="14"/><line x1="10" y1="8" x2="14" y2="8"/><line x1="18" y1="16" x2="22" y2="16"/></svg>',
+        cantos: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 11V7a3 3 0 0 1 3-3h4"/><rect x="8" y="8" width="12" height="12" rx="4" opacity=".55"/></svg>',
+        estiloBorda: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="3"/><line x1="8" y1="12" x2="16" y2="12" stroke-width="3"/></svg>',
+        perspectiva: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><polygon points="6 4 18 7 21 20 3 17 6 4"/></svg>',
+        modelos: svgIconeHtml('estrela', 19),
+        elementos: svgIconeHtml('selo-exclusivo', 19),
+        texto: svgIconeHtml('selo-novo', 19),
+        galeria: svgIconeHtml('casa', 19),
+        marca: svgIconeHtml('chave', 19)
+      };
+      if (id === 'cor') {
+        const tc = c ? (c.cor || c.cor2 || c.corFundo || c.corEscuro || '#5266eb') : '#5266eb';
+        return `<span class="studio-tool-cdot" style="--tc:${esc(hexRgba(tc))}"></span>`;
+      }
+      return Object.prototype.hasOwnProperty.call(svgs, id) ? svgs[id] : svgIconeHtml('area', 18);
+    }
+
+    function renderBottomBar() {
+      const bar = qs('#stBottomBar');
+      if (!bar) return;
+      const c = camada(E.sel);
+      if (!c) {
+        const itens = [
+          ['modelos', 'Modelos'],
+          ['elementos', 'Elementos'],
+          ['texto', 'Texto'],
+          ['galeria', 'Galeria'],
+          ['marca', 'Marca'],
+          ['camadas', 'Camadas']
+        ];
+        bar.classList.remove('edit-mode');
+        bar.innerHTML = itens.map(([id, lbl]) => {
+          const active = E.sheetAberta && E.sheetModo === 'aba' && E.abaAtiva === id;
+          return `
+            <button type="button" class="studio-bottom-btn ${active ? 'active' : ''}" data-st="sheet" data-aba="${id}">
+              ${toolIconHtml(id, null)}
+              <span>${esc(lbl)}</span>
+            </button>`;
+        }).join('');
+        return;
+      }
+
+      let tools;
+      if (c.tipo === 'texto') {
+        tools = [
+          ['editar', 'Editar'],
+          ['fonte', 'Fonte'],
+          ['tamanho', 'Tamanho'],
+          ['cor', 'Cor'],
+          ['formato', 'Formato'],
+          ['espacamento', 'Espaçamento'],
+          ['efeitos', 'Efeitos'],
+          ['transparencia', 'Transparência'],
+          ['camadas', 'Camadas'],
+          ['posicao', 'Posição']
+        ];
+      } else if (c.tipo === 'foto') {
+        tools = [
+          ['substituir', 'Substituir'],
+          ['enquadrar', 'Enquadrar'],
+          ['ajustarFoto', 'Ajustar'],
+          ['cantos', 'Cantos'],
+          ['transparencia', 'Transparência'],
+          ['camadas', 'Camadas'],
+          ['posicao', 'Posição']
+        ];
+      } else {
+        tools = [
+          ['cor', 'Cor'],
+          ['estiloBorda', 'Estilo/Borda'],
+          ['perspectiva', 'Perspectiva'],
+          ['cantos', 'Cantos'],
+          ['transparencia', 'Transparência'],
+          ['camadas', 'Camadas'],
+          ['posicao', 'Posição']
+        ];
+      }
+
+      bar.classList.add('edit-mode');
+      bar.innerHTML = `
+        <div class="studio-edit-tools" data-allow-scroll="1">
+          ${tools.map(([id, lbl]) => {
+            const active = E.sheetAberta && ((id === 'camadas' && E.sheetModo === 'aba' && E.abaAtiva === 'camadas') || (E.sheetModo === 'prop' && E.propPainel === id));
+            return `
+              <button type="button" class="studio-bottom-btn ${active ? 'active' : ''}" data-st="propTool" data-prop="${id}">
+                ${toolIconHtml(id, c)}
+                <span>${esc(lbl)}</span>
+              </button>`;
+          }).join('')}
+        </div>
+        <button type="button" class="studio-done-btn" data-st="concluirEdicao" aria-label="Concluir edição" title="Concluir">✓</button>`;
+    }
+
+    function titulosPropPainel(prop) {
+      return new Map([
+        ['editar', 'Editar Texto'],
+        ['fonte', 'Fonte & Peso'],
+        ['tamanho', 'Tamanho'],
+        ['cor', 'Cor'],
+        ['formato', 'Formato & Alinhamento'],
+        ['espacamento', 'Espaçamento'],
+        ['efeitos', 'Fundo, Sombra & Contorno'],
+        ['transparencia', 'Transparência'],
+        ['posicao', 'Posição & Alinhamento'],
+        ['substituir', 'Substituir Foto'],
+        ['enquadrar', 'Enquadramento'],
+        ['ajustarFoto', 'Luz, Cor & Desfoque'],
+        ['cantos', 'Arredondar Cantos'],
+        ['estiloBorda', 'Estilo & Borda'],
+        ['perspectiva', 'Perspectiva & Inclinação']
+      ]).get(prop) || 'Propriedade';
+    }
+
+    function htmlMiniPainel(propKey, c) {
+      if (!c) return htmlAbaAjustar();
+      const wrap = body => `<div class="studio-stack studio-mini-panel">${body}</div>`;
+
+      if (propKey === 'editar') {
+        const vinculo = detectarCampoVinculado(c.texto);
+        const temReconn = !vinculo && Boolean(c.campoVinculadoAnterior);
+        const textoExibido = textoResolvidoDe({ ...c, maiusculas: false }, varsAtuais());
+        const chipsRapidos = CAMPOS_INTELIGENTES.slice(0, 10).map(([tk, lbl]) => `
+          <button type="button" class="studio-chip-btn ${c.texto === tk ? 'active' : ''}" data-st="inserirDado" data-token="${esc(tk)}" data-label="${esc(lbl)}">${esc(lbl)}</button>
+        `).join('');
+        return wrap(`
+          <div class="studio-row-between">
+            ${vinculo ? `<span class="studio-badge-auto">⚡ Automático: ${esc(vinculo)}</span>` : '<span></span>'}
+            <button type="button" class="studio-pill-btn" data-st="editarInline">Editar na arte</button>
+          </div>
+          ${temReconn ? `<button type="button" class="studio-pill-btn full accent" data-st="reconectar">⚡ Reconectar ao imóvel</button>` : ''}
+          <textarea data-k="texto_visual" rows="3" placeholder="Digite o texto…">${esc(textoExibido)}</textarea>
+          <span class="studio-sec-label">Vincular dado do imóvel</span>
+          <div class="studio-chips-wrap">${chipsRapidos}</div>
+        `);
+      }
+
+      if (propKey === 'fonte') {
+        return wrap(`
+          <div class="studio-font-picker">
+            <span class="studio-sec-label">Atual: <b style="font-family:'${esc(safeFont(c.fonte))}'">${esc(c.fonte)}</b></span>
+            <div class="studio-row-tight">
+              <input type="search" data-stf="busca" placeholder="Buscar fonte…" value="${esc(E.fonteBusca)}">
+              <select data-stf="cat">
+                <option value="">Todas</option>
+                ${Object.entries(CAT_FONTES).map(([k, v]) => `<option value="${k}" ${E.fonteCat === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}
+              </select>
+            </div>
+            <div class="studio-font-list" id="stFontList"></div>
+          </div>
+          <label class="studio-field"><span>Peso da fonte</span><select data-k="peso">${pesosDe(c.fonte).map(w => `<option value="${w}" ${Number(w) === Number(c.peso) ? 'selected' : ''}>${w}</option>`).join('')}</select></label>
+        `);
+      }
+
+      if (propKey === 'tamanho') {
+        return wrap(`
+          <div class="studio-row-tight">
+            <button type="button" class="studio-pill-btn" data-st="tamMenos">A−</button>
+            <strong class="studio-size-readout">${Math.round(c.tamanho || 40)} px</strong>
+            <button type="button" class="studio-pill-btn" data-st="tamMais">A+</button>
+          </div>
+          ${numCampo('tamanho', 'Tamanho (px)', c.tamanho, 6, 400)}
+          ${chkCampo('autoFit', 'Auto-ajuste na caixa', c.autoFit)}
+        `);
+      }
+
+      if (propKey === 'cor') {
+        if (c.tipo === 'degrade') {
+          return wrap(`
+            ${corCampo('cor1', 'Cor inicial', c.cor1 || '#00000000')}
+            ${corCampo('cor2', 'Cor final', c.cor2 || '#000000cc')}
+            ${numCampo('angulo', 'Direção (°)', c.angulo ?? 180, 0, 360)}
+          `);
+        }
+        if (c.tipo === 'qrcode') {
+          return wrap(`
+            <label class="studio-field"><span>URL / WhatsApp</span><input type="text" data-k="url" value="${esc(c.url || '')}" placeholder="Automático do imóvel"></label>
+            ${corCampo('corEscuro', 'Cor dos pontos', c.corEscuro || '#171721')}
+            ${corCampo('corClaro', 'Cor do fundo', c.corClaro || '#ffffff')}
+          `);
+        }
+        if (c.tipo === 'logo') {
+          return wrap(`
+            <label class="studio-field"><span>Origem</span><select data-k="origem"><option value="kit" ${c.origem !== 'custom' ? 'selected' : ''}>Logo do Kit de Marca</option><option value="custom" ${c.origem === 'custom' ? 'selected' : ''}>Customizada</option></select></label>
+            ${corCampo('corFundo', 'Cor do monograma', c.corFundo || '#5266eb')}
+            ${corCampo('corTexto', 'Cor da letra', c.corTexto || '#ffffff')}
+          `);
+        }
+        return wrap(`
+          ${corCampo('cor', c.tipo === 'texto' ? 'Cor do texto' : 'Cor principal', c.cor || '#ffffff')}
+          ${c.tipo === 'icone' && c.formaFundo && c.formaFundo !== 'nenhum' ? corCampo('corFundo', 'Cor do fundo', c.corFundo || '#5266eb') : ''}
+        `);
+      }
+
+      if (propKey === 'formato') {
+        return wrap(`
+          <div class="studio-seg-row">
+            <button type="button" class="studio-seg-btn ${Number(c.peso) >= 600 ? 'active' : ''}" data-st="toggleBold"><b>B</b></button>
+            <button type="button" class="studio-seg-btn ${c.italico ? 'active' : ''}" data-st="toggleItalico"><i>I</i></button>
+            <button type="button" class="studio-seg-btn ${c.maiusculas ? 'active' : ''}" data-st="toggleCaps">AA</button>
+            <button type="button" class="studio-seg-btn ${(!c.alinhamento || c.alinhamento === 'left') ? 'active' : ''}" data-st="setAlinhamento" data-val="left">Esq</button>
+            <button type="button" class="studio-seg-btn ${c.alinhamento === 'center' ? 'active' : ''}" data-st="setAlinhamento" data-val="center">Centro</button>
+            <button type="button" class="studio-seg-btn ${c.alinhamento === 'right' ? 'active' : ''}" data-st="setAlinhamento" data-val="right">Dir</button>
+          </div>
+          <label class="studio-field"><span>Quando cresce</span><select data-k="ancora"><option value="topo" ${c.ancora !== 'base' ? 'selected' : ''}>Para baixo</option><option value="base" ${c.ancora === 'base' ? 'selected' : ''}>Para cima (base fixa)</option></select></label>
+        `);
+      }
+
+      if (propKey === 'espacamento') {
+        return wrap(`
+          ${numCampo('espacamento', 'Espaço entre letras', c.espacamento || 0, -10, 60, 0.5)}
+          ${numCampo('entrelinha', 'Altura da linha', c.entrelinha || 1.15, 0.6, 2.5, 0.05)}
+        `);
+      }
+
+      if (propKey === 'efeitos') {
+        return wrap(`
+          ${chkCampo('fundo', 'Fundo (etiqueta)', c.fundo)}
+          ${c.fundo ? corCampo('corFundo', 'Cor do fundo', c.corFundo || '#5266eb') + numCampo('raioFundo', 'Arredondar fundo', c.raioFundo || 0, 0, 200) + numCampo('folga', 'Folga interna', c.folga || 0, 0, 120) : ''}
+          ${numCampo('sombra', 'Sombra', c.sombra || 0, 0, 60)}
+          ${c.sombra ? corCampo('corSombra', 'Cor da sombra', c.corSombra || '#000000') : ''}
+          ${numCampo('contorno', 'Contorno', c.contorno || 0, 0, 30)}
+          ${c.contorno ? corCampo('corContorno', 'Cor do contorno', c.corContorno || '#000000') : ''}
+        `);
+      }
+
+      if (propKey === 'transparencia') {
+        return wrap(numCampo('opacidade', 'Opacidade', c.opacidade ?? 1, 0, 1, 0.01));
+      }
+
+      if (propKey === 'posicao') {
+        return wrap(`
+          <div class="studio-align-row">
+            ${[['esq', '⇤'], ['ch', '↔'], ['dir', '⇥'], ['topo', '⤒'], ['cv', '↕'], ['base', '⤓']].map(([k, ic]) => `<button type="button" class="studio-align-btn" data-st="alinhar" data-a="${k}" title="Alinhar">${ic}</button>`).join('')}
+          </div>
+          <div class="studio-grid-2">
+            ${numCampo('x', 'X', c.x, -2000, 4000)}
+            ${numCampo('y', 'Y', c.y, -2000, 4000)}
+            ${numCampo('w', 'Largura', c.w, 8, 4000)}
+            ${numCampo('h', 'Altura', c.h, 8, 4000)}
+          </div>
+          ${numCampo('rot', 'Girar (°)', c.rot, -180, 180)}
+        `);
+      }
+
+      if (propKey === 'substituir') {
+        const fotos = fotosDe(E.prop);
+        return wrap(`
+          <label class="studio-upload-btn">
+            <input type="file" accept="image/*" name="stUploadFoto">
+            <span>＋ Enviar foto do aparelho</span>
+          </label>
+          ${fotos.length ? `<div class="studio-photo-strip">${fotos.slice(0, 18).map((f, i) => `<button type="button" class="${i === c.indiceFoto ? 'sel' : ''}" data-st="trocarFotoCamada" data-i="${i}"><img src="${esc(fotoUrlFn(f))}" alt=""></button>`).join('')}</div>` : '<p class="studio-hint">Este imóvel não possui fotos cadastradas.</p>'}
+        `);
+      }
+
+      if (propKey === 'enquadrar') {
+        return wrap(`
+          ${chkCampo('__enquadrar', 'Enquadrar foto ao arrastar', E.enquadrar)}
+          ${numCampo('zoom', 'Zoom da foto', c.zoom ?? 1, 1, 4, 0.01)}
+          <div class="studio-grid-2">${numCampo('offX', 'Enquadrar ↔', c.offX ?? 0, -1, 1, 0.01)}${numCampo('offY', 'Enquadrar ↕', c.offY ?? 0, -1, 1, 0.01)}</div>
+        `);
+      }
+
+      if (propKey === 'ajustarFoto') {
+        return wrap(`
+          ${numCampo('brilho', 'Brilho', c.brilho ?? 100, 0, 200)}
+          ${numCampo('contraste', 'Contraste', c.contraste ?? 100, 0, 200)}
+          ${numCampo('saturacao', 'Saturação', c.saturacao ?? 100, 0, 200)}
+          ${numCampo('desfoque', 'Desfoque', c.desfoque ?? 0, 0, 30)}
+        `);
+      }
+
+      if (propKey === 'cantos') {
+        if (c.tipo === 'icone' || c.tipo === 'logo') {
+          const val = c.tipo === 'icone' ? c.formaFundo : c.forma;
+          const kNome = c.tipo === 'icone' ? 'formaFundo' : 'forma';
+          return wrap(`
+            <label class="studio-field"><span>Formato do fundo</span><select data-k="${kNome}">${[['nenhum', 'Sem fundo'], ['circulo', 'Circular'], ['quadrado', 'Quadrado']].concat(c.tipo === 'icone' ? [['pilula', 'Pílula']] : []).map(([v, l]) => `<option value="${v}" ${val === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+            ${numCampo('raio', 'Arredondar cantos', c.raio ?? 0, 0, 600)}
+          `);
+        }
+        const rArr = obterRaiosCamada(c);
+        return wrap(`
+          ${numCampo('raio', 'Arredondar todos', c.raio ?? 0, 0, 600)}
+          <div class="studio-cantos-box">
+            <span class="studio-sec-label">Cantos individuais</span>
+            <div class="studio-grid-4">
+              ${['TL', 'TR', 'BR', 'BL'].map((lbl, idx) => `<label class="studio-canto-inp"><span>${lbl}</span><input type="number" data-raios="${idx}" min="0" max="600" value="${Math.round(rArr[idx] || 0)}"></label>`).join('')}
+            </div>
+          </div>
+        `);
+      }
+
+      if (propKey === 'estiloBorda') {
+        if (c.tipo === 'linha') {
+          return wrap(`
+            ${numCampo('espessura', 'Espessura', c.espessura ?? 4, 1, 60)}
+            ${chkCampo('tracejado', 'Linha tracejada', Boolean(c.tracejado))}
+          `);
+        }
+        if (c.tipo === 'icone') {
+          return wrap(`
+            <label class="studio-field"><span>Fundo do ícone</span><select data-k="formaFundo">${[['nenhum', 'Sem fundo'], ['circulo', 'Circular'], ['quadrado', 'Quadrado'], ['pilula', 'Pílula']].map(([v, l]) => `<option value="${v}" ${c.formaFundo === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+            ${c.formaFundo && c.formaFundo !== 'nenhum' ? corCampo('corFundo', 'Cor do fundo', c.corFundo || '#5266eb') : ''}
+          `);
+        }
+        return wrap(`
+          ${c.tipo === 'retangulo' ? numCampo('blurFundo', 'Vidro fosco (Blur)', c.blurFundo ?? 0, 0, 40) : ''}
+          ${numCampo('borda', 'Espessura da borda', c.borda ?? 0, 0, 60)}
+          ${c.borda ? corCampo('corBorda', 'Cor da borda', c.corBorda || '#ffffff') : ''}
+        `);
+      }
+
+      if (propKey === 'perspectiva') {
+        return wrap(`
+          <div class="studio-grid-2">
+            ${numCampo('skewX', 'Inclinar X (°)', c.skewX || 0, -60, 60)}
+            ${numCampo('skewY', 'Inclinar Y (°)', c.skewY || 0, -60, 60)}
+          </div>
+          ${c.tipo === 'retangulo' ? '<button type="button" class="studio-pill-btn full accent" data-st="converterPoligono">Editar 4 vértices livres</button>' : ''}
+          ${c.tipo === 'poligono' ? '<p class="studio-hint">Arraste os 4 círculos brancos nos cantos da forma direto no palco para ajustar a perspectiva.</p>' : ''}
+        `);
+      }
+
+      return htmlAbaAjustar();
+    }
+
     // ---------------- Painéis (Desktop Panel & Mobile Bottom Sheet)
     function titulosAba(aba) {
       return new Map([
@@ -2622,24 +3382,37 @@
       const desktopTitle = qs('#stPanelTitle');
       const mobileBox = qs('#stSheetBody');
       const mobileTitle = qs('#stSheetTitle');
+      const mobileSheet = qs('#stMobileSheet');
 
       const titulo = titulosAba(E.abaAtiva);
       if (desktopTitle) desktopTitle.textContent = titulo;
-      if (mobileTitle) mobileTitle.textContent = titulo;
 
       el.querySelectorAll('.studio-rail-btn').forEach(b => b.classList.toggle('active', b.dataset.aba === E.abaAtiva));
-      el.querySelectorAll('.studio-bottom-btn').forEach(b => b.classList.toggle('active', E.sheetAberta && b.dataset.aba === E.abaAtiva));
 
-      const html = montarHtmlAba(E.abaAtiva);
-      if (desktopBox) desktopBox.innerHTML = html;
-      if (mobileBox && E.sheetAberta) mobileBox.innerHTML = html;
+      const htmlDesktop = montarHtmlAba(E.abaAtiva);
+      if (desktopBox) desktopBox.innerHTML = htmlDesktop;
 
+      if (mobileBox && E.sheetAberta) {
+        const emProp = E.sheetModo === 'prop' && E.propPainel && camada(E.sel);
+        if (emProp) {
+          if (mobileTitle) mobileTitle.textContent = titulosPropPainel(E.propPainel);
+          mobileBox.innerHTML = htmlMiniPainel(E.propPainel, camada(E.sel));
+          mobileSheet?.classList.add('compact');
+        } else {
+          if (mobileTitle) mobileTitle.textContent = titulo;
+          mobileBox.innerHTML = htmlDesktop;
+          mobileSheet?.classList.remove('compact');
+        }
+      }
+
+      renderBottomBar();
       if (E.abaAtiva === 'modelos') hidratarMiniaturasModelos();
-      if (E.abaAtiva === 'texto') listarFontesPainel();
-      if (E.abaAtiva === 'ajustar') {
+      if (E.abaAtiva === 'texto' || (E.sheetAberta && E.sheetModo === 'prop' && E.propPainel === 'fonte')) listarFontesPainel();
+      if (E.abaAtiva === 'ajustar' || (E.sheetAberta && E.sheetModo === 'prop' && (E.propPainel === 'cor' || E.propPainel === 'efeitos' || E.propPainel === 'estiloBorda'))) {
         listarFontesPainel();
         desenharRoda();
       }
+      if (E.abaAtiva === 'camadas') bindDragDropCamadas();
     }
 
     function montarHtmlAba(aba) {
@@ -2701,7 +3474,8 @@
           <div class="studio-model-grid">
             ${prontos.map((m, idx) => {
               const mid = esc(m.id || `pronto-${idx}`);
-              const cached = E.modeloThumbs.get(`pronto:${m.id || idx}:${E.prop?.id || ''}`);
+              const chaveThumb = `pronto:${m.id || idx}:${E.doc.formato || 'feed'}:${E.prop?.id || ''}:${Boolean(E.kit?.logoUrl || E.kit?.logo)}:${E.kit?.cores1?.fundo || ''}`;
+              const cached = E.modeloThumbs.get(chaveThumb);
               return `
                 <button type="button" class="studio-model-card" data-st="escolherPronto" data-id="${mid}">
                   <div class="studio-model-thumb" style="aspect-ratio:${W}/${H}">
@@ -2717,7 +3491,8 @@
             <div class="studio-model-grid">
               ${meus.map((m, idx) => {
                 const mid = esc(m.id || `meu-${idx}`);
-                const cached = E.modeloThumbs.get(`meu:${m.id || idx}:${E.prop?.id || ''}`);
+                const chaveThumb = `meu:${m.id || idx}:${E.doc.formato || 'feed'}:${E.prop?.id || ''}:${Boolean(E.kit?.logoUrl || E.kit?.logo)}:${E.kit?.cores1?.fundo || ''}`;
+                const cached = E.modeloThumbs.get(chaveThumb);
                 const isFav = Boolean(m.favorito || m.padrao || (padrao && m.id === padrao));
                 return `
                   <div class="studio-model-wrap">
@@ -2750,8 +3525,9 @@
       const meus = getMeusModelos();
       const vars = varsAtuais();
       const [W, H] = dimensoesDoc(E.doc);
-      const tw = 220;
-      const th = Math.max(48, Math.round((H / W) * tw));
+      const tw = 240;
+      const th = Math.max(56, Math.round((H / W) * tw));
+      const ctxSig = `${E.doc.formato || 'feed'}:${E.prop?.id || ''}:${Boolean(E.kit?.logoUrl || E.kit?.logo)}:${E.kit?.cores1?.fundo || ''}`;
 
       const tarefas = [
         ...prontos.map((m, idx) => ({ key: `pronto:${m.id || idx}`, m })),
@@ -2760,13 +3536,13 @@
 
       for (const item of tarefas) {
         if (E.destroyed || E.abaAtiva !== 'modelos') return;
-        const cacheKey = `${item.key}:${E.prop?.id || ''}`;
+        const cacheKey = `${item.key}:${ctxSig}`;
         let url = E.modeloThumbs.get(cacheKey);
         if (!url) {
           const docM = normalizarDoc(typeof item.m.criar === 'function' ? item.m.criar(E.doc.formato) : (item.m.doc || item.m), modo);
           const sl0 = docM.slides[0];
           if (sl0) {
-            url = await renderizarMiniaturaCanvas(sl0, vars, E.kit, tw, th, { docW: docM.largura, docH: docM.altura, prop: E.prop, fotoUrl: fotoUrlFn });
+            url = await renderizarMiniaturaCanvas(sl0, vars, E.kit, tw, th, { docW: docM.largura, docH: docM.altura, prop: E.prop, fotoUrl: fotoUrlFn, carregarFontes: true });
             if (url) E.modeloThumbs.set(cacheKey, url);
           }
         }
@@ -2893,29 +3669,148 @@
         </div>`;
     }
 
+    function camadaPreviewHtml(c, vars) {
+      if (c.tipo === 'texto') {
+        const ff = safeFont(c.fonte || 'Inter');
+        const col = hexRgba(c.cor || '#ededf3');
+        return `<span class="studio-layer-prev-txt" style="font-family:'${esc(ff)}',sans-serif;color:${esc(col)}">Aa</span>`;
+      }
+      if (c.tipo === 'foto') {
+        const fotos = fotosDe(E.prop);
+        const f = fotos[c.indiceFoto] || fotos[0];
+        const src = c.fotoCustom || (f ? fotoUrlFn(f) : '');
+        return src
+          ? `<img class="studio-layer-prev-img" src="${esc(src)}" alt="">`
+          : svgIconeHtml('casa', 18);
+      }
+      if (c.tipo === 'degrade') {
+        return `<span class="studio-layer-prev-grad" style="background:linear-gradient(135deg, ${esc(hexRgba(c.cor1 || '#00000000'))}, ${esc(hexRgba(c.cor2 || '#000000cc'))})"></span>`;
+      }
+      if (c.tipo === 'circulo') {
+        return `<span class="studio-layer-prev-dot" style="background:${esc(hexRgba(c.cor || '#5266eb'))}"></span>`;
+      }
+      if (c.tipo === 'icone') {
+        return svgIconeHtml(c.iconeId || 'estrela', 18);
+      }
+      return `<span class="studio-layer-prev-box" style="background:${esc(hexRgba(c.cor || c.corFundo || '#5266eb'))}"></span>`;
+    }
+
+    function camadasSobrepostas(sl, alvo) {
+      if (!sl || !alvo) return [];
+      const ax1 = Number(alvo.x) || 0;
+      const ay1 = Number(alvo.y) || 0;
+      const ax2 = ax1 + (Number(alvo.w) || 40);
+      const ay2 = ay1 + (Number(alvo.h) || 40);
+      return [...sl.camadas].reverse().filter(c => {
+        if (c.id === alvo.id) return true;
+        const bx1 = Number(c.x) || 0;
+        const by1 = Number(c.y) || 0;
+        const bx2 = bx1 + (Number(c.w) || 40);
+        const by2 = by1 + (Number(c.h) || 40);
+        return bx1 < ax2 && bx2 > ax1 && by1 < ay2 && by2 > ay1;
+      });
+    }
+
     function htmlAbaCamadas() {
       const sl = slideAtual();
-      const camadas = sl ? [...sl.camadas].reverse() : [];
-      if (!camadas.length) return '<p class="studio-hint">Nenhuma camada nesta página ainda.</p>';
+      const todas = sl ? [...sl.camadas].reverse() : [];
+      if (!todas.length) return '<p class="studio-hint">Nenhuma camada nesta página ainda.</p>';
+      const vars = varsAtuais();
+      const selC = camada(E.sel);
+      const sobrepostas = selC ? camadasSobrepostas(sl, selC) : [];
+      const lista = E.camadasTab === 'sobreposicao' ? sobrepostas : todas;
+
       return `
-        <div class="studio-layers-list">
-          ${camadas.map(c => {
-            const previewTxt = c.tipo === 'texto' ? textoResolvidoDe(c, varsAtuais()).slice(0, 22) : '';
-            return `
-              <div class="studio-layer-row ${E.sel === c.id ? 'sel' : ''}">
-                <button type="button" class="studio-layer-sel" data-st="selCamada" data-id="${esc(c.id)}">
-                  <b>${esc(c.nome || c.tipo)}</b>
-                  ${previewTxt ? `<small>${esc(previewTxt)}</small>` : `<small>${esc(c.tipo)}</small>`}
-                </button>
-                <div class="studio-layer-btns">
-                  <button type="button" data-st="subirCamada" data-id="${esc(c.id)}" title="Trazer para frente">▲</button>
-                  <button type="button" data-st="descerCamada" data-id="${esc(c.id)}" title="Enviar para trás">▼</button>
-                  <button type="button" data-st="verCamada" data-id="${esc(c.id)}" title="Mostrar/ocultar">${c.visivel !== false ? '👁' : '◌'}</button>
-                  <button type="button" data-st="travarCamada" data-id="${esc(c.id)}" title="Travar">${c.travada ? '🔒' : '🔓'}</button>
-                </div>
-              </div>`;
-          }).join('')}
+        <div class="studio-stack">
+          <div class="studio-layers-tabs">
+            <button type="button" class="studio-layers-tab ${E.camadasTab !== 'sobreposicao' ? 'active' : ''}" data-st="tabCamadas" data-tab="tudo">Tudo (${todas.length})</button>
+            <button type="button" class="studio-layers-tab ${E.camadasTab === 'sobreposicao' ? 'active' : ''}" data-st="tabCamadas" data-tab="sobreposicao">Em sobreposição (${sobrepostas.length})</button>
+          </div>
+          ${!lista.length ? '<p class="studio-hint">Toque em um elemento na arte para filtrar as camadas que estão em sobreposição.</p>' : `
+            <div class="studio-layers-list" id="stLayersList">
+              ${lista.map(c => {
+                const previewTxt = c.tipo === 'texto' ? textoResolvidoDe(c, vars).slice(0, 26) : c.tipo;
+                return `
+                  <div class="studio-layer-card ${E.sel === c.id ? 'sel' : ''}" data-layer-id="${esc(c.id)}">
+                    <span class="studio-layer-drag" data-layer-drag="${esc(c.id)}" title="Arrastar para reordenar" aria-label="Reordenar camada">⋮⋮</span>
+                    <button type="button" class="studio-layer-sel" data-st="selCamada" data-id="${esc(c.id)}">
+                      <span class="studio-layer-preview">${camadaPreviewHtml(c, vars)}</span>
+                      <span class="studio-layer-meta">
+                        <b>${esc(c.nome || c.tipo)}</b>
+                        <small>${esc(previewTxt)}</small>
+                      </span>
+                    </button>
+                    <div class="studio-layer-btns">
+                      <button type="button" data-st="verCamada" data-id="${esc(c.id)}" title="Mostrar/ocultar">${c.visivel !== false ? '👁' : '◌'}</button>
+                      <button type="button" data-st="travarCamada" data-id="${esc(c.id)}" title="Travar">${c.travada ? '🔒' : '🔓'}</button>
+                    </div>
+                  </div>`;
+              }).join('')}
+            </div>`}
         </div>`;
+    }
+
+    function bindDragDropCamadas() {
+      el.querySelectorAll('.studio-layers-list').forEach(list => {
+        if (list.dataset.dndBound) return;
+        list.dataset.dndBound = '1';
+        let draggingId = null;
+        let lastTargetId = null;
+
+        list.addEventListener('pointerdown', ev => {
+          const handle = ev.target.closest('[data-layer-drag]');
+          if (!handle) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          draggingId = handle.dataset.layerDrag;
+          lastTargetId = draggingId;
+          const card = handle.closest('.studio-layer-card');
+          card?.classList.add('dragging');
+          try { handle.setPointerCapture(ev.pointerId); } catch {}
+        });
+
+        list.addEventListener('pointermove', ev => {
+          if (!draggingId) return;
+          const y = ev.clientY;
+          let hovered = null;
+          list.querySelectorAll('.studio-layer-card').forEach(card => {
+            card.classList.remove('drop-target');
+            const r = card.getBoundingClientRect();
+            if (y >= r.top && y <= r.bottom) hovered = card;
+          });
+          if (hovered && hovered.dataset.layerId && hovered.dataset.layerId !== draggingId) {
+            hovered.classList.add('drop-target');
+            lastTargetId = hovered.dataset.layerId;
+          }
+        });
+
+        const finalizar = () => {
+          if (!draggingId) return;
+          const srcId = draggingId;
+          const dstId = lastTargetId;
+          draggingId = null;
+          lastTargetId = null;
+          list.querySelectorAll('.studio-layer-card').forEach(c => c.classList.remove('dragging', 'drop-target'));
+          if (dstId && dstId !== srcId) {
+            const sl = slideAtual();
+            if (sl) {
+              const iSrc = sl.camadas.findIndex(x => x.id === srcId);
+              const iDst = sl.camadas.findIndex(x => x.id === dstId);
+              if (iSrc >= 0 && iDst >= 0 && iSrc !== iDst) {
+                marcar();
+                const [item] = sl.camadas.splice(iSrc, 1);
+                sl.camadas.splice(iDst, 0, item);
+                desenharPalco();
+                renderPainel();
+                atualizarMiniaturaSlideAtual();
+                notificarMudancaDoc();
+              }
+            }
+          }
+        };
+        list.addEventListener('pointerup', finalizar);
+        list.addEventListener('pointercancel', finalizar);
+      });
     }
 
     const numCampo = (k, rot, v, min, max, passo = 1) => {
@@ -3183,6 +4078,7 @@
       if (refazerPainel) renderPainel();
       else {
         el.querySelectorAll(`.studio-amostra[data-k="${CSS.escape(k)}"]`).forEach(b => b.style.setProperty('--c', hexRgba(hex)));
+        el.querySelectorAll('.studio-tool-cdot').forEach(d => d.style.setProperty('--tc', hexRgba(hex)));
         el.querySelectorAll(`.studio-cor input[data-k="${CSS.escape(k)}"]`).forEach(inp => { if (document.activeElement !== inp) inp.value = hex; });
         desenharRoda();
       }
@@ -3251,18 +4147,39 @@
     }
 
     // ---------------- Modais: Apresentação, Exportar/WhatsApp, Kit, Lote
+    let fecharPresAtiva = null;
     function abrirApresentacao() {
       if (typeof ctx.onApresentacao === 'function') {
         return ctx.onApresentacao({ doc: copia(E.doc), slideAtual: E.slideIdx });
       }
-      const overlay = qs('#stPresOverlay');
-      if (!overlay) return;
+      if (typeof fecharPresAtiva === 'function') fecharPresAtiva();
+
+      const overlay = document.createElement('div');
+      overlay.className = 'studio-pres';
+      overlay.id = 'stPresOverlay';
+      document.body.appendChild(overlay);
+
       let idx = E.slideIdx;
       const total = E.doc.slides.length;
       const [W, H] = dimensoesDoc(E.doc);
 
+      const ajustarImagemPres = () => {
+        const img = overlay.querySelector('#stPresImg');
+        const stg = overlay.querySelector('.studio-pres-stage');
+        if (!img || !stg) return;
+        const vv = window.visualViewport;
+        const vw = vv ? vv.width : window.innerWidth;
+        const vh = vv ? vv.height : window.innerHeight;
+        const padH = vw < 700 ? 72 : 112;
+        const padW = vw < 700 ? 16 : 96;
+        const availW = Math.max(120, (stg.clientWidth || vw) - padW);
+        const availH = Math.max(120, Math.min(vh, stg.clientHeight || vh) - padH);
+        const escFit = Math.min(availW / W, availH / H);
+        img.style.width = `${Math.round(W * escFit)}px`;
+        img.style.height = `${Math.round(H * escFit)}px`;
+      };
+
       const renderPres = async () => {
-        overlay.classList.remove('hide');
         overlay.innerHTML = `
           <div class="studio-pres-bar">
             <span>${esc(E.doc.slides[idx]?.nome || `Página ${idx + 1}`)} · ${idx + 1} / ${total}</span>
@@ -3270,14 +4187,16 @@
           </div>
           <div class="studio-pres-stage">
             <button type="button" class="studio-pres-nav prev" data-pres="ant" ${idx === 0 ? 'disabled' : ''}>‹</button>
-            <img id="stPresImg" alt="Slide ${idx + 1}" style="aspect-ratio:${W}/${H}">
+            <img id="stPresImg" alt="Slide ${idx + 1}">
             <button type="button" class="studio-pres-nav next" data-pres="prox" ${idx >= total - 1 ? 'disabled' : ''}>›</button>
           </div>`;
+        ajustarImagemPres();
         const png = await renderizarMiniaturaCanvas(E.doc.slides[idx], varsAtuais(), E.kit, W, H, {
           docW: W, docH: H, prop: E.prop, fotoUrl: fotoUrlFn, carregarFontes: true
         });
         const img = overlay.querySelector('#stPresImg');
         if (img && png) img.src = png;
+        ajustarImagemPres();
       };
 
       const onPresClick = ev => {
@@ -3293,14 +4212,23 @@
         else if (ev.key === 'ArrowLeft' && idx > 0) { idx--; renderPres(); }
         else if (ev.key === 'ArrowRight' && idx < total - 1) { idx++; renderPres(); }
       };
+      const onPresResize = () => ajustarImagemPres();
+
       function fecharPres() {
-        overlay.classList.add('hide');
-        overlay.innerHTML = '';
         overlay.removeEventListener('click', onPresClick);
         window.removeEventListener('keydown', onPresKey);
+        window.removeEventListener('resize', onPresResize);
+        window.removeEventListener('orientationchange', onPresResize);
+        if (window.visualViewport) window.visualViewport.removeEventListener('resize', onPresResize);
+        overlay.remove();
+        if (fecharPresAtiva === fecharPres) fecharPresAtiva = null;
       }
+      fecharPresAtiva = fecharPres;
       overlay.addEventListener('click', onPresClick);
       window.addEventListener('keydown', onPresKey);
+      window.addEventListener('resize', onPresResize);
+      window.addEventListener('orientationchange', onPresResize);
+      if (window.visualViewport) window.visualViewport.addEventListener('resize', onPresResize);
       renderPres();
     }
 
@@ -3377,13 +4305,14 @@
       `);
     }
 
-    // ---------------- Dropdown Menu (...)
+    // ---------------- Dropdown Menu / Action Sheet (...)
     function renderTopMenu() {
       const menu = qs('#stTopMenu');
-      if (!menu) return;
-      menu.classList.toggle('hide', !E.menuAberto);
-      if (!E.menuAberto) return;
-      menu.innerHTML = `
+      const actionSheet = qs('#stActionSheet');
+      const actionBack = qs('#stActionBackdrop');
+      const isMob = typeof window !== 'undefined' && window.innerWidth < 900;
+      const botoesHtml = `
+        ${typeof ctx.onSalvarImovel === 'function' ? '<button type="button" class="accent" data-st="salvarImovel">Salvar alterações no imóvel</button>' : ''}
         <button type="button" data-st="salvarModelo" data-novo="0">Salvar modelo</button>
         <button type="button" data-st="salvarModelo" data-novo="1">Salvar como novo modelo</button>
         <button type="button" data-st="abrirModalKit">Kit de Marca</button>
@@ -3391,6 +4320,53 @@
         ${typeof ctx.onEditarImovel === 'function' ? '<button type="button" data-st="editarImovel">Editar dados do imóvel</button>' : ''}
         <button type="button" class="danger" data-st="restaurarPadrao">Restaurar padrão</button>
       `;
+
+      if (menu) {
+        menu.classList.toggle('hide', !E.menuAberto || isMob);
+        menu.innerHTML = E.menuAberto && !isMob ? botoesHtml : '';
+      }
+
+      if (actionSheet && actionBack) {
+        const showSheet = Boolean(E.menuAberto && isMob);
+        actionSheet.classList.toggle('hide', !showSheet);
+        actionBack.classList.toggle('hide', !showSheet);
+        if (showSheet) {
+          const inv = getInventario();
+          const selImovelHtml = `
+            <label class="studio-field">
+              <span>Imóvel ativo</span>
+              <select name="stSheetImovel">
+                ${inv.length
+                  ? inv.map(p => `<option value="${esc(p.id)}" ${E.prop && String(E.prop.id) === String(p.id) ? 'selected' : ''}>#${esc(p.id)} · ${esc(p.tipo || 'Imóvel')}${p.setor ? ' · ' + esc(p.setor) : ''}</option>`).join('')
+                  : '<option value="">Sem imóvel na carteira</option>'}
+              </select>
+            </label>`;
+          const selFmtHtml = modo === 'capas' ? `
+            <label class="studio-field">
+              <span>Formato da capa</span>
+              <select name="stSheetFormato">
+                <option value="feed" ${E.doc.formato === 'feed' ? 'selected' : ''}>Feed 4:5</option>
+                <option value="quadrado" ${E.doc.formato === 'quadrado' ? 'selected' : ''}>Quadrado 1:1</option>
+                <option value="story" ${E.doc.formato === 'story' ? 'selected' : ''}>Story 9:16</option>
+              </select>
+            </label>` : '';
+          actionSheet.innerHTML = `
+            <div class="studio-sheet-handle"><span></span></div>
+            <div class="studio-sheet-head">
+              <h3>Mais opções</h3>
+              <button type="button" class="studio-icon-btn" data-st="fecharMenu" aria-label="Fechar">✕</button>
+            </div>
+            <div class="studio-action-body">
+              <div class="studio-stack" style="margin-bottom:8px;">
+                ${selImovelHtml}
+                ${selFmtHtml}
+              </div>
+              <div class="studio-action-list">${botoesHtml}</div>
+            </div>`;
+        } else {
+          actionSheet.innerHTML = '';
+        }
+      }
     }
 
     // ---------------- Ações & Eventos
@@ -3400,6 +4376,7 @@
       desenharPalco();
       ajustarEscalaPalco();
       renderContextBar();
+      renderBottomBar();
       renderPainel();
       renderFilmstrip();
     }
@@ -3492,6 +4469,21 @@
           E.menuAberto = !E.menuAberto;
           renderTopMenu();
           return;
+        case 'fecharMenu':
+          E.menuAberto = false;
+          renderTopMenu();
+          return;
+        case 'salvarImovel':
+          E.menuAberto = false;
+          renderTopMenu();
+          if (typeof ctx.onSalvarImovel === 'function') {
+            await ctx.onSalvarImovel({
+              doc: copia(E.doc),
+              prop: E.prop,
+              serializar: () => serializarCenaComTelemetria(apiInstancia.getLiveContext())
+            });
+          }
+          return;
         case 'desfazer':
           return desfazer();
         case 'refazer':
@@ -3545,25 +4537,120 @@
         }
         case 'aba':
           E.abaAtiva = data.aba || 'modelos';
+          E.sheetModo = 'aba';
+          E.propPainel = null;
           renderPainel();
           return;
         case 'sheet':
           E.abaAtiva = data.aba || 'modelos';
+          E.sheetModo = 'aba';
+          E.propPainel = null;
           E.sheetAberta = true;
           qs('#stMobileSheet')?.classList.remove('hide');
           qs('#stSheetBackdrop')?.classList.remove('hide');
           renderPainel();
           return;
+        case 'propTool': {
+          const pKey = data.prop;
+          if (!pKey) return;
+          if (pKey === 'camadas') {
+            return executarAcao('sheet', { aba: 'camadas' });
+          }
+          E.sheetModo = 'prop';
+          E.propPainel = pKey;
+          E.rodaPara = pKey === 'cor' ? (c?.tipo === 'logo' ? 'corFundo' : c?.tipo === 'degrade' ? 'cor2' : 'cor') : null;
+          E.sheetAberta = true;
+          qs('#stMobileSheet')?.classList.remove('hide');
+          qs('#stSheetBackdrop')?.classList.remove('hide');
+          renderPainel();
+          return;
+        }
+        case 'concluirEdicao':
+          E.sel = null;
+          fecharSheetUi();
+          desenharPalco();
+          renderContextBar();
+          renderPainel();
+          return;
+        case 'abrirCamadasRapido':
+          if (typeof window !== 'undefined' && window.innerWidth < 900) {
+            return executarAcao('sheet', { aba: 'camadas' });
+          }
+          return executarAcao('aba', { aba: 'camadas' });
+        case 'tabCamadas':
+          E.camadasTab = data.tab === 'sobreposicao' ? 'sobreposicao' : 'tudo';
+          renderPainel();
+          return;
+        case 'editarInline':
+          if (c && c.tipo === 'texto' && !c.travada) {
+            fecharSheetUi();
+            const node = contentLayer.findOne(n => n.getAttr && n.getAttr('bigaId') === c.id);
+            if (node) abrirEdicaoInlineTexto(c, node);
+          }
+          return;
+        case 'toggleBold':
+          if (c && c.tipo === 'texto') {
+            marcar();
+            c.peso = Number(c.peso) >= 600 ? 400 : 700;
+            await carregarFonte(c.fonte, c.peso, c.italico);
+            desenharPalco();
+            renderPainel();
+            atualizarMiniaturaSlideAtual();
+            notificarMudancaDoc();
+          }
+          return;
+        case 'toggleItalico':
+          if (c && c.tipo === 'texto') {
+            marcar();
+            c.italico = !c.italico;
+            await carregarFonte(c.fonte, c.peso, c.italico);
+            desenharPalco();
+            renderPainel();
+            atualizarMiniaturaSlideAtual();
+            notificarMudancaDoc();
+          }
+          return;
+        case 'toggleCaps':
+          if (c && c.tipo === 'texto') {
+            marcar();
+            c.maiusculas = !c.maiusculas;
+            desenharPalco();
+            renderPainel();
+            atualizarMiniaturaSlideAtual();
+            notificarMudancaDoc();
+          }
+          return;
+        case 'setAlinhamento':
+          if (c && c.tipo === 'texto' && ['left', 'center', 'right'].includes(data.val)) {
+            marcar();
+            c.alinhamento = data.val;
+            desenharPalco();
+            renderPainel();
+            atualizarMiniaturaSlideAtual();
+            notificarMudancaDoc();
+          }
+          return;
+        case 'converterPoligono':
+          if (c && c.tipo === 'retangulo') {
+            marcar();
+            const cw = Number(c.w) || 200;
+            const ch = Number(c.h) || 140;
+            c.tipo = 'poligono';
+            c.blurFundo = 0;
+            c.vertices = [{ x: 0, y: 0 }, { x: cw, y: 0 }, { x: cw, y: ch }, { x: 0, y: ch }];
+            desenharPalco();
+            renderPainel();
+            atualizarMiniaturaSlideAtual();
+            notificarMudancaDoc();
+          }
+          return;
         case 'fecharSheet':
-          E.sheetAberta = false;
-          qs('#stMobileSheet')?.classList.add('hide');
-          qs('#stSheetBackdrop')?.classList.add('hide');
-          el.querySelectorAll('.studio-bottom-btn').forEach(b => b.classList.remove('active'));
+          fecharSheetUi();
           return;
         case 'abrirAjustar':
           E.abaAtiva = 'ajustar';
           if (typeof window !== 'undefined' && window.innerWidth < 900) {
-            return executarAcao('sheet', { aba: 'ajustar' });
+            return executarAcao('propTool', { prop: E.propPainel || (c?.tipo === 'foto' ? 'ajustarFoto' : c?.tipo === 'texto' ? 'editar' : 'estiloBorda') });
           }
           renderPainel();
           return;
@@ -4192,7 +5279,7 @@
 
     const onElChange = async ev => {
       const t = ev.target;
-      if (t.name === 'stImovel') {
+      if (t.name === 'stImovel' || t.name === 'stSheetImovel') {
         const p = getInventario().find(x => String(x.id) === String(t.value)) || null;
         E.prop = p;
         E.thumbsCache.clear();
@@ -4203,10 +5290,18 @@
           if (ret && ret.fichaOverride !== undefined) E.fichaOverride = ret.fichaOverride;
         }
         reconstruirTudo();
+        if (t.name === 'stSheetImovel') {
+          E.menuAberto = false;
+          renderTopMenu();
+        }
         return;
       }
-      if (t.name === 'stFormato') {
+      if (t.name === 'stFormato' || t.name === 'stSheetFormato') {
         await aplicarMudancaFormato(t.value);
+        if (t.name === 'stSheetFormato') {
+          E.menuAberto = false;
+          renderTopMenu();
+        }
         return;
       }
       if (t.name === 'stZoom') {
@@ -4380,7 +5475,7 @@
 
     // Fecha menu dropdown se clicar fora
     const onDocClick = ev => {
-      if (E.menuAberto && !ev.target.closest('.studio-menu-wrap')) {
+      if (E.menuAberto && !ev.target.closest('.studio-menu-wrap') && !ev.target.closest('#stActionSheet')) {
         E.menuAberto = false;
         renderTopMenu();
       }
@@ -4467,6 +5562,7 @@
       },
       destruir() {
         E.destroyed = true;
+        if (typeof fecharPresAtiva === 'function') fecharPresAtiva();
         fecharEdicaoInline(false);
         if (resizeObs) resizeObs.disconnect();
         stageContainer.removeEventListener('touchmove', bloquearTouchPalco);

@@ -30,6 +30,7 @@
     authed: false,
     configured: true,
     route: 'geral',
+    lastNonStudioRoute: 'inicio',
     status: null,
     inventory: [],
     radar: null,

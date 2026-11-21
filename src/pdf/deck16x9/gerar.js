@@ -7,6 +7,8 @@ const {
   clampNum,
   degParaRad,
   parseCorHex,
+  calcularPontosDegrade,
+  construirParadasDegrade,
   obterRaiosCamada,
   construirMatrizCamada,
   aplicarMatriz2D,
@@ -404,17 +406,12 @@ function gerarDeCena(PDFDocument, QRCode, { cena, dados = {}, kit = {}, fotos = 
       } else if (c.tipo === 'degrade') {
         doc.save();
         doc.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
-        const a = degParaRad((Number(c.angulo) ?? 180) - 90);
-        const r = Math.hypot(w, h) / 2;
-        const grad = doc.linearGradient(
-          w / 2 - Math.cos(a) * r,
-          h / 2 - Math.sin(a) * r,
-          w / 2 + Math.cos(a) * r,
-          h / 2 + Math.sin(a) * r
-        );
-        const c1 = parseCorHex(c.cor1 || '#00000000');
-        const c2 = parseCorHex(c.cor2 || '#000000cc');
-        grad.stop(0, c1.hex, c1.alpha * op).stop(1, c2.hex, c2.alpha * op);
+        const pts = calcularPontosDegrade(w, h, c.angulo);
+        const grad = doc.linearGradient(pts.start.x, pts.start.y, pts.end.x, pts.end.y);
+        const stops = construirParadasDegrade(c.cor1 || '#00000000', c.cor2 || '#000000cc', op);
+        for (const [pos, hexStop, alphaStop] of stops) {
+          grad.stop(pos, hexStop, alphaStop);
+        }
         emitirRetanguloRaios(doc, 0, 0, w, h, raios);
         doc.fill(grad);
         doc.restore();
@@ -533,7 +530,7 @@ function gerarDeCena(PDFDocument, QRCode, { cena, dados = {}, kit = {}, fotos = 
           try {
             doc.image(imgLogo, (w - dw) / 2, (h - dh) / 2, { width: dw, height: dh });
           } catch {}
-        } else {
+        } else if (!c.ocultarSemLogo) {
           const forma = c.forma || 'quadrado';
           const corBg = parseCorHex(c.corFundo || kit?.cores1?.destaque || '#5266eb');
           if (forma !== 'nenhum' && corBg.alpha * op > 0.001) {

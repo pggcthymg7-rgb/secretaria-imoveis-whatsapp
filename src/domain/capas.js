@@ -284,6 +284,7 @@ function limparCamada(raw) {
       raio: num(c.raio, 0, 1000, 16),
       corFundo: cor(c.corFundo, '#5266eb'),
       corTexto: cor(c.corTexto, '#ffffff'),
+      ocultarSemLogo: Boolean(c.ocultarSemLogo),
       src: origem === 'kit' ? src : src
     });
   } else if (c.tipo === 'qrcode') {
