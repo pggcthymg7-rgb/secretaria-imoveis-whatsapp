@@ -10,11 +10,22 @@ const vitrine = require('../../domain/vitrine');
 const capas = require('../../domain/capas');
 
 const router = express.Router();
+const FORBIDDEN_IDS = new Set(['__proto__', 'constructor', 'prototype']);
 
-// Capas (beta): modelos do editor de capas para o Instagram (o desenho é feito no navegador)
+// Capas / Carrossel: modelos do Studio Visual (o desenho roda no navegador via Konva)
 router.get('/api/capas', (req, res) => res.json(capas.listar()));
-router.post('/api/capas/modelos', ah(async (req, res) => res.json({ ok: true, modelo: capas.salvar(req.body || {}), ...capas.listar() })));
-router.delete('/api/capas/modelos/:id', (req, res) => res.json({ ok: capas.apagar(req.params.id), ...capas.listar() }));
+
+router.post('/api/capas/modelos', ah(async (req, res) => {
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+  const modelo = capas.salvar(body);
+  res.json({ ok: true, modelo, ...capas.listar() });
+}));
+
+router.delete('/api/capas/modelos/:id', (req, res) => {
+  const mid = String(req.params.id || '');
+  const ok = !FORBIDDEN_IDS.has(mid.toLowerCase()) && capas.apagar(mid);
+  res.json({ ok, ...capas.listar() });
+});
 
 router.get('/api/vitrine', (req, res) => res.json(vitrine.getState()));
 router.post('/api/vitrine/config', (req, res) => res.json({ ok: true, config: vitrine.updateConfig(req.body || {}) }));

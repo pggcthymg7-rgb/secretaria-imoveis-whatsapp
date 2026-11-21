@@ -6,10 +6,10 @@
   const { $, esc, fotoUrl, when, S, api, toast, register, toggle, field, header, groupSearch, formData, shell } = BIGA;
   const render = opts => BIGA.render(opts);
 
-  // ------------------------------------------------------------------ CAPAS (beta)
+  // ------------------------------------------------------------------ CAPAS (Studio)
   function viewCapas() {
     shell(`
-      ${header('Capas', 'Beta · canvas imobiliário', 'A BIGA monta a capa do post do Instagram com a foto, o nome e o preço do imóvel. Mude o que quiser (fontes do Google, cores, escala, camadas), salve como seu modelo e aplique em todos os imóveis de uma vez.')}
+      ${header('Capas', 'Studio · carrossel & Instagram', 'A BIGA monta capas e carrosséis com a foto, os ícones e os dados reais do imóvel. Escolha entre 12 modelos prontos, personalize no Studio, salve com sua marca e aplique em toda a carteira.')}
       <section class="section"><div class="container" id="capasApp"></div></section>`);
     if (!window.BIGA_CAPAS) return toast('O editor de capas não carregou. Recarregue a página.', true);
     window.BIGA_CAPAS.montar($('#capasApp'), {
@@ -18,7 +18,9 @@
       fotoUrl,
       inventario: () => S.inventory,
       modelos: () => S.capas || { modelos: [] },
-      setModelos: r => (S.capas = { modelos: r.modelos, padrao: r.padrao, tamanhos: r.tamanhos })
+      setModelos: r => (S.capas = { modelos: r.modelos, padrao: r.padrao, tamanhos: r.tamanhos }),
+      kit: () => S.kit,
+      setKit: k => (S.kit = k)
     });
   }
 
@@ -72,8 +74,14 @@
         S.inventory = (await api('GET', '/api/inventory')).inventory;
       },
       capas: async () => {
-        S.capas = await api('GET', '/api/capas');
-        S.inventory = (await api('GET', '/api/inventory')).inventory;
+        const [capasRes, invRes, kitRes] = await Promise.all([
+          api('GET', '/api/capas'),
+          api('GET', '/api/inventory'),
+          api('GET', '/api/pdf/kit').catch(() => null)
+        ]);
+        S.capas = capasRes;
+        S.inventory = invRes.inventory;
+        if (kitRes && kitRes.kit) S.kit = kitRes.kit;
       }
     },
     actions: {

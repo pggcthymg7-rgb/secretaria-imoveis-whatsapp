@@ -38,6 +38,7 @@ const DATA_FILES = [
   'fichas_pdf.json',
   'kit_marca.json',
   'fichas_16x9.json',
+  'pdf_modelos.json',
   'capas.json'
 ];
 const PHOTO_RX = /^[A-Za-z0-9._-]+\.(jpe?g|png|webp)$/i;

@@ -67,13 +67,16 @@ test('Agente 2 E2E: rotas HTML / e /dia-a-dia, assets versionados, CSP e proteç
     assert.match(r.headers.get('cache-control') || '', /no-store/);
     const html = await r.text();
     assert.match(html, /\/assets\/biga-art\.js\?v=/);
+    assert.match(html, /\/assets\/vendor\/konva\.min\.js\?v=/);
+    assert.match(html, /\/assets\/studio-core\.js\?v=/);
     assert.match(html, /\/assets\/capas\.js\?v=/);
     for (const m of jsModulos) assert.match(html, new RegExp(`${m.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}\\?v=`));
     assert.match(html, /\/assets\/app\.js\?v=/);
     assert.match(html, /\/assets\/app\.css\?v=/);
+    assert.match(html, /\/assets\/studio\.css\?v=/);
   }
 
-  for (const asset of ['/assets/app.js', ...jsModulos, '/assets/capas.js', '/assets/biga-art.js', '/assets/app.css', '/assets/fontes-google.json']) {
+  for (const asset of ['/assets/app.js', ...jsModulos, '/assets/vendor/konva.min.js', '/assets/studio-core.js', '/assets/capas.js', '/assets/biga-art.js', '/assets/app.css', '/assets/studio.css', '/assets/fontes-google.json']) {
     const r = await fetch(`${base}${asset}`);
     assert.equal(r.status, 200, `Asset ${asset} deve servir 200`);
   }
@@ -194,8 +197,11 @@ test('Agente 4 E2E: API Capas, fontes, SVG BIGA_ART, duplicação de logo e carr
   assert.equal(delRes.ok, true);
 
   const capasJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'capas.js'), 'utf-8');
+  const studioCoreJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'studio-core.js'), 'utf-8');
   assert.ok(capasJs.includes('if (dup.tipo === \'logo\' && E.R.logos[c.id]) E.R.logos[dup.id] = E.R.logos[c.id]'), 'Duplicar logo deve copiar imagem carregada para novo ID');
   assert.ok(capasJs.includes('const ok = italico'), 'carregarFonte só deve tentar ital,wght quando italico estiver ativo');
+  assert.ok(studioCoreJs.includes("case 'duplicar':") && studioCoreJs.includes('...copia(c)'), 'studio-core deve duplicar camadas preservando propriedades de logo');
+  assert.ok(studioCoreJs.includes('if (italico)') && studioCoreJs.includes(':ital,wght@'), 'studio-core carregarFonte só deve pedir ital,wght quando itálico estiver ativo');
 });
 
 test('Agente 5 E2E: PDF 16:9 respeita páginas customizadas, fotos=[], restaurar ficha_16x9, pgTitulo e concorrência', async t => {
@@ -269,7 +275,10 @@ test('Agente 5 E2E: PDF 16:9 respeita páginas customizadas, fotos=[], restaurar
   assert.equal(pdf16x9.resolverFotosLocais(propCreated, { fotos: [] }).length, 0, 'Array vazio de fotos deve ser respeitado');
 
   const pdfJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'js', 'pdf.js'), 'utf-8');
-  assert.ok(pdfJs.includes('pgTitulo_${i}'), 'coletarPdf deve coletar títulos das páginas de texto');
+  assert.ok(pdfJs.includes('BIGA_STUDIO.montar'), 'pdf.js deve montar o editor visual BIGA_STUDIO');
+  assert.ok(pdfJs.includes('serializarCenaComTelemetria'), 'pdf.js deve serializar cena com telemetria Konva 1:1');
+  assert.ok(pdfJs.includes('/api/pdf/modelos'), 'pdf.js deve integrar modelos próprios em /api/pdf/modelos');
+  assert.ok(pdfJs.includes('/api/pdf/${encodeURIComponent(S.pdfSel)}/arquivo'), 'pdf.js deve gerar arquivo via /api/pdf/:id/arquivo');
 });
 
 test('Agente 6 E2E: Cérebro extremo, Busca/Garimpo com fallback 502/429/timeout, atendimento e scheduler limpo', async t => {

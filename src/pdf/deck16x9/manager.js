@@ -14,9 +14,11 @@ const { Worker } = require('node:worker_threads');
 const { DATA_DIR, FOTOS_DIR } = require('../../config/paths');
 const { adquirirTrava } = require('./lock');
 const { readJson, writeJson } = require('../../config/store');
+const pdfModelos = require('../../domain/pdf-modelos');
 
 const CACHE_PDF_DIR = path.join(DATA_DIR, 'cache_pdf_16x9');
 const CACHE_FOTOS_DIR = path.join(DATA_DIR, 'cache_fotos_16x9');
+const CACHE_FONTES_DIR = path.join(DATA_DIR, 'cache_fontes');
 const ARQUIVO_KIT = 'kit_marca.json';
 const ARQUIVO_FICHAS_16X9 = 'fichas_16x9.json';
 const TETO_CACHE_PDF_BYTES = 100 * 1024 * 1024; // 100 MB
@@ -108,6 +110,7 @@ function carregarKit() {
   const padrao = {
     marca: 'BIGA',
     logo: null,
+    logoFile: null,
     cores1: { fundo: '#0E0E0F', texto: '#ECE9E2', principal: '#2A2A2D', secundaria: '#8C8A84', destaque: '#C8A15A' },
     cores2: { fundo: '#F2F0EB', texto: '#131314', principal: '#DAD6CC', secundaria: '#7A776F', destaque: '#8C6420' },
     fonte: 'Jost',
@@ -122,10 +125,19 @@ function carregarKit() {
   return { ...padrao, ...readJson(ARQUIVO_KIT, {}) };
 }
 
+function validarLogoFile(logoFile) {
+  if (!logoFile || typeof logoFile !== 'string') return null;
+  const b = path.basename(logoFile.trim());
+  if (!/^[A-Za-z0-9._-]+\.(jpe?g|png|webp)$/i.test(b) || b.startsWith('.') || b.includes('..')) return null;
+  return b;
+}
+
 function salvarKit(dados) {
   const kitAtual = carregarKit();
   const limpos = sanitizePlain(dados);
   if ('logoPath' in limpos) limpos.logoPath = validarLogoPath(limpos.logoPath);
+  if ('logoFile' in limpos) limpos.logoFile = validarLogoFile(limpos.logoFile);
+  delete limpos.logoUrl;
   const novoKit = { ...kitAtual, ...limpos };
   writeJson(ARQUIVO_KIT, novoKit);
   return novoKit;
@@ -145,8 +157,20 @@ function salvarFicha16x9(idImovel, dados) {
     if (pags) limpos.paginas = pags;
     else delete limpos.paginas;
   }
+  let removerCena = false;
+  if ('cena' in limpos) {
+    if (limpos.cena === null || limpos.cena === false) {
+      removerCena = true;
+      delete limpos.cena;
+    } else if (limpos.cena && typeof limpos.cena === 'object' && !Array.isArray(limpos.cena)) {
+      limpos.cena = pdfModelos.limparCena(limpos.cena);
+    } else {
+      delete limpos.cena;
+    }
+  }
   const todas = carregarFichas16x9();
-  const atual = Object.prototype.hasOwnProperty.call(todas, id) && todas[id] && typeof todas[id] === 'object' ? todas[id] : {};
+  const atual = Object.prototype.hasOwnProperty.call(todas, id) && todas[id] && typeof todas[id] === 'object' ? { ...todas[id] } : {};
+  if (removerCena) delete atual.cena;
   todas[id] = { ...atual, ...limpos };
   writeJson(ARQUIVO_FICHAS_16X9, todas);
   return todas[id];
@@ -200,6 +224,7 @@ function comporDadosImovel(propriedade, fichaEditada = {}, kit = carregarKit()) 
   }
 
   return {
+    id: p.id !== undefined && p.id !== null ? String(p.id) : '',
     tipo: p.tipo || 'Imóvel',
     neg: p.negociacao || 'VENDA',
     edificio: f.titulo || p.edificio || '',
@@ -223,8 +248,29 @@ function comporDadosImovel(propriedade, fichaEditada = {}, kit = carregarKit()) 
     corretor: f.corretor || kit.corretor || '',
     fone: f.telefone || kit.telefone || '',
     creci: f.creci || kit.creci || '',
-    email: f.email || kit.email || ''
+    email: f.email || kit.email || '',
+    rodape: f.rodape !== undefined ? f.rodape : (kit.rodape || '')
   };
+}
+
+function coletarFotosCustomCaminhos(cena) {
+  const out = {};
+  if (!cena || !Array.isArray(cena.slides)) return out;
+  for (const sl of cena.slides) {
+    for (const c of (sl && Array.isArray(sl.camadas) ? sl.camadas : [])) {
+      if (!c || c.tipo !== 'foto' || !c.fotoCustom || typeof c.fotoCustom !== 'string') continue;
+      const ref = c.fotoCustom.trim();
+      if (ref.startsWith('data:image/') || isForbiddenKey(ref)) continue;
+      const nome = ref.startsWith('/fotos/') ? ref.slice('/fotos/'.length) : ref;
+      const b = path.basename(nome);
+      if (!/^[\w.-]+\.(jpe?g|png|webp)$/i.test(b) || b.startsWith('.') || b.includes('..')) continue;
+      const full = path.join(FOTOS_DIR, b);
+      if (isSafePathInside(FOTOS_DIR, full) && fs.existsSync(full)) {
+        out[ref] = full;
+      }
+    }
+  }
+  return out;
 }
 
 /** Resolve caminhos locais das fotos do imóvel */
@@ -326,14 +372,56 @@ async function gerarPdfComFallback(propriedade, opcoes = {}) {
   const coresAtivas = paleta === 'segunda' ? kit.cores2 : kit.cores1;
   const paginasEfetivas = sanitizarPaginas(opcoes.paginas) || sanitizarPaginas(fichaEditada.paginas) || null;
 
-  // Chave de cache do PDF pronto (inclui marca, paleta efetiva, logo e páginas)
+  // Precedência obrigatória:
+  // 1) opcoes.cena -> modo 'cena'
+  // 2) se !opcoes.modelo && !opcoes.paginas:
+  //    (1) fichaSalva/ficha.cena -> modo 'cena'
+  //    (2) pdfModelos.obterPadrao() -> modo 'cena'
+  //    (3) modelo pronto do Kit (via gerar(), mantendo fallback A4 se modelo inválido)
+  let modoWorker = 'modelo';
+  let cenaEfetiva = null;
+  let erroCenaPreparo = null;
+  try {
+    if (opcoes.cena && typeof opcoes.cena === 'object') {
+      cenaEfetiva = pdfModelos.limparCena(opcoes.cena);
+      modoWorker = 'cena';
+    } else if (!opcoes.modelo && !opcoes.paginas) {
+      if (opcoes.ficha && opcoes.ficha.cena && typeof opcoes.ficha.cena === 'object') {
+        cenaEfetiva = pdfModelos.limparCena(opcoes.ficha.cena);
+        modoWorker = 'cena';
+      } else if (fichaSalva && fichaSalva.cena && typeof fichaSalva.cena === 'object') {
+        cenaEfetiva = pdfModelos.limparCena(fichaSalva.cena);
+        modoWorker = 'cena';
+      } else {
+        const padrao = pdfModelos.obterPadrao();
+        if (padrao && padrao.cena && typeof padrao.cena === 'object') {
+          cenaEfetiva = pdfModelos.limparCena(padrao.cena);
+          modoWorker = 'cena';
+        }
+      }
+    }
+  } catch (errCena) {
+    erroCenaPreparo = errCena;
+  }
+
+  const fotosCustomCaminhos = cenaEfetiva ? coletarFotosCustomCaminhos(cenaEfetiva) : {};
+
+  // Chave de cache do PDF pronto (inclui marca, paleta efetiva, logo, páginas e cena)
   const hashInsumos = calcularHashInsumos({
     id: safeId,
+    modoWorker,
+    cena: cenaEfetiva,
     dados,
     fotosCaminhos,
+    fotosCustomCaminhos,
     modelo,
     paleta,
     kitMarca: kit.marca,
+    kitCorretor: kit.corretor,
+    kitCreci: kit.creci,
+    kitTelefone: kit.telefone,
+    kitEmail: kit.email,
+    kitRodape: kit.rodape,
     kitCores: coresAtivas,
     kitFonte: kit.fonte,
     logoPath: logoSeguro,
@@ -346,7 +434,7 @@ async function gerarPdfComFallback(propriedade, opcoes = {}) {
   const nomePdf = `${(dados.edificio || `Imovel_${safeId}`).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w]+/g, '_').slice(0, 50)}_${safeId}.pdf`;
 
   // Se o PDF em cache já existir, entrega imediatamente
-  if (!opcoes.forcar && fs.existsSync(pdfCachePath)) {
+  if (!opcoes.forcar && !erroCenaPreparo && fs.existsSync(pdfCachePath)) {
     try {
       const bufferCache = fs.readFileSync(pdfCachePath);
       if (bufferCache.length > 500 && bufferCache.slice(0, 4).toString() === '%PDF') {
@@ -360,25 +448,37 @@ async function gerarPdfComFallback(propriedade, opcoes = {}) {
   const tarefaExecucao = async () => {
     let liberarTravaGlobal = null;
     try {
+      if (erroCenaPreparo) throw erroCenaPreparo;
       liberarTravaGlobal = await adquirirTrava({ timeoutMs: 12000 });
 
       const payload = {
+        modo: modoWorker,
+        cena: cenaEfetiva,
         modelo,
         paleta,
         kit: {
           marca: kit.marca,
           logoPath: logoSeguro,
           cores: coresAtivas,
-          fonte: kit.fonte
+          cores1: kit.cores1,
+          cores2: kit.cores2,
+          fonte: kit.fonte,
+          corretor: kit.corretor,
+          creci: kit.creci,
+          telefone: kit.telefone,
+          email: kit.email,
+          rodape: kit.rodape
         },
         dados,
         fotosCaminhos,
+        fotosCustomCaminhos,
         paginas: paginasEfetivas,
         destinoPath: pdfCachePath,
-        cacheFotosDir: CACHE_FOTOS_DIR
+        cacheFotosDir: CACHE_FOTOS_DIR,
+        cacheFontesDir: CACHE_FONTES_DIR
       };
 
-      const resultado = await despacharParaWorker(payload, 15000);
+      const resultado = await despacharParaWorker(payload, modoWorker === 'cena' ? 25000 : 15000);
       const bufferGerado = fs.readFileSync(pdfCachePath);
       limparCachePdfSeNecessario(CACHE_PDF_DIR);
       return { buffer: bufferGerado, nomeArquivo: nomePdf, isFallback: false, avisos: resultado.avisos };
@@ -457,6 +557,7 @@ module.exports = {
   shutdown,
   CACHE_PDF_DIR,
   CACHE_FOTOS_DIR,
+  CACHE_FONTES_DIR,
   ARQUIVO_KIT,
   ARQUIVO_FICHAS_16X9
 };
