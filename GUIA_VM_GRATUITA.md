@@ -1,6 +1,6 @@
 # 🖥️ Guia: Secretária 24h numa máquina virtual gratuita
 
-**Resultado:** a secretária fica ligada 24 horas por dia, sem depender do seu computador, e **nunca mais perde a memória**: sessão do WhatsApp, carteira, fotos, contatos conhecidos, radar, vitrine e prospecção.
+**Resultado:** a secretária fica ligada 24 horas por dia, sem depender do seu computador, e **nunca mais perde a memória**: sessão do WhatsApp, carteira, fotos, contatos conhecidos, radar, vitrine, prospecção, modelos de capas/fichas e buscas.
 
 Você faz tudo pelo celular, sem digitar comandos. Tempo total: **~30 minutos**, quase tudo esperando.
 
@@ -79,8 +79,8 @@ O firewall de dentro da máquina o instalador já liberou sozinho.
    **https://129-151-10-20.sslip.io** (use o *seu* IP).
    O cadeado de HTTPS é gerado sozinho e de graça. Se não abrir de primeira, espere 2 minutos.
 2. Entre com a **senha** que você colocou no script.
-3. Na **Visão geral**, escaneie o QR Code: WhatsApp › Configurações › Aparelhos conectados › Conectar aparelho.
-4. Em **Ajustes**: marque os **grupos de busca** (ex.: BUSCA ADÃO), confira o número de alerta e salve.
+3. Na tela **Início** (ou **Meu dia › Hoje**), escaneie o QR Code: WhatsApp › Configurações › Aparelhos conectados › Conectar aparelho.
+4. Em **Configurar › Ajustes**: marque os **grupos de pedidos** (ex.: BUSCA ADÃO), confira o número de alerta e salve.
 5. No WhatsApp, abra "Mensagem para mim" e mande **ajuda**.
 
 ---
@@ -102,7 +102,7 @@ Só uma secretária pode estar conectada ao seu WhatsApp.
 |---|---|
 | Ligada 24h | Serviço do sistema; volta sozinha se a máquina reiniciar ou se der erro |
 | Memória | `/var/lib/secretaria`, permanente |
-| Backup | diário na própria máquina (14 dias) + **todo domingo no seu WhatsApp** + botão em Ajustes |
+| Backup | diário na própria máquina (14 dias) + **todo domingo no seu WhatsApp** + botão em **Configurar › Ajustes** (inclui carteira, fotos, modelos de capas/fichas e configurações) |
 | Atualizações | automáticas todo dia por volta das 04:15. Se a versão nova tiver problema, ela volta sozinha para a anterior |
 | Segurança | HTTPS, senha no painel, porta interna fechada, configuração secreta legível só pelo sistema |
 
@@ -119,7 +119,7 @@ Só uma secretária pode estar conectada ao seu WhatsApp.
 | Quero ver o que está acontecendo | Página da instância › **Console connection** › *Launch Cloud Shell connection*, entre e digite `sudo journalctl -u secretaria -f` |
 | Ver o log da instalação | `sudo tail -100 /var/log/secretaria-instalacao.log` |
 | Trocar a senha | `sudo nano /etc/secretaria.env` (linha `PAINEL_SENHA=`), depois `sudo systemctl restart secretaria` |
-| Atualizar agora | `sudo bash /opt/secretaria/deploy/atualizar.sh` |
+| Atualizar agora | Pelo celular em **Configurar › Ajustes › Atualizar agora**, ou na VM: `sudo bash /opt/secretaria/deploy/atualizar.sh` |
 | Reinstalar sem perder nada | `sudo bash /opt/secretaria/deploy/instalar-vm.sh` |
 
 ---
