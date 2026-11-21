@@ -552,4 +552,130 @@ const F = {
   },
 };
 
-module.exports = { A, B, D, E, F, MODELOS: { A, B, D, E, F }, W, H };
+const IDS_MODELOS_12 = [
+  'arquitetura-suica',
+  'revista-atelier',
+  'vitrine-fosca',
+  'traco-fino',
+  'noite-dourada',
+  'essencia-moderna',
+  'visao-glass',
+  'galeria-prive',
+  'manchete-nobre',
+  'assinatura-classica',
+  'faixa-imperial',
+  'moldura-serena'
+];
+
+const CATALOGO_12 = [
+  {
+    id: 'arquitetura-suica',
+    nome: 'Arquitetura Suíça',
+    fontes: { t: 'ArchivoBlack', b: 'Archivo', s: 'Archivo' },
+    pal1: { fundo: '#101116', texto: '#F2F3F7', principal: '#1E2028', secundaria: '#8E92A4', destaque: '#FFFFFF' },
+    pal2: { fundo: '#F4F3EF', texto: '#141418', principal: '#E4E2DB', secundaria: '#62626B', destaque: '#5266EB' }
+  },
+  {
+    id: 'revista-atelier',
+    nome: 'Revista Atelier',
+    legado: 'B',
+    fontes: B.fontes,
+    pal1: { fundo: '#E8EBEE', texto: '#15161B', principal: '#15161B', secundaria: '#5A5E68', destaque: '#B48A46' },
+    pal2: B.pal2
+  },
+  {
+    id: 'vitrine-fosca',
+    nome: 'Vitrine Fosca',
+    fontes: { t: 'PlayfairDisplay', b: 'WorkSans', s: 'Montserrat' },
+    pal1: { fundo: '#0D1018', texto: '#F4F5F9', principal: '#1A1E2B', secundaria: '#9BA2B8', destaque: '#D4AF37' },
+    pal2: { fundo: '#F5F4F0', texto: '#14161E', principal: '#E2E0D8', secundaria: '#6A6E7D', destaque: '#9A7820' }
+  },
+  {
+    id: 'traco-fino',
+    nome: 'Traço Fino',
+    fontes: { t: 'CormorantGaramond', b: 'WorkSans', s: 'Montserrat' },
+    pal1: { fundo: '#161514', texto: '#F5F2EC', principal: '#7A6F64', secundaria: '#B8AEA2', destaque: '#E2C48D' },
+    pal2: { fundo: '#F6F3EE', texto: '#1C1917', principal: '#E6DFD6', secundaria: '#7A6F64', destaque: '#8C6E45' }
+  },
+  {
+    id: 'noite-dourada',
+    nome: 'Noite Dourada',
+    fontes: { t: 'CormorantGaramond', b: 'Montserrat', s: 'Montserrat' },
+    pal1: { fundo: '#0B2242', texto: '#FFFFFF', principal: '#13305A', secundaria: '#9DB0CC', destaque: '#E4C472' },
+    pal2: { fundo: '#091529', texto: '#F7F3E8', principal: '#162847', secundaria: '#8FA2BF', destaque: '#D4AF37' }
+  },
+  {
+    id: 'essencia-moderna',
+    nome: 'Essência Moderna',
+    legado: 'E',
+    fontes: { t: 'Outfit', b: 'SourceSans3', s: 'Outfit' },
+    pal1: { fundo: '#231B14', texto: '#F7F3ED', principal: '#3D2F24', secundaria: '#B9ABA0', destaque: '#D9AE73' },
+    pal2: { fundo: '#F3EFE9', texto: '#2C241D', principal: '#E3DAD0', secundaria: '#756456', destaque: '#8B5E34' }
+  },
+  {
+    id: 'visao-glass',
+    nome: 'Visão Glass',
+    fontes: { t: 'Outfit', b: 'WorkSans', s: 'Montserrat' },
+    pal1: { fundo: '#0C101A', texto: '#FFFFFF', principal: '#182032', secundaria: '#9BA5BE', destaque: '#3AA832' },
+    pal2: { fundo: '#F0F3F8', texto: '#111521', principal: '#DFE5EF', secundaria: '#5E6880', destaque: '#2E8A28' }
+  },
+  {
+    id: 'galeria-prive',
+    nome: 'Galeria Privê',
+    legado: 'F',
+    fontes: { t: 'BodoniModa', b: 'Montserrat', s: 'PinyonScript' },
+    pal1: { fundo: '#0E1015', texto: '#FFFFFF', principal: '#1B1F28', secundaria: '#9DA2B0', destaque: '#D4AF37' },
+    pal2: F.pal2
+  },
+  {
+    id: 'manchete-nobre',
+    nome: 'Manchete Nobre',
+    fontes: { t: 'PlayfairDisplay', b: 'Montserrat', s: 'CormorantGaramond' },
+    pal1: { fundo: '#12131A', texto: '#FFFFFF', principal: '#20222E', secundaria: '#A6A8B8', destaque: '#E8D49C' },
+    pal2: { fundo: '#FAF8F4', texto: '#14151C', principal: '#ECE8DF', secundaria: '#686A78', destaque: '#8A6B2E' }
+  },
+  {
+    id: 'assinatura-classica',
+    nome: 'Assinatura Clássica',
+    legado: 'A',
+    fontes: A.fontes,
+    pal1: A.pal1,
+    pal2: A.pal2
+  },
+  {
+    id: 'faixa-imperial',
+    nome: 'Faixa Imperial',
+    legado: 'D',
+    fontes: { t: 'PlayfairDisplay', b: 'Montserrat', s: 'Montserrat' },
+    pal1: { fundo: '#171721', texto: '#FFFFFF', principal: '#252534', secundaria: '#A5A5B5', destaque: '#C9A227' },
+    pal2: D.pal2
+  },
+  {
+    id: 'moldura-serena',
+    nome: 'Moldura Serena',
+    fontes: { t: 'CormorantGaramond', b: 'Jost', s: 'CormorantGaramond' },
+    pal1: { fundo: '#171721', texto: '#FFFFFF', principal: '#242432', secundaria: '#B4B4C2', destaque: '#E4E4EE' },
+    pal2: { fundo: '#F7F6F2', texto: '#181820', principal: '#E6E4DC', secundaria: '#6C6C78', destaque: '#343442' }
+  }
+];
+
+function resolverCatalogoModelo(idRaw) {
+  const s = String(idRaw || 'assinatura-classica').trim();
+  const up = s.toUpperCase();
+  if (up === 'A') return CATALOGO_12.find(x => x.id === 'assinatura-classica');
+  if (up === 'B') return CATALOGO_12.find(x => x.id === 'revista-atelier');
+  if (up === 'D') return CATALOGO_12.find(x => x.id === 'faixa-imperial');
+  if (up === 'E') return CATALOGO_12.find(x => x.id === 'essencia-moderna');
+  if (up === 'F') return CATALOGO_12.find(x => x.id === 'galeria-prive');
+  const lo = s.toLowerCase();
+  return CATALOGO_12.find(x => x.id === lo) || CATALOGO_12.find(x => x.id === 'assinatura-classica');
+}
+
+module.exports = {
+  A, B, D, E, F,
+  MODELOS: { A, B, D, E, F },
+  IDS_MODELOS_12,
+  CATALOGO_12,
+  resolverCatalogoModelo,
+  W, H
+};

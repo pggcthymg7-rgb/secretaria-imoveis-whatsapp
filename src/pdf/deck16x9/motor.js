@@ -348,12 +348,76 @@ const { ICONES_SVG } = require('./icones');
 
 const KAPPA_ARC = 0.5522847498;
 const TOKENS_RECONHECIDOS = new Set([
-  '{nome}', '{tipo}', '{negociacao}', '{preco}', '{precoRotulo}',
+  '{nome}', '{nomeKicker}', '{nomeDestaque}', '{tipo}', '{negociacao}', '{preco}', '{precoRotulo}',
   '{bairro}', '{cidade}', '{localizacao}', '{area}', '{areaTotal}',
   '{quartos}', '{suites}', '{vagas}', '{destaques}', '{descricao}',
   '{codigo}', '{marca}', '{corretor}', '{creci}', '{telefone}',
   '{email}', '{rodape}'
 ]);
+
+function separarNomeKickerDestaque(nome) {
+  const s = String(nome || '').trim();
+  if (!s) return { kicker: '', destaque: '' };
+  const words = s.split(/\s+/).filter(Boolean);
+  if (words.length <= 1) return { kicker: '', destaque: s };
+  const last = words[words.length - 1];
+  if (last.length <= 2 && words.length >= 3) {
+    return {
+      kicker: words.slice(0, -2).join(' '),
+      destaque: words.slice(-2).join(' ')
+    };
+  }
+  return {
+    kicker: words.slice(0, -1).join(' '),
+    destaque: last
+  };
+}
+
+function calcularPontosDegrade(w, h, anguloDeg = 180) {
+  const deg = Number.isFinite(Number(anguloDeg)) ? Number(anguloDeg) : 180;
+  const a = degParaRad(deg - 90);
+  const cos = Math.cos(a);
+  const sin = Math.sin(a);
+  const r = (Math.abs(cos) * w + Math.abs(sin) * h) / 2;
+  return {
+    start: { x: w / 2 - cos * r, y: h / 2 - sin * r },
+    end: { x: w / 2 + cos * r, y: h / 2 + sin * r }
+  };
+}
+
+function construirParadasDegrade(cor1Hex, cor2Hex, op = 1) {
+  const p1 = parseCorHex(cor1Hex || '#00000000', '#00000000');
+  const p2 = parseCorHex(cor2Hex || '#000000cc', '#000000cc');
+  let hex1 = p1.hex;
+  let hex2 = p2.hex;
+  const a1 = clampNum(p1.alpha * op, 0, 1);
+  const a2 = clampNum(p2.alpha * op, 0, 1);
+  if (a1 <= 0.001 && a2 > 0.001) hex1 = hex2;
+  else if (a2 <= 0.001 && a1 > 0.001) hex2 = hex1;
+
+  if (a1 <= 0.001 && a2 > 0.001) {
+    return [
+      [0, hex1, 0],
+      [0.25, hex2, a2 * 0.14],
+      [0.5, hex2, a2 * 0.44],
+      [0.75, hex2, a2 * 0.78],
+      [1, hex2, a2]
+    ];
+  }
+  if (a2 <= 0.001 && a1 > 0.001) {
+    return [
+      [0, hex1, a1],
+      [0.25, hex1, a1 * 0.78],
+      [0.5, hex1, a1 * 0.44],
+      [0.75, hex1, a1 * 0.14],
+      [1, hex2, 0]
+    ];
+  }
+  return [
+    [0, hex1, a1],
+    [1, hex2, a2]
+  ];
+}
 
 function clampNum(v, a, b) {
   const n = Number(v);
@@ -533,6 +597,7 @@ function resolverDadosParaTokens(dados = {}, kit = {}) {
   const nome = d.titulo
     ? String(d.titulo)
     : (d.edificio ? String(d.edificio) : (bairro ? `${tipo} no ${bairro}` : tipo));
+  const { kicker: nomeKicker, destaque: nomeDestaque } = separarNomeKickerDestaque(nome);
 
   let preco = '';
   let precoRotulo = negociacao;
@@ -593,6 +658,8 @@ function resolverDadosParaTokens(dados = {}, kit = {}) {
 
   return {
     '{nome}': nome,
+    '{nomeKicker}': nomeKicker,
+    '{nomeDestaque}': nomeDestaque,
     '{tipo}': tipo,
     '{negociacao}': negociacao,
     '{preco}': preco,
@@ -619,11 +686,70 @@ function resolverDadosParaTokens(dados = {}, kit = {}) {
 
 function substituirTokens(texto, vars) {
   const mapa = vars && typeof vars === 'object' ? vars : {};
-  return String(texto ?? '').replace(/\{[A-Za-z0-9_]+\}/g, tk => {
+  const temToken = s => /\{[A-Za-z0-9_]+\}/.test(s);
+  const resolverUm = s => String(s ?? '').replace(/\{[A-Za-z0-9_]+\}/g, tk => {
     if (Object.prototype.hasOwnProperty.call(mapa, tk)) return String(mapa[tk] ?? '');
     if (TOKENS_RECONHECIDOS.has(tk)) return '';
     return tk;
   });
+  const limparVirgulas = s => s
+    .replace(/\s*,\s*,\s*/g, ', ')
+    .replace(/^\s*,\s*/, '')
+    .replace(/\s*,\s*$/, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  const linhas = String(texto ?? '').split('\n');
+  const outLinhas = [];
+  for (const linha of linhas) {
+    if (!temToken(linha)) {
+      outLinhas.push(linha);
+      continue;
+    }
+    const parts = linha.split(/(\s+[·|•–—-]\s+|\s*[·|•]\s*)/);
+    if (parts.length > 1) {
+      const keptSegs = [];
+      const seps = [];
+      for (let i = 0; i < parts.length; i += 2) {
+        const seg = parts[i];
+        const sep = parts[i + 1] || '';
+        if (!temToken(seg)) {
+          const clean = limparVirgulas(seg);
+          if (clean) {
+            keptSegs.push(clean);
+            seps.push(sep);
+          }
+        } else {
+          const tks = seg.match(/\{[A-Za-z0-9_]+\}/g) || [];
+          const algumPreenchido = tks.some(tk => resolverUm(tk).trim() !== '');
+          if (algumPreenchido) {
+            const resolvedSeg = limparVirgulas(resolverUm(seg));
+            if (resolvedSeg) {
+              keptSegs.push(resolvedSeg);
+              seps.push(sep);
+            }
+          }
+        }
+      }
+      if (keptSegs.length) {
+        let joined = keptSegs[0];
+        for (let j = 1; j < keptSegs.length; j++) {
+          const rawSep = seps[j - 1] || ' · ';
+          const sepNorm = /^\s+$/.test(rawSep) ? ' · ' : ` ${rawSep.trim()} `;
+          joined += sepNorm + keptSegs[j];
+        }
+        outLinhas.push(joined);
+      }
+    } else {
+      const tks = linha.match(/\{[A-Za-z0-9_]+\}/g) || [];
+      const algumPreenchido = tks.some(tk => resolverUm(tk).trim() !== '');
+      if (algumPreenchido) {
+        const resolved = limparVirgulas(resolverUm(linha));
+        if (resolved) outLinhas.push(resolved);
+      }
+    }
+  }
+  return outLinhas.join('\n');
 }
 
 function quebrarLinhasPdfKit(doc, texto, maxW, textOpts) {
@@ -699,6 +825,9 @@ module.exports = {
   ICONES_SVG,
   clampNum,
   degParaRad,
+  calcularPontosDegrade,
+  construirParadasDegrade,
+  separarNomeKickerDestaque,
   aliasFonteSeguro,
   parseCorHex,
   obterRaiosCamada,

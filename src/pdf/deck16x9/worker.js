@@ -14,6 +14,8 @@ const QRCode = require('qrcode');
 const { gerar, gerarDeCena } = require('./gerar');
 const { obterFotoReduzida } = require('./cache-fotos');
 const { resolverFontesCena } = require('./cache-fontes');
+const { criarCenaModelo } = require('./cenas');
+const { IDS_MODELOS_12 } = require('./modelos');
 
 let sharp = null;
 try {
@@ -217,18 +219,15 @@ async function executarTarefa(dadosTarefa) {
   }
   const kitParaGerar = { ...(kit || {}), logo: logoBuffer };
 
-  let doc;
-  let info;
-
-  if (modo === 'cena' && cena) {
-    const fontesResolvidas = await resolverFontesCena(cena, {
+  const prepararCenasEProcessar = async cenaInput => {
+    const fontesResolvidas = await resolverFontesCena(cenaInput, {
       cacheDir: cacheFontesDir || null,
       kit: kitParaGerar
     });
 
     const fotosPorCamada = new Map();
     const customFileCache = new Map();
-    const slidesOrig = Array.isArray(cena.slides) ? cena.slides : [];
+    const slidesOrig = Array.isArray(cenaInput.slides) ? cenaInput.slides : [];
     const slidesNormalizados = [];
     for (let slideIdx = 0; slideIdx < slidesOrig.length; slideIdx++) {
       const sl = slidesOrig[slideIdx];
@@ -275,16 +274,26 @@ async function executarTarefa(dadosTarefa) {
       }
       slidesNormalizados.push(sl ? { ...sl, camadas: camadasNorm } : sl);
     }
-    const cenaParaGerar = { ...cena, slides: slidesNormalizados };
+    const cenaParaGerar = { ...cenaInput, slides: slidesNormalizados };
 
-    ({ doc, info } = gerarDeCena(PDFDocument, QRCode, {
+    return gerarDeCena(PDFDocument, QRCode, {
       cena: cenaParaGerar,
       dados,
       kit: kitParaGerar,
       fotos: fotosProcessadas,
       fotosPorCamada,
       fontesResolvidas
-    }));
+    });
+  };
+
+  let doc;
+  let info;
+
+  if (modo === 'cena' && cena) {
+    ({ doc, info } = await prepararCenasEProcessar(cena));
+  } else if (IDS_MODELOS_12.includes(String(modelo || '').trim())) {
+    const cena12 = criarCenaModelo(String(modelo).trim(), paleta || 'principal', kitParaGerar, dados, { paginas });
+    ({ doc, info } = await prepararCenasEProcessar(cena12));
   } else {
     const fontes = carregarFontes();
     ({ doc, info } = gerar(PDFDocument, QRCode, {

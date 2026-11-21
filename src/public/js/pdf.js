@@ -6,11 +6,18 @@
   const { $, esc, brl, hasOwn, S, api, toast, register, shell, formData } = BIGA;
 
   const NOMES_MODELOS = {
-    A: 'A · Escuro sofisticado',
-    B: 'B · Editorial claro',
-    D: 'D · Grade assimétrica',
-    E: 'E · Acolhedor clássico',
-    F: 'F · Luxo clássico'
+    'arquitetura-suica': 'Arquitetura Suíça',
+    'revista-atelier': 'Revista Atelier',
+    'vitrine-fosca': 'Vitrine Fosca',
+    'traco-fino': 'Traço Fino',
+    'noite-dourada': 'Noite Dourada',
+    'essencia-moderna': 'Essência Moderna',
+    'visao-glass': 'Visão Glass',
+    'galeria-prive': 'Galeria Privê',
+    'manchete-nobre': 'Manchete Nobre',
+    'assinatura-classica': 'Assinatura Clássica',
+    'faixa-imperial': 'Faixa Imperial',
+    'moldura-serena': 'Moldura Serena'
   };
 
   const LAYOUTS_PAGINA = [
@@ -403,9 +410,9 @@
     const vitrineOn = selProp && aprovados.has(String(selProp.id));
 
     shell(`
-      <section class="section" style="padding-top:16px;padding-bottom:12px;">
-        <div class="container stack-sm">
-          <div class="row between" style="flex-wrap:wrap;gap:10px;align-items:center;">
+      <section class="section studio-page-section" style="padding-top:16px;padding-bottom:12px;">
+        <div class="container stack-sm studio-page-container">
+          <div class="row between studio-page-head" style="flex-wrap:wrap;gap:10px;align-items:center;">
             <div class="row tight" style="align-items:center;gap:10px;">
               <h2 class="title" style="margin:0;">Estúdio PDF 16:9</h2>
               <span id="pdfVitrineBadge" class="tag enviar ${vitrineOn ? '' : 'hide'}">🪟 Aprovado na Vitrine</span>
@@ -448,6 +455,8 @@
       inventario: () => inventarioOrdenado(),
       modelosProntos,
       meusModelos: () => (S.pdf && S.pdf.modelosProprios) || { modelos: [], padrao: null },
+      onVoltar: () => { location.hash = `#${S.lastNonStudioRoute || 'inicio'}`; },
+      onSalvarImovel: () => salvarCenaNoImovel(),
       opcoesTopbar: { apresentacao: true, whatsapp: true, lote: false, vitrine: false },
       toast,
       onSelectImovel: async p => {

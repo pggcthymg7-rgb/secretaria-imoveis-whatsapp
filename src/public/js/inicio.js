@@ -66,7 +66,8 @@
       <main class="home page-enter">
         <div class="sky">${ART.skySVG()}</div>
         <nav class="nav"><div class="bar"><a class="logo" href="#inicio">${LOGO}</a><div class="links"></div>
-          <span class="status-dot"><span class="dot ${paused ? 'warn' : conn ? 'on' : ''}"></span>${paused ? 'Pausada' : conn ? 'Online' : st.connectionStatus === 'AGUARDANDO_QR_CODE' ? 'Ler QR' : 'Offline'}</span></div></nav>
+          <span class="status-dot"><span class="dot ${paused ? 'warn' : conn ? 'on' : ''}"></span>${paused ? 'Pausada' : conn ? 'Online' : st.connectionStatus === 'AGUARDANDO_QR_CODE' ? 'Ler QR' : 'Offline'}</span>
+          ${typeof BIGA.hamburgerBtnHtml === 'function' ? BIGA.hamburgerBtnHtml() : ''}</div></nav>
         <div class="wrap">
           <div class="biga-stage" id="stage"><div class="halo"></div><div class="rings"><span></span><span></span><span></span></div>${ART.bigaSVG('b')}
             <div class="speech"><span class="wave"><i></i><i></i><i></i><i></i></span><span id="say" class="typing"></span></div></div>
@@ -79,7 +80,8 @@
             <div class="kpis"><div><b>${Number(st.radarHoje) || 0}</b>pedidos hoje</div><div><b>${Number(h.ofertas_enviadas) || 0}</b>imóveis enviados</div><div><b>${Number(h.novas_conversas) || 0}</b>conversas novas</div><div><b>${Number(st.inventoryCount) || 0}</b>imóveis ativos</div></div>
           </div>
         </div>
-      </main>`;
+      </main>
+      ${typeof BIGA.renderMobileShellExtras === 'function' ? BIGA.renderMobileShellExtras('inicio') : ''}`;
     attachArt($('#stage'));
     say(conn ? `${saud}! Tenho ${Number(st.radarHoje) || 0} pedido(s) dos grupos hoje. Escolha uma página ao lado.` : 'Oi! Escaneie o QR Code para eu me conectar ao seu WhatsApp.');
   }

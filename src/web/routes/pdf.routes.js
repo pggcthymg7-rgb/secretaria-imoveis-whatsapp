@@ -150,7 +150,7 @@ router.delete('/api/pdf/modelos/:id', ah(async (req, res) => {
 
 router.get('/api/pdf/cena-preset/:modelo', ah(async (req, res) => {
   const kit = kitComLogoUrl(pdf16x9.carregarKit());
-  const modelo = String(req.params.modelo || kit.modelo || 'A').toUpperCase();
+  const modelo = String(req.params.modelo || kit.modelo || 'A').trim();
   const paleta = String(req.query.paleta || kit.paletaPadrao || 'principal').toLowerCase() === 'segunda' ? 'segunda' : 'principal';
   const prop = req.query.imovelId ? await sheets.getPropertyById(String(req.query.imovelId)) : null;
   const dados = prop ? pdf16x9.comporDadosImovel(prop, {}, kit) : null;

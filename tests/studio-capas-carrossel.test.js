@@ -197,7 +197,7 @@ test('2. capas.js + studio-core.js (vm): 12 modelos x 3 formatos = 36 combinaç�
       // Textos utilizam tokens de Campos Inteligentes
       const textos = m.camadas.filter(c => c.tipo === 'texto').map(c => c.texto).join(' ');
       assert.ok(textos.includes('{preco}'), `${modeloId}/${fmt} deve exibir {preco}`);
-      assert.ok(textos.includes('{nome}'), `${modeloId}/${fmt} deve exibir {nome}`);
+      assert.ok(textos.includes('{nome}') || textos.includes('{nomeDestaque}'), `${modeloId}/${fmt} deve exibir {nome} ou {nomeDestaque}`);
       assert.ok(
         /\{(localizacao|bairro|cidade)\}/.test(textos),
         `${modeloId}/${fmt} deve exibir token de localização`
@@ -215,12 +215,28 @@ test('2. capas.js + studio-core.js (vm): 12 modelos x 3 formatos = 36 combinaç�
           m.camadas.some(c => c.tipo === 'poligono' && Array.isArray(c.vertices) && c.vertices.length === 4),
           `${modeloId}/${fmt} deve possuir card chanfrado poligonal 4pt`
         );
+        const logoEss = m.camadas.find(c => c.tipo === 'logo');
+        assert.ok(logoEss && logoEss.ocultarSemLogo === true, `${modeloId}/${fmt} deve ocultar monograma sem logo`);
+      }
+      if (modeloId === 'traco-fino') {
+        const logoTf = m.camadas.find(c => c.tipo === 'logo');
+        assert.ok(logoTf && logoTf.ocultarSemLogo === true, `${modeloId}/${fmt} deve ocultar monograma sem logo`);
       }
       if (modeloId === 'arquitetura-suica') {
+        const fotoArq = m.camadas.find(c => c.tipo === 'foto');
+        assert.ok(fotoArq && fotoArq.x === 0 && fotoArq.y === 0 && fotoArq.w === W && fotoArq.h === H, `${modeloId}/${fmt} foto deve ser full-bleed`);
         assert.ok(
           m.camadas.filter(c => c.tipo === 'linha').length >= 2,
           `${modeloId}/${fmt} deve possuir divisores estruturais`
         );
+      }
+      if (modeloId === 'manchete-nobre') {
+        const manchete = m.camadas.find(c => c.tipo === 'texto' && c.texto === 'À VENDA');
+        assert.ok(manchete && Math.abs((manchete.x + manchete.w / 2) - W / 2) <= 1, `${modeloId}/${fmt} À VENDA deve estar centralizada em W/2`);
+      }
+      if (modeloId === 'visao-glass') {
+        const precoCam = m.camadas.find(c => c.tipo === 'texto' && c.texto === '{preco}');
+        assert.ok(precoCam && precoCam.x + precoCam.w === W - Math.round(W * 0.055), `${modeloId}/${fmt} preço alinhado à margem segura direita`);
       }
       if (modeloId === 'faixa-imperial') {
         assert.ok(
@@ -240,7 +256,7 @@ test('2. capas.js + studio-core.js (vm): 12 modelos x 3 formatos = 36 combinaç�
   const vars = win.BIGA_CAPAS.variaveis({
     id: 55,
     tipo: 'Cobertura',
-    edificio: 'Skyline',
+    edificio: 'Jardim Veneza',
     setor: 'Setor Marista',
     valor: 2400000,
     quartos: 4,
@@ -248,9 +264,27 @@ test('2. capas.js + studio-core.js (vm): 12 modelos x 3 formatos = 36 combinaç�
     vagas: 3,
     tamanho_m2: 260
   }, { marca: 'Horizonte', corretor: 'Giovana', telefone: '62999887766' });
-  const resolvido = win.BIGA_CAPAS.trocar('{nome} · {preco} · {bairro}', vars);
-  assert.ok(resolvido.includes('Skyline'));
+  const resolvido = win.BIGA_CAPAS.trocar('{nomeKicker} {nomeDestaque} · {preco} · {bairro}', vars);
+  assert.ok(resolvido.includes('Jardim Veneza'));
   assert.ok(resolvido.includes('2.400.000'));
   assert.ok(resolvido.includes('Setor Marista'));
   assert.equal(/\{[a-z]+\}/i.test(resolvido), false);
+
+  // Zero rótulos órfãos quando suites/vagas estiverem vazios/zero
+  const varsParc = win.BIGA_CAPAS.variaveis({
+    id: 56,
+    tipo: 'Apartamento',
+    setor: 'Setor Bueno',
+    valor: 580000,
+    quartos: 2,
+    suites: 0,
+    vagas: 0,
+    tamanho_m2: 62
+  }, {});
+  const specsLimpas = win.BIGA_CAPAS.trocar('{quartos} qts · {suites} suítes · {area} · {vagas} vagas', varsParc);
+  assert.equal(specsLimpas, '2 qts · 62 m²');
+  assert.equal(/su[ií]tes|vagas/i.test(specsLimpas), false, 'não deve imprimir rótulos órfãos quando valor for zero/vazio');
+
+  const specsVertLimpas = win.BIGA_CAPAS.trocar('{area}\n{quartos} Quartos\n{suites} Suítes\n{vagas} Vagas', varsParc);
+  assert.equal(specsVertLimpas, '62 m²\n2 Quartos');
 });

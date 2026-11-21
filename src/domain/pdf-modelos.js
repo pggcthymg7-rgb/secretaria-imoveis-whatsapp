@@ -22,7 +22,12 @@ const ANCORAS = new Set(['topo', 'base']);
 const FORMAS_FUNDO_ICONE = new Set(['nenhum', 'circulo', 'quadrado', 'pilula']);
 const FORMAS_LOGO = new Set(['quadrado', 'circulo', 'nenhum']);
 const PONTAS_LINHA = new Set(['round', 'butt', 'square']);
-const MODELOS_BASE = new Set(['A', 'B', 'D', 'E', 'F']);
+const MODELOS_BASE = new Set([
+  'A', 'B', 'D', 'E', 'F',
+  'arquitetura-suica', 'revista-atelier', 'vitrine-fosca', 'traco-fino',
+  'noite-dourada', 'essencia-moderna', 'visao-glass', 'galeria-prive',
+  'manchete-nobre', 'assinatura-classica', 'faixa-imperial', 'moldura-serena'
+]);
 
 const num = (v, min, max, padrao) => {
   const n = Number(v);
@@ -263,6 +268,7 @@ function limparCamada(c) {
     base.raio = num(c.raio, 0, 500, 16);
     base.corFundo = cor(c.corFundo, '#5266eb');
     base.corTexto = cor(c.corTexto, '#ffffff');
+    if (c.ocultarSemLogo) base.ocultarSemLogo = true;
     const srcLimpo = limparDataImage(c.src);
     if (srcLimpo) base.src = srcLimpo;
   } else if (c.tipo === 'qrcode') {

@@ -96,6 +96,18 @@
     return `#${hx(f(5))}${hx(f(3))}${hx(f(1))}${a < 0.999 ? hx(Math.round(a * 255)) : ''}`;
   }
 
+  function separarNomeKickerDestaque(nome) {
+    const s = String(nome || '').trim();
+    if (!s) return { kicker: '', destaque: '' };
+    const words = s.split(/\s+/).filter(Boolean);
+    if (words.length <= 1) return { kicker: '', destaque: s };
+    const last = words[words.length - 1];
+    if (last.length <= 2 && words.length >= 3) {
+      return { kicker: words.slice(0, -2).join(' '), destaque: words.slice(-2).join(' ') };
+    }
+    return { kicker: words.slice(0, -1).join(' '), destaque: last };
+  }
+
   // ------------------------------------------------------------------ Variáveis & Tokens
   function variaveis(p, kit) {
     if (!p && !kit) return {};
@@ -118,6 +130,7 @@
     const cidade = p.cidade ? String(p.cidade) : 'Goiânia';
     const localizacao = [bairro, cidade].filter(Boolean).join(', ');
     const nome = p.edificio ? String(p.edificio) : (bairro ? `${tipo} no ${bairro}` : tipo);
+    const { kicker: nomeKicker, destaque: nomeDestaque } = separarNomeKickerDestaque(nome);
     let preco = 'Consulte';
     let precoRotulo = negociacao;
     if (negRaw === 'AGIO' && Number(p.valor_agio) > 0) {
@@ -127,11 +140,13 @@
       preco = negRaw === 'ALUGUEL' ? `${brl(p.valor)}/mês` : brl(p.valor);
     }
     const areaNum = p.tamanho_m2 || p.area_terreno;
-    const area = areaNum ? (String(areaNum).includes('m²') ? String(areaNum) : `${areaNum} m²`) : '';
-    const areaTotal = p.area_terreno ? (String(p.area_terreno).includes('m²') ? String(p.area_terreno) : `${p.area_terreno} m²`) : area;
+    const area = areaNum && Number(areaNum) !== 0 ? (String(areaNum).includes('m²') ? String(areaNum) : `${areaNum} m²`) : '';
+    const areaTotal = p.area_terreno && Number(p.area_terreno) !== 0 ? (String(p.area_terreno).includes('m²') ? String(p.area_terreno) : `${p.area_terreno} m²`) : area;
     const numStr = val => (val !== undefined && val !== null && String(val).trim() !== '' && Number(val) !== 0 ? String(val) : '');
     return {
       '{nome}': nome,
+      '{nomeKicker}': nomeKicker,
+      '{nomeDestaque}': nomeDestaque,
       '{tipo}': tipo,
       '{negociacao}': negociacao,
       '{preco}': preco,
@@ -156,11 +171,62 @@
     };
   }
 
+  const TOKENS_CONHECIDOS_FALLBACK = new Set([
+    '{nome}', '{nomeKicker}', '{nomeDestaque}', '{tipo}', '{negociacao}', '{preco}', '{precoRotulo}',
+    '{bairro}', '{cidade}', '{localizacao}', '{area}', '{areaTotal}', '{quartos}', '{suites}',
+    '{vagas}', '{destaques}', '{descricao}', '{codigo}', '{marca}', '{corretor}', '{creci}',
+    '{telefone}', '{email}', '{rodape}'
+  ]);
+
   function trocar(t, vars) {
     const st = getStudio();
     if (st && typeof st.substituirTokens === 'function') return st.substituirTokens(t, vars);
     const mapa = vars && typeof vars === 'object' ? vars : {};
-    return String(t ?? '').replace(/\{[A-Za-z0-9_]+\}/g, k => (Object.prototype.hasOwnProperty.call(mapa, k) ? String(mapa[k] ?? '') : k));
+    const temToken = s => /\{[A-Za-z0-9_]+\}/.test(s);
+    const resolverUm = s => String(s ?? '').replace(/\{[A-Za-z0-9_]+\}/g, k => {
+      if (Object.prototype.hasOwnProperty.call(mapa, k)) return String(mapa[k] ?? '');
+      if (TOKENS_CONHECIDOS_FALLBACK.has(k)) return '';
+      return k;
+    });
+    const limparVirgulas = s => s.replace(/\s*,\s*,\s*/g, ', ').replace(/^\s*,\s*/, '').replace(/\s*,\s*$/, '').replace(/\s{2,}/g, ' ').trim();
+    const out = [];
+    for (const linha of String(t ?? '').split('\n')) {
+      if (!temToken(linha)) { out.push(linha); continue; }
+      const parts = linha.split(/(\s+[·|•–—-]\s+|\s*[·|•]\s*)/);
+      if (parts.length > 1) {
+        const kept = [];
+        const seps = [];
+        for (let i = 0; i < parts.length; i += 2) {
+          const seg = parts[i];
+          const sep = parts[i + 1] || '';
+          if (!temToken(seg)) {
+            const c = limparVirgulas(seg);
+            if (c) { kept.push(c); seps.push(sep); }
+          } else {
+            const tks = seg.match(/\{[A-Za-z0-9_]+\}/g) || [];
+            if (tks.some(tk => resolverUm(tk).trim() !== '')) {
+              const rs = limparVirgulas(resolverUm(seg));
+              if (rs) { kept.push(rs); seps.push(sep); }
+            }
+          }
+        }
+        if (kept.length) {
+          let j = kept[0];
+          for (let n = 1; n < kept.length; n++) {
+            const sRaw = seps[n - 1] || ' · ';
+            j += (/^\s+$/.test(sRaw) ? ' · ' : ` ${sRaw.trim()} `) + kept[n];
+          }
+          out.push(j);
+        }
+      } else {
+        const tks = linha.match(/\{[A-Za-z0-9_]+\}/g) || [];
+        if (tks.some(tk => resolverUm(tk).trim() !== '')) {
+          const r = limparVirgulas(resolverUm(linha));
+          if (r) out.push(r);
+        }
+      }
+    }
+    return out.join('\n');
   }
 
   // ------------------------------------------------------------------ Fontes Google (compatibilidade + fallback)
@@ -500,52 +566,57 @@
       id: 'arquitetura-suica',
       nome: 'Arquitetura Suíça',
       categoria: 'Editorial',
-      paleta: ['#f4f3ef', '#141418', '#5266eb', '#3a3a44'],
+      paleta: ['#101116', '#ffffff', '#dcdce6', '#0e0f13'],
       build(W, H) {
-        const m = Math.round(W * 0.055);
+        const m = Math.round(W * 0.052);
         const cw = W - m * 2;
-        const photoH = Math.round(H * 0.56);
-        const bodyY = m + photoH + Math.round(H * 0.022);
-        const rule2Y = H - m - Math.round(H * 0.088);
-        const footY = rule2Y + Math.round(H * 0.016);
-        const priceW = Math.round(cw * 0.42);
-        const specsW = cw - priceW - 18;
+        const col3 = Math.round(cw * 0.30);
+        const specsX = m + Math.round(cw * 0.34);
+        const specsW = Math.round(cw * 0.32);
+        const precoW = Math.round(cw * 0.32);
         return {
-          fundo: '#f4f3ef',
+          fundo: '#101116',
           camadas: [
-            mkFoto(W, H, { nome: 'Foto principal', x: m, y: m, w: cw, h: photoH, raio: 6 }),
-            mkTexto(W, 'Código', '{codigo}', {
-              x: m + 20, y: m + 20, w: 150, h: 46,
-              fonte: 'Inter', peso: 700, tamanho: 22, cor: '#ffffff',
-              alinhamento: 'center', autoFit: true,
-              fundo: true, corFundo: '#141418d9', raioFundo: 999, folga: 12
+            mkFoto(W, H, { nome: 'Foto full-bleed', x: 0, y: 0, w: W, h: H, raio: 0 }),
+            mkDeg(W, H, {
+              nome: 'Degradê topo sutil', x: 0, y: 0, w: W, h: Math.round(H * 0.27),
+              cor1: '#0d0e13cc', cor2: '#0d0e1300', angulo: 180
             }),
-            mkLinha(m, bodyY, cw, { nome: 'Divisor topo', cor: '#141418', espessura: 2 }),
-            mkTexto(W, 'Categoria (Nível 1)', '{tipo} · {negociacao}', {
-              x: m, y: bodyY + Math.round(H * 0.014), w: cw, h: Math.round(H * 0.036),
-              fonte: 'Inter', peso: 600, tamanho: Math.round(W * 0.021), espacamento: 4,
-              maiusculas: true, cor: '#5266eb', autoFit: true
+            mkDeg(W, H, {
+              nome: 'Degradê base suave', x: 0, y: Math.round(H * 0.46), w: W, h: H - Math.round(H * 0.46),
+              cor1: '#0d0e1300', cor2: '#0d0e13f2', angulo: 180
             }),
-            mkTexto(W, 'Título (Nível 2)', '{nome}', {
-              x: m, y: bodyY + Math.round(H * 0.052), w: cw, h: Math.round(H * 0.102),
-              fonte: 'Inter', peso: 800, tamanho: Math.round(W * 0.062), entrelinha: 1.05,
-              cor: '#141418', autoFit: true
+            mkTexto(W, 'Marca', '{marca}', {
+              x: m, y: m, w: col3, h: Math.round(H * 0.045),
+              fonte: 'Archivo', peso: 700, tamanho: Math.round(W * 0.024), espacamento: 4,
+              maiusculas: true, cor: '#ffffff', autoFit: true
             }),
-            mkTexto(W, 'Bairro (Nível 2)', '{bairro} · {cidade}', {
-              x: m, y: bodyY + Math.round(H * 0.158), w: cw, h: Math.round(H * 0.044),
-              fonte: 'Inter', peso: 500, tamanho: Math.round(W * 0.030),
-              cor: '#3a3a44', autoFit: true
+            mkTexto(W, 'Micro-specs topo', '{area}\n{quartos} Quartos\n{suites} Suítes\n{vagas} Vagas', {
+              x: specsX, y: m, w: specsW, h: Math.round(H * 0.115),
+              fonte: 'Archivo', peso: 400, tamanho: Math.round(W * 0.021), entrelinha: 1.32,
+              cor: '#e4e6ef', alinhamento: 'center', autoFit: true
             }),
-            mkLinha(m, rule2Y, cw, { nome: 'Divisor base', cor: '#14141840', espessura: 1.5 }),
-            mkTexto(W, 'Especificações', '{quartos} qts · {suites} suítes · {area} · {vagas} vagas', {
-              x: m, y: footY, w: specsW, h: Math.round(H * 0.062),
-              fonte: 'Inter', peso: 500, tamanho: Math.round(W * 0.026),
-              cor: '#3a3a44', autoFit: true
+            mkTexto(W, 'Preço topo', '{preco}', {
+              x: W - m - precoW, y: m, w: precoW, h: Math.round(H * 0.052),
+              fonte: 'Archivo', peso: 700, tamanho: Math.round(W * 0.032),
+              cor: '#ffffff', alinhamento: 'right', autoFit: true
             }),
-            mkTexto(W, 'Preço', '{preco}', {
-              x: W - m - priceW, y: footY - 4, w: priceW, h: Math.round(H * 0.068),
-              fonte: 'Inter', peso: 800, tamanho: Math.round(W * 0.044),
-              cor: '#141418', alinhamento: 'right', autoFit: true
+            mkLinha(m, Math.round(H * 0.158), cw, { nome: 'Divisor suíço superior', cor: '#ffffff59', espessura: 1.5 }),
+            mkLinha(m, Math.round(H * 0.635), cw, { nome: 'Divisor suíço base', cor: '#ffffff59', espessura: 1.5 }),
+            mkTexto(W, 'Metadados base', '{tipo} · {bairro} · {cidade}', {
+              x: m, y: Math.round(H * 0.652), w: cw, h: Math.round(H * 0.038),
+              fonte: 'Archivo', peso: 600, tamanho: Math.round(W * 0.022), espacamento: 3,
+              maiusculas: true, cor: '#d4d6e0', autoFit: true
+            }),
+            mkTexto(W, 'Kicker Título', '{nomeKicker}', {
+              x: m, y: Math.round(H * 0.702), w: cw, h: Math.round(H * 0.052),
+              fonte: 'Archivo', peso: 700, tamanho: Math.round(W * 0.038), espacamento: 5,
+              maiusculas: true, cor: '#e4e6ef', autoFit: true
+            }),
+            mkTexto(W, 'Título Monumental', '{nomeDestaque}', {
+              x: m, y: Math.round(H * 0.752), w: cw, h: Math.round(H * 0.215),
+              fonte: 'Archivo Black', peso: 400, tamanho: Math.round(W * 0.145), entrelinha: 0.94,
+              maiusculas: true, cor: '#ffffff', autoFit: true
             })
           ]
         };
@@ -555,14 +626,15 @@
       id: 'revista-atelier',
       nome: 'Revista Atelier',
       categoria: 'Editorial',
-      paleta: ['#faf8f4', '#171614', '#d4af37', '#ffffff'],
+      paleta: ['#e8ebee', '#15161b', '#ffffff', '#3a3d46'],
       build(W, H) {
         const m = Math.round(W * 0.055);
         const cw = W - m * 2;
-        const barH = Math.round(H * 0.095);
-        const pillH = Math.round(H * 0.064);
-        const pillY = H - m - pillH;
-        const barY = pillY - Math.round(H * 0.018) - barH;
+        const barH = Math.round(H * 0.105);
+        const btnW = Math.round(W * 0.50);
+        const btnH = Math.round(H * 0.064);
+        const btnY = H - m - btnH;
+        const barY = btnY - Math.round(H * 0.022) - barH;
         const colW = Math.floor(cw / 4);
         const cols = [
           ['quarto', '{quartos} qts'],
@@ -573,51 +645,54 @@
         const colCamadas = [];
         cols.forEach(([icId, tk], i) => {
           const cx = m + i * colW;
-          const icSz = 28;
-          colCamadas.push(mkIcone(icId, cx + Math.round((colW - icSz) / 2), barY + Math.round(barH * 0.16), icSz, {
-            nome: `Ícone ${icId}`, cor: '#e8cb88', formaFundo: 'nenhum'
+          const icSz = 26;
+          if (i > 0) {
+            colCamadas.push(mkLinha(cx - 1, barY + Math.round(barH * 0.15), 2, {
+              nome: `Divisor coluna ${i}`, h: Math.round(barH * 0.70),
+              pontos: [1, 0, 1, Math.round(barH * 0.70)], cor: '#ffffff4d', espessura: 1.5
+            }));
+          }
+          colCamadas.push(mkIcone(icId, cx + Math.round((colW - icSz) / 2), barY + Math.round(barH * 0.14), icSz, {
+            nome: `Ícone ${icId}`, cor: '#ffffff', formaFundo: 'nenhum'
           }));
-          colCamadas.push(mkTexto(W, `Dado ${icId}`, tk, {
-            x: cx + 8, y: barY + Math.round(barH * 0.52), w: colW - 16, h: Math.round(barH * 0.40),
-            fonte: 'Montserrat', peso: 700, tamanho: Math.round(W * 0.025),
+          colCamadas.push(mkTexto(W, `Coluna ${icId}`, tk, {
+            x: cx + 8, y: barY + Math.round(barH * 0.54), w: colW - 16, h: Math.round(barH * 0.38),
+            fonte: 'Montserrat', peso: 600, tamanho: Math.round(W * 0.024),
             cor: '#ffffff', alinhamento: 'center', autoFit: true
           }));
         });
 
-        const pillW = Math.round(W * 0.46);
         return {
-          fundo: '#171614',
+          fundo: '#15161b',
           camadas: [
             mkFoto(W, H),
             mkDeg(W, H, {
-              nome: 'Véu superior claro', x: 0, y: 0, w: W, h: Math.round(H * 0.44),
-              cor1: '#faf8f4eb', cor2: '#faf8f400', angulo: 180
+              nome: 'Véu editorial superior', x: 0, y: 0, w: W, h: Math.round(H * 0.42),
+              cor1: '#e8ebeeeb', cor2: '#e8ebee00', angulo: 180
             }),
             mkDeg(W, H, {
-              nome: 'Sombra inferior', x: 0, y: Math.round(H * 0.60), w: W, h: H - Math.round(H * 0.60) + 2,
-              cor1: '#11100e00', cor2: '#11100eec', angulo: 180
+              nome: 'Base escura full-bleed', x: 0, y: Math.round(H * 0.58), w: W, h: H - Math.round(H * 0.58),
+              cor1: '#0f101400', cor2: '#0f1014f2', angulo: 180
             }),
-            mkTexto(W, 'Bairro', '{tipo} · {bairro}', {
-              x: m, y: Math.round(H * 0.044), w: cw, h: Math.round(H * 0.036),
-              fonte: 'Montserrat', peso: 600, tamanho: Math.round(W * 0.021), espacamento: 5,
-              maiusculas: true, cor: '#5a5042', autoFit: true
+            mkTexto(W, 'Título Editorial', '{nome}', {
+              x: m, y: Math.round(H * 0.052), w: cw, h: Math.round(H * 0.118),
+              fonte: 'Playfair Display', peso: 700, tamanho: Math.round(W * 0.068), entrelinha: 1.03,
+              cor: '#15161b', alinhamento: 'center', autoFit: true
             }),
-            mkTexto(W, 'Título Serifado', '{nome}', {
-              x: m, y: Math.round(H * 0.088), w: cw, h: Math.round(H * 0.135),
-              fonte: 'Playfair Display', peso: 700, tamanho: Math.round(W * 0.068), entrelinha: 1.04,
-              cor: '#171614', autoFit: true
+            mkTexto(W, 'Subtítulo itálico', '{tipo} · {bairro}', {
+              x: m, y: Math.round(H * 0.175), w: cw, h: Math.round(H * 0.044),
+              fonte: 'Cormorant Garamond', peso: 600, italico: true, tamanho: Math.round(W * 0.036),
+              cor: '#2f323b', alinhamento: 'center', autoFit: true
             }),
-            mkLinha(m, Math.round(H * 0.232), 116, { nome: 'Filete dourado', cor: '#b48a46', espessura: 3 }),
-            mkRet({
-              nome: 'Barra 4 colunas', x: m, y: barY, w: cw, h: barH,
-              cor: '#141312cc', blurFundo: 12, raio: 18, borda: 1.5, corBorda: '#ffffff33'
+            mkLinha(Math.round(W / 2 - 52), Math.round(H * 0.228), 104, {
+              nome: 'Filete central', cor: '#15161b99', espessura: 2
             }),
             ...colCamadas,
-            mkTexto(W, 'Pílula Preço', '{preco}', {
-              x: Math.round((W - pillW) / 2), y: pillY, w: pillW, h: pillH,
-              fonte: 'Montserrat', peso: 800, tamanho: Math.round(W * 0.040),
-              cor: '#141312', alinhamento: 'center', autoFit: true,
-              fundo: true, corFundo: '#d4af37', raioFundo: 999, folga: 14
+            mkTexto(W, 'Botão Preço', '{preco} →', {
+              x: Math.round((W - btnW) / 2), y: btnY, w: btnW, h: btnH,
+              fonte: 'Montserrat', peso: 700, tamanho: Math.round(W * 0.034),
+              cor: '#ffffff', alinhamento: 'center', autoFit: true,
+              fundo: true, corFundo: '#0f101459', raioFundo: 4, folga: 14, bordaFundo: 1.5, corBordaFundo: '#ffffff'
             })
           ]
         };
@@ -627,63 +702,53 @@
       id: 'vitrine-fosca',
       nome: 'Vitrine Fosca',
       categoria: 'Moderno',
-      paleta: ['#10121a', '#5266eb', '#ffffff', '#dcdce6'],
+      paleta: ['#0d1018', '#d4af37', '#ffffff', '#d8deef'],
       build(W, H) {
-        const halfW = Math.round(W / 2);
-        const padX = 48;
+        const halfW = Math.round(W * 0.49);
+        const padX = Math.round(W * 0.036);
         const colW = halfW - padX * 2;
         return {
-          fundo: '#10121a',
+          fundo: '#0d1018',
           camadas: [
             mkFoto(W, H, {
-              nome: 'Foto esquerda (fosca)', x: 0, y: 0, w: halfW, h: H,
-              desfoque: 18, brilho: 92, contraste: 106, indiceFoto: 0
-            }),
-            mkFoto(W, H, {
-              nome: 'Foto direita (nítida)', x: halfW, y: 0, w: W - halfW, h: H,
-              desfoque: 0, brilho: 102, contraste: 106, indiceFoto: 0
+              nome: 'Foto full-bleed', x: 0, y: 0, w: W, h: H, indiceFoto: 0
             }),
             mkRet({
-              nome: 'Véu translúcido', x: 0, y: 0, w: halfW, h: H,
-              cor: '#10121ab3', blurFundo: 8
+              nome: 'Metade esquerda fosca', x: 0, y: 0, w: halfW, h: H,
+              cor: '#0d1018a6', blurFundo: 22
             }),
             mkLinha(halfW - 1, 0, 2, {
-              nome: 'Divisor central', h: H, pontos: [1, 0, 1, H],
-              cor: '#ffffff4d', espessura: 2
+              nome: 'Filete divisório', h: H, pontos: [1, 0, 1, H],
+              cor: '#ffffff66', espessura: 2
             }),
             mkTexto(W, 'Tipo', '{tipo} · {negociacao}', {
-              x: padX, y: Math.round(H * 0.08), w: colW, h: Math.round(H * 0.04),
+              x: padX, y: Math.round(H * 0.11), w: colW, h: Math.round(H * 0.042),
               fonte: 'Inter', peso: 600, tamanho: Math.round(W * 0.021), espacamento: 3,
-              maiusculas: true, cor: '#a8b4ff', autoFit: true
+              maiusculas: true, cor: '#d4af37', alinhamento: 'center', autoFit: true
             }),
             mkTexto(W, 'Nome', '{nome}', {
-              x: padX, y: Math.round(H * 0.14), w: colW, h: Math.round(H * 0.21),
+              x: padX, y: Math.round(H * 0.18), w: colW, h: Math.round(H * 0.21),
               fonte: 'Playfair Display', peso: 700, tamanho: Math.round(W * 0.052), entrelinha: 1.06,
-              cor: '#ffffff', autoFit: true
+              cor: '#ffffff', alinhamento: 'center', autoFit: true
             }),
             mkTexto(W, 'Localização', '{bairro}', {
-              x: padX, y: Math.round(H * 0.37), w: colW, h: Math.round(H * 0.055),
-              fonte: 'Inter', peso: 500, tamanho: Math.round(W * 0.028),
-              cor: '#dcdce6', autoFit: true
+              x: padX, y: Math.round(H * 0.415), w: colW, h: Math.round(H * 0.048),
+              fonte: 'Inter', peso: 500, tamanho: Math.round(W * 0.027),
+              cor: '#e2e5f0', alinhamento: 'center', autoFit: true
             }),
-            mkLinha(padX, Math.round(H * 0.445), Math.round(colW * 0.45), {
-              nome: 'Traço', cor: '#5266eb', espessura: 3
+            mkLinha(Math.round((halfW - Math.round(colW * 0.42)) / 2), Math.round(H * 0.48), Math.round(colW * 0.42), {
+              nome: 'Traço dourado', cor: '#d4af37', espessura: 2
             }),
-            mkTexto(W, 'Specs', '{quartos} quartos\n{suites} suítes\n{area}\n{vagas} vagas', {
-              x: padX, y: Math.round(H * 0.49), w: colW, h: Math.round(H * 0.22),
-              fonte: 'Inter', peso: 500, tamanho: Math.round(W * 0.028), entrelinha: 1.48,
-              cor: '#ededf3', autoFit: true
+            mkTexto(W, 'Specs', '{area}\n{quartos} quartos\n{suites} suítes\n{vagas} vagas', {
+              x: padX, y: Math.round(H * 0.515), w: colW, h: Math.round(H * 0.21),
+              fonte: 'Inter', peso: 500, tamanho: Math.round(W * 0.027), entrelinha: 1.50,
+              cor: '#ededf3', alinhamento: 'center', autoFit: true
             }),
-            mkTexto(W, 'Pílula Preço', '{preco}', {
-              x: padX, y: Math.round(H * 0.77), w: colW, h: Math.round(H * 0.082),
-              fonte: 'Montserrat', peso: 800, tamanho: Math.round(W * 0.036),
+            mkTexto(W, 'Pílula Dourada Preço', '{preco}', {
+              x: padX, y: Math.round(H * 0.775), w: colW, h: Math.round(H * 0.078),
+              fonte: 'Montserrat', peso: 800, tamanho: Math.round(W * 0.035),
               cor: '#ffffff', alinhamento: 'center', autoFit: true,
-              fundo: true, corFundo: '#5266eb', raioFundo: 999, folga: 16
-            }),
-            mkTexto(W, 'Marca', '{marca}', {
-              x: padX, y: Math.round(H * 0.89), w: colW, h: Math.round(H * 0.04),
-              fonte: 'Montserrat', peso: 600, tamanho: Math.round(W * 0.020), espacamento: 5,
-              maiusculas: true, cor: '#c3c3cc', autoFit: true
+              fundo: true, corFundo: '#0d1018eb', raioFundo: 999, folga: 15, bordaFundo: 2, corBordaFundo: '#d4af37'
             })
           ]
         };
@@ -693,7 +758,7 @@
       id: 'traco-fino',
       nome: 'Traço Fino',
       categoria: 'Minimalista',
-      paleta: ['#0d0e14', '#ffffff', '#e2c48d', '#c8cad6'],
+      paleta: ['#7a6f64', '#161514', '#ffffff', '#e5ddd1'],
       build(W, H) {
         const m = Math.round(W * 0.055);
         const cw = W - m * 2;
@@ -705,54 +770,54 @@
         const priceW = Math.round(cw * 0.62);
         const areaW = cw - priceW - 16;
         return {
-          fundo: '#0d0e14',
+          fundo: '#161514',
           camadas: [
             mkFoto(W, H),
             mkDeg(W, H, {
-              nome: 'Sombra topo', x: 0, y: 0, w: W, h: Math.round(H * 0.22),
-              cor1: '#0d0e14a6', cor2: '#0d0e1400', angulo: 180
+              nome: 'Degradê taupe superior', x: 0, y: 0, w: W, h: Math.round(H * 0.34),
+              cor1: '#7a6f64e0', cor2: '#7a6f6400', angulo: 180
             }),
             mkDeg(W, H, {
-              nome: 'Sombra base', x: 0, y: Math.round(H * 0.40), w: W, h: H - Math.round(H * 0.40) + 2,
-              cor1: '#0d0e1400', cor2: '#0d0e14f2', angulo: 180
+              nome: 'Degradê base escuro', x: 0, y: Math.round(H * 0.42), w: W, h: H - Math.round(H * 0.42),
+              cor1: '#16151400', cor2: '#161514f2', angulo: 180
             }),
-            mkTexto(W, 'Pílula topo', '{tipo} · {negociacao}', {
-              x: m, y: m, w: Math.round(W * 0.42), h: 52,
-              fonte: 'Inter', peso: 600, tamanho: Math.round(W * 0.021), espacamento: 3,
+            mkTexto(W, 'Pílula topo', '{negociacao} – {bairro}', {
+              x: m, y: m, w: Math.round(W * 0.50), h: 52,
+              fonte: 'Inter', peso: 600, tamanho: Math.round(W * 0.021), espacamento: 2.5,
               maiusculas: true, cor: '#ffffff', alinhamento: 'center', autoFit: true,
-              fundo: true, corFundo: '#ffffff1f', raioFundo: 999, folga: 14, bordaFundo: 1.5, corBordaFundo: '#ffffff8c'
+              fundo: true, corFundo: '#16151459', raioFundo: 999, folga: 14, bordaFundo: 1.5, corBordaFundo: '#ffffff99'
             }),
-            mkLogo(W - m - 88, m - 8, 88, {
-              nome: 'Logo do Kit', origem: 'kit', forma: 'circulo', raio: 44,
-              corFundo: '#171721cc', corTexto: '#ffffff'
+            mkLogo(W - m - 88, m - 4, 88, {
+              nome: 'Logo do Kit', origem: 'kit', ocultarSemLogo: true, forma: 'circulo', raio: 44,
+              corFundo: '#161514cc', corTexto: '#ffffff'
             }),
-            mkTexto(W, 'Nome', '{nome}', {
-              x: m, y: Math.round(H * 0.56), w: cw, h: Math.round(H * 0.105),
-              fonte: 'Plus Jakarta Sans', peso: 700, tamanho: Math.round(W * 0.058), entrelinha: 1.06,
+            mkTexto(W, 'Título Cormorant', '{nome}', {
+              x: m, y: Math.round(H * 0.545), w: cw, h: Math.round(H * 0.125),
+              fonte: 'Cormorant Garamond', peso: 400, tamanho: Math.round(W * 0.072), entrelinha: 1.03,
               cor: '#ffffff', autoFit: true
             }),
             mkTexto(W, 'Localização', '{localizacao}', {
-              x: m, y: Math.round(H * 0.672), w: cw, h: Math.round(H * 0.042),
-              fonte: 'Inter', peso: 400, tamanho: Math.round(W * 0.028),
-              cor: '#c8cad6', autoFit: true
+              x: m, y: Math.round(H * 0.675), w: cw, h: Math.round(H * 0.042),
+              fonte: 'Inter', peso: 400, tamanho: Math.round(W * 0.027),
+              cor: '#e5ddd1', autoFit: true
             }),
-            mkLinha(m, l1Y, cw, { nome: 'Linha paralela 1', cor: '#ffffff66', espessura: 1.5 }),
+            mkLinha(m, l1Y, cw, { nome: 'Linha paralela 1', cor: '#ffffff80', espessura: 1.5 }),
             mkTexto(W, 'Preço', '{preco}', {
               x: m, y: l1Y + Math.round(H * 0.018), w: priceW, h: Math.round(H * 0.068),
-              fonte: 'Montserrat', peso: 800, tamanho: Math.round(W * 0.048),
+              fonte: 'Cormorant Garamond', peso: 600, tamanho: Math.round(W * 0.056),
               cor: '#ffffff', autoFit: true
             }),
             mkTexto(W, 'Área m²', '{area}', {
-              x: W - m - areaW, y: l1Y + Math.round(H * 0.022), w: areaW, h: Math.round(H * 0.062),
-              fonte: 'Montserrat', peso: 600, tamanho: Math.round(W * 0.036),
-              cor: '#e2c48d', alinhamento: 'right', autoFit: true
+              x: W - m - areaW, y: l1Y + Math.round(H * 0.024), w: areaW, h: Math.round(H * 0.058),
+              fonte: 'Inter', peso: 500, tamanho: Math.round(W * 0.034),
+              cor: '#e5ddd1', alinhamento: 'right', autoFit: true
             }),
-            mkLinha(m, l2Y, cw, { nome: 'Linha paralela 2', cor: '#ffffff66', espessura: 1.5 }),
+            mkLinha(m, l2Y, cw, { nome: 'Linha paralela 2', cor: '#ffffff80', espessura: 1.5 }),
             ...specs.map((tk, i) =>
               mkTexto(W, `Spec ${i + 1}`, tk, {
                 x: m + i * specW, y: specY, w: specW - 8, h: Math.round(H * 0.046),
-                fonte: 'Inter', peso: 500, tamanho: Math.round(W * 0.024),
-                cor: '#d6d8e2', alinhamento: i === 0 ? 'left' : i === 3 ? 'right' : 'center', autoFit: true
+                fonte: 'Inter', peso: 500, tamanho: Math.round(W * 0.023),
+                cor: '#e5ddd1', alinhamento: i === 0 ? 'left' : i === 3 ? 'right' : 'center', autoFit: true
               })
             )
           ]
@@ -763,11 +828,11 @@
       id: 'noite-dourada',
       nome: 'Noite Dourada',
       categoria: 'Luxo',
-      paleta: ['#091024', '#d4af37', '#ffffff', '#121d38'],
+      paleta: ['#0b2242', '#e4c472', '#ffffff', '#0b2242'],
       build(W, H) {
         const m = Math.round(W * 0.055);
         const cw = W - m * 2;
-        const icY = Math.round(H * 0.625);
+        const icY = Math.round(H * 0.615);
         const icSz = 60;
         const icSpan = Math.round(W * 0.25);
         const icStart = Math.round((W - (icSpan * 2 + icSz)) / 2);
@@ -781,8 +846,8 @@
           const cx = icStart + idx * icSpan;
           icCamadas.push(mkIcone(icId, cx, icY, icSz, {
             nome: `Ícone ${icId}`, formaFundo: 'circulo',
-            corFundo: '#121d38', bordaFundo: 2, corBordaFundo: '#d4af37',
-            cor: '#d4af37', folga: 15
+            corFundo: '#0b2242e6', bordaFundo: 2, corBordaFundo: '#e4c472',
+            cor: '#e4c472', folga: 15
           }));
           icCamadas.push(mkTexto(W, `Rótulo ${icId}`, tk, {
             x: cx - 34, y: icY + icSz + 8, w: icSz + 68, h: Math.round(H * 0.036),
@@ -793,39 +858,50 @@
 
         const boxW = cw - 64;
         const boxX = Math.round((W - boxW) / 2);
-        const boxY = Math.round(H * 0.76);
+        const boxY = Math.round(H * 0.758);
         const boxH = Math.round(H * 0.064);
 
         return {
-          fundo: '#091024',
+          fundo: '#0b2242',
           camadas: [
             mkFoto(W, H),
             mkDeg(W, H, {
-              nome: 'Degradê azul-noite', x: 0, y: Math.round(H * 0.28), w: W, h: H - Math.round(H * 0.28) + 2,
-              cor1: '#09102400', cor2: '#091024f5', angulo: 180
+              nome: 'Degradê azul-noite topo', x: 0, y: 0, w: W, h: Math.round(H * 0.28),
+              cor1: '#0b2242eb', cor2: '#0b224200', angulo: 180
             }),
-            mkRet({
-              nome: 'Filete moldura', x: 32, y: 32, w: W - 64, h: H - 64,
-              cor: '#00000000', borda: 2, corBorda: '#d4af3766'
+            mkDeg(W, H, {
+              nome: 'Vinheta azul-noite base', x: 0, y: Math.round(H * 0.36), w: W, h: H - Math.round(H * 0.36),
+              cor1: '#0b224200', cor2: '#0b2242f5', angulo: 180
+            }),
+            mkTexto(W, 'Kicker Exclusividade', 'EXCLUSIVIDADE', {
+              x: m, y: m, w: cw, h: Math.round(H * 0.036),
+              fonte: 'Montserrat', peso: 600, tamanho: Math.round(W * 0.022), espacamento: 6,
+              maiusculas: true, cor: '#e4c472', alinhamento: 'center', autoFit: true
+            }),
+            mkLinha(Math.round(W / 2 - 48), m + Math.round(H * 0.044), 96, {
+              nome: 'Filete dourado', cor: '#e4c472', espessura: 2
             }),
             mkTexto(W, 'Título Dourado', '{nome}', {
-              x: m, y: Math.round(H * 0.465), w: cw, h: Math.round(H * 0.13),
-              fonte: 'Cormorant Garamond', peso: 700, tamanho: Math.round(W * 0.074), entrelinha: 1.03,
-              cor: '#d4af37', alinhamento: 'center', autoFit: true
+              x: m, y: Math.round(H * 0.445), w: cw, h: Math.round(H * 0.145),
+              fonte: 'Cormorant Garamond', peso: 700, tamanho: Math.round(W * 0.082), entrelinha: 1.02,
+              cor: '#e4c472', alinhamento: 'center', autoFit: true
             }),
             ...icCamadas,
             mkRet({
-              nome: 'Caixa localização', x: boxX, y: boxY, w: boxW, h: boxH,
-              cor: '#121d38d9', raio: 12, borda: 1.5, corBorda: '#d4af378c'
+              nome: 'Caixa localização dourada', x: boxX, y: boxY, w: boxW, h: boxH,
+              cor: '#0b2242d9', raio: 12, borda: 1.5, corBorda: '#e4c472'
+            }),
+            mkIcone('local', boxX + 18, boxY + Math.round((boxH - 28) / 2), 28, {
+              nome: 'Pin localização', cor: '#e4c472', formaFundo: 'nenhum'
             }),
             mkTexto(W, 'Localização', '{localizacao}', {
-              x: boxX + 20, y: boxY + Math.round(boxH * 0.22), w: boxW - 40, h: Math.round(boxH * 0.58),
-              fonte: 'Montserrat', peso: 600, tamanho: Math.round(W * 0.028),
-              cor: '#f5efe0', alinhamento: 'center', autoFit: true
+              x: boxX + 54, y: boxY + Math.round(boxH * 0.22), w: boxW - 76, h: Math.round(boxH * 0.58),
+              fonte: 'Montserrat', peso: 600, tamanho: Math.round(W * 0.027),
+              cor: '#ffffff', alinhamento: 'center', autoFit: true
             }),
             mkTexto(W, 'Preço', '{preco}', {
-              x: m, y: Math.round(H * 0.855), w: cw, h: Math.round(H * 0.076),
-              fonte: 'Montserrat', peso: 700, tamanho: Math.round(W * 0.050),
+              x: m, y: Math.round(H * 0.852), w: cw, h: Math.round(H * 0.076),
+              fonte: 'Montserrat', peso: 700, tamanho: Math.round(W * 0.052),
               cor: '#ffffff', alinhamento: 'center', autoFit: true
             })
           ]
@@ -836,15 +912,15 @@
       id: 'essencia-moderna',
       nome: 'Essência Moderna',
       categoria: 'Moderno',
-      paleta: ['#0f1118', '#5266eb', '#ffffff', '#7fd1b2'],
+      paleta: ['#f3efe9', '#2c241d', '#4e3c2d', '#ffffff'],
       build(W, H) {
         const m = Math.round(W * 0.055);
         const cw = W - m * 2;
-        const cardY = Math.round(H * 0.695);
-        const gap = 20;
+        const cardY = Math.round(H * 0.675);
+        const gap = 18;
         const cardW = Math.floor((cw - gap * 2) / 3);
-        const cardH = Math.round(H * 0.125);
-        const cut = 22;
+        const cardH = Math.round(H * 0.145);
+        const cut = 26;
 
         const cardsSpec = [
           ['quarto', '{quartos} Quartos'],
@@ -861,63 +937,55 @@
             { x: 0, y: cardH }
           ], {
             nome: `Card chanfrado ${i + 1}`,
-            cor: '#1a2036e6',
+            cor: '#3d2f24d4',
             borda: 1.5,
-            corBorda: '#5266ebb3'
+            corBorda: '#ffffffa6'
           }));
-          cardCamadas.push(mkIcone(icId, cx + Math.round((cardW - 34) / 2), cardY + Math.round(cardH * 0.16), 34, {
-            nome: `Ícone ${icId}`, cor: '#8ea0ff', formaFundo: 'nenhum'
+          cardCamadas.push(mkIcone(icId, cx + Math.round((cardW - 44) / 2), cardY + Math.round(cardH * 0.16), 44, {
+            nome: `Ícone ${icId}`, cor: '#ffffff', formaFundo: 'nenhum'
           }));
           cardCamadas.push(mkTexto(W, `Card texto ${i + 1}`, tk, {
-            x: cx + 22, y: cardY + Math.round(cardH * 0.56), w: cardW - 44, h: Math.round(cardH * 0.34),
-            fonte: 'Montserrat', peso: 700, tamanho: Math.round(W * 0.025),
+            x: cx + 24, y: cardY + Math.round(cardH * 0.58), w: cardW - 48, h: Math.round(cardH * 0.34),
+            fonte: 'Plus Jakarta Sans', peso: 700, tamanho: Math.round(W * 0.026),
             cor: '#ffffff', alinhamento: 'center', autoFit: true
           }));
         });
 
-        const footY = H - m - Math.round(H * 0.068);
+        const footH = Math.round(H * 0.062);
+        const footY = H - m - footH;
+        const pillW = Math.round(cw * 0.72);
         return {
-          fundo: '#0f1118',
+          fundo: '#231b14',
           camadas: [
             mkFoto(W, H),
             mkDeg(W, H, {
-              nome: 'Sombra topo', x: 0, y: 0, w: W, h: Math.round(H * 0.24),
-              cor1: '#0f1118bf', cor2: '#0f111800', angulo: 180
+              nome: 'Véu superior claro', x: 0, y: 0, w: W, h: Math.round(H * 0.38),
+              cor1: '#f3efe9e8', cor2: '#f3efe900', angulo: 180
             }),
             mkDeg(W, H, {
-              nome: 'Sombra base', x: 0, y: Math.round(H * 0.38), w: W, h: H - Math.round(H * 0.38) + 2,
-              cor1: '#0f111800', cor2: '#0f1118f5', angulo: 180
+              nome: 'Degradê terroso base', x: 0, y: Math.round(H * 0.50), w: W, h: H - Math.round(H * 0.50),
+              cor1: '#231b1400', cor2: '#231b14ed', angulo: 180
             }),
-            mkLogo(m, m, 88, {
-              nome: 'Logo do Kit', origem: 'kit', forma: 'quadrado', raio: 18,
-              corFundo: '#5266eb', corTexto: '#ffffff'
-            }),
-            mkTexto(W, 'Negociação', '{negociacao}', {
-              x: W - m - 200, y: m + 16, w: 200, h: 48,
-              fonte: 'Montserrat', peso: 700, tamanho: 22, espacamento: 3,
-              maiusculas: true, cor: '#ffffff', alinhamento: 'center', autoFit: true,
-              fundo: true, corFundo: '#5266eb', raioFundo: 999, folga: 12
+            mkLogo(Math.round((W - 84) / 2), Math.round(H * 0.042), 84, {
+              nome: 'Logo centralizado', origem: 'kit', ocultarSemLogo: true, forma: 'quadrado', raio: 16,
+              corFundo: '#3d2f24', corTexto: '#ffffff'
             }),
             mkTexto(W, 'Headline Peso 1', '{tipo} · {bairro}', {
-              x: m, y: Math.round(H * 0.505), w: cw, h: Math.round(H * 0.042),
-              fonte: 'Montserrat', peso: 400, tamanho: Math.round(W * 0.028), espacamento: 4,
-              maiusculas: true, cor: '#b9c2ff', autoFit: true
+              x: m, y: Math.round(H * 0.132), w: cw, h: Math.round(H * 0.040),
+              fonte: 'Plus Jakarta Sans', peso: 400, tamanho: Math.round(W * 0.026), espacamento: 3,
+              maiusculas: true, cor: '#594433', alinhamento: 'center', autoFit: true
             }),
             mkTexto(W, 'Headline Peso 2', '{nome}', {
-              x: m, y: Math.round(H * 0.555), w: cw, h: Math.round(H * 0.115),
-              fonte: 'Montserrat', peso: 800, tamanho: Math.round(W * 0.064), entrelinha: 1.05,
-              cor: '#ffffff', autoFit: true
+              x: m, y: Math.round(H * 0.176), w: cw, h: Math.round(H * 0.115),
+              fonte: 'Plus Jakarta Sans', peso: 800, tamanho: Math.round(W * 0.064), entrelinha: 1.04,
+              cor: '#2c241d', alinhamento: 'center', autoFit: true
             }),
             ...cardCamadas,
-            mkTexto(W, 'Preço', '{preco}', {
-              x: m, y: footY, w: Math.round(cw * 0.48), h: Math.round(H * 0.064),
-              fonte: 'Montserrat', peso: 800, tamanho: Math.round(W * 0.046),
-              cor: '#7fd1b2', autoFit: true
-            }),
-            mkTexto(W, 'Rodapé', '{corretor} · {telefone}', {
-              x: m + Math.round(cw * 0.50), y: footY + 12, w: Math.round(cw * 0.50), h: Math.round(H * 0.044),
-              fonte: 'Inter', peso: 500, tamanho: Math.round(W * 0.023),
-              cor: '#c3c3cc', alinhamento: 'right', autoFit: true
+            mkTexto(W, 'Pílula rodapé Preço', '{preco} · {corretor}', {
+              x: Math.round((W - pillW) / 2), y: footY, w: pillW, h: footH,
+              fonte: 'Plus Jakarta Sans', peso: 700, tamanho: Math.round(W * 0.032),
+              cor: '#ffffff', alinhamento: 'center', autoFit: true,
+              fundo: true, corFundo: '#3d2f24e6', raioFundo: 999, folga: 14, bordaFundo: 1.5, corBordaFundo: '#ffffff66'
             })
           ]
         };
@@ -927,32 +995,35 @@
       id: 'visao-glass',
       nome: 'Visão Glass',
       categoria: 'Moderno',
-      paleta: ['#0c101a', '#7fd1b2', '#ffffff', '#141926'],
+      paleta: ['#0c101a', '#3aa832', '#ffffff', '#141926'],
       build(W, H) {
         const m = Math.round(W * 0.055);
         const cw = W - m * 2;
-        const precoW = Math.round(W * 0.43);
-        const precoX = W - m - precoW; // x + w === W - Math.round(W * 0.055) rigorosamente
-        const cardY = Math.round(H * 0.34);
-        const cardH = Math.round(H * 0.45);
-        const halfCol = Math.floor((cw - 72) / 2);
-        const swY1 = cardY + Math.round(cardH * 0.42);
-        const swY2 = cardY + Math.round(cardH * 0.68);
-        const switches = [
-          [m + 36, swY1, '{quartos} Quartos'],
-          [m + 36 + halfCol, swY1, '{suites} Suítes'],
-          [m + 36, swY2, '{area}'],
-          [m + 36 + halfCol, swY2, '{vagas} Vagas']
+        const precoW = Math.round(cw * 0.44);
+        const precoX = W - m - precoW;
+        const cardY = Math.round(H * 0.28);
+        const cardH = Math.round(H * 0.54);
+        const rowsSpec = [
+          '{quartos} Quartos',
+          '{suites} Suítes',
+          '{area}',
+          '{vagas} Vagas'
         ];
-        const swCamadas = [];
-        switches.forEach(([sx, sy, tk], idx) => {
-          swCamadas.push(mkIcone('switch-on', sx, sy, 44, {
-            nome: `Switch ${idx + 1}`, cor: '#7fd1b2', formaFundo: 'nenhum'
+        const rowStartY = cardY + Math.round(cardH * 0.28);
+        const rowStep = Math.round((cardH * 0.66) / 4);
+        const rowCamadas = [];
+        rowsSpec.forEach((tk, idx) => {
+          const ry = rowStartY + idx * rowStep;
+          rowCamadas.push(mkLinha(m + 28, ry, cw - 56, {
+            nome: `Separador row ${idx + 1}`, cor: '#ffffff33', espessura: 1
           }));
-          swCamadas.push(mkTexto(W, `Item ${idx + 1}`, tk, {
-            x: sx + 56, y: sy + 4, w: halfCol - 64, h: 40,
-            fonte: 'Plus Jakarta Sans', peso: 600, tamanho: Math.round(W * 0.028),
+          rowCamadas.push(mkTexto(W, `Item ${idx + 1}`, tk, {
+            x: m + 32, y: ry + 14, w: cw - 124, h: 42,
+            fonte: 'Plus Jakarta Sans', peso: 600, tamanho: Math.round(W * 0.030),
             cor: '#ffffff', autoFit: true
+          }));
+          rowCamadas.push(mkIcone('switch-on', W - m - 84, ry + 12, 46, {
+            nome: `Switch ${idx + 1}`, cor: '#3aa832', formaFundo: 'nenhum'
           }));
         });
 
@@ -961,31 +1032,36 @@
           camadas: [
             mkFoto(W, H),
             mkDeg(W, H, {
-              nome: 'Véu escuro', x: 0, y: 0, w: W, h: H,
-              cor1: '#0c101a66', cor2: '#0c101ae6', angulo: 180
+              nome: 'Véu escuro suave', x: 0, y: 0, w: W, h: H,
+              cor1: '#0c101a70', cor2: '#0c101aeb', angulo: 180
             }),
-            mkTexto(W, 'Tipo', '{tipo} · {bairro}', {
-              x: m, y: Math.round(H * 0.055), w: cw - precoW - 16, h: Math.round(H * 0.058),
-              fonte: 'Plus Jakarta Sans', peso: 600, tamanho: Math.round(W * 0.026),
-              cor: '#e4e7f2', autoFit: true
+            mkTexto(W, 'Marca', '{marca}', {
+              x: m, y: Math.round(H * 0.052), w: Math.round(cw * 0.28), h: Math.round(H * 0.045),
+              fonte: 'Plus Jakarta Sans', peso: 700, tamanho: Math.round(W * 0.025), espacamento: 3,
+              maiusculas: true, cor: '#e4e7f2', autoFit: true
             }),
-            mkTexto(W, 'Preço', '{preco}', {
+            mkTexto(W, 'Bairro', '{bairro}', {
+              x: m, y: Math.round(H * 0.098), w: cw - precoW - 18, h: Math.round(H * 0.042),
+              fonte: 'Plus Jakarta Sans', peso: 500, tamanho: Math.round(W * 0.024),
+              cor: '#d0d5e6', autoFit: true
+            }),
+            mkTexto(W, 'Preço margem direita', '{preco}', {
               x: precoX, y: Math.round(H * 0.048), w: precoW, h: Math.round(H * 0.072),
               fonte: 'Montserrat', peso: 800, tamanho: Math.round(W * 0.048),
               cor: '#ffffff', alinhamento: 'right', autoFit: true
             }),
             mkRet({
               nome: 'Cartão Glass Central', x: m, y: cardY, w: cw, h: cardH,
-              cor: '#1419268c', blurFundo: 20, raio: 28, borda: 2, corBorda: '#ffffff4d'
+              cor: '#14192685', blurFundo: 22, raio: 28, borda: 1.5, corBorda: '#ffffff52'
             }),
-            mkTexto(W, 'Nome', '{nome}', {
-              x: m + 36, y: cardY + Math.round(cardH * 0.10), w: cw - 72, h: Math.round(cardH * 0.25),
-              fonte: 'Plus Jakarta Sans', peso: 700, tamanho: Math.round(W * 0.054), entrelinha: 1.06,
+            mkTexto(W, 'Nome no Cartão', '{nome}', {
+              x: m + 32, y: cardY + Math.round(cardH * 0.07), w: cw - 64, h: Math.round(cardH * 0.18),
+              fonte: 'Plus Jakarta Sans', peso: 700, tamanho: Math.round(W * 0.050), entrelinha: 1.06,
               cor: '#ffffff', autoFit: true
             }),
-            ...swCamadas,
+            ...rowCamadas,
             mkTexto(W, 'Rodapé', '{localizacao} · {corretor} {telefone}', {
-              x: m, y: H - m - Math.round(H * 0.052), w: cw, h: Math.round(H * 0.046),
+              x: m, y: H - m - Math.round(H * 0.050), w: cw, h: Math.round(H * 0.044),
               fonte: 'Inter', peso: 500, tamanho: Math.round(W * 0.024),
               cor: '#d0d5e6', alinhamento: 'center', autoFit: true
             })
@@ -1001,23 +1077,23 @@
       build(W, H) {
         const m = Math.round(W * 0.055);
         const leftW = Math.round(W * 0.56);
-        const sigW = Math.round(W * 0.36);
+        const sigW = Math.round(W * 0.42);
         return {
           fundo: '#0e1015',
           camadas: [
             mkFoto(W, H),
             mkDeg(W, H, {
-              nome: 'Degradê lateral esquerdo', x: 0, y: 0, w: Math.round(W * 0.75), h: H,
-              cor1: '#0e1015f2', cor2: '#0e101500', angulo: 90
+              nome: 'Degradê lateral esquerdo suave', x: 0, y: 0, w: Math.round(W * 0.72), h: H,
+              cor1: '#0e1015eb', cor2: '#0e101500', angulo: 90
             }),
-            mkTexto(W, 'Categoria', '{tipo} · {bairro}', {
-              x: m, y: Math.round(H * 0.085), w: leftW, h: Math.round(H * 0.040),
+            mkTexto(W, 'Categoria', '{tipo} · {localizacao}', {
+              x: m, y: Math.round(H * 0.082), w: leftW, h: Math.round(H * 0.040),
               fonte: 'Montserrat', peso: 600, tamanho: Math.round(W * 0.021), espacamento: 4,
               maiusculas: true, cor: '#d4af37', autoFit: true
             }),
-            mkTexto(W, 'Título Serifado', '{nome}', {
-              x: m, y: Math.round(H * 0.145), w: leftW, h: Math.round(H * 0.24),
-              fonte: 'Playfair Display', peso: 700, tamanho: Math.round(W * 0.074), entrelinha: 1.03,
+            mkTexto(W, 'Título Bodoni Moda', '{nome}', {
+              x: m, y: Math.round(H * 0.140), w: leftW, h: Math.round(H * 0.25),
+              fonte: 'Bodoni Moda', peso: 500, tamanho: Math.round(W * 0.072), entrelinha: 1.03,
               cor: '#ffffff', autoFit: true
             }),
             mkLinha(m, Math.round(H * 0.415), 96, { nome: 'Traço dourado', cor: '#d4af37', espessura: 2.5 }),
@@ -1028,12 +1104,12 @@
             }),
             mkTexto(W, 'Preço', '{preco}', {
               x: m, y: Math.round(H * 0.775), w: Math.round(W * 0.50), h: Math.round(H * 0.084),
-              fonte: 'Playfair Display', peso: 700, tamanho: Math.round(W * 0.056),
+              fonte: 'Montserrat', peso: 800, tamanho: Math.round(W * 0.052),
               cor: '#d4af37', autoFit: true
             }),
             mkTexto(W, 'Assinatura Corretor', '{corretor}', {
-              x: W - m - sigW, y: H - m - Math.round(H * 0.078), w: sigW, h: Math.round(H * 0.072),
-              fonte: 'Pinyon Script', peso: 400, tamanho: Math.round(W * 0.052),
+              x: W - m - sigW, y: H - m - Math.round(H * 0.084), w: sigW, h: Math.round(H * 0.078),
+              fonte: 'Pinyon Script', peso: 400, tamanho: Math.round(W * 0.058),
               cor: '#ffffff', alinhamento: 'right', sombra: 12, corSombra: '#000000', autoFit: true
             })
           ]
@@ -1044,48 +1120,52 @@
       id: 'manchete-nobre',
       nome: 'Manchete Nobre',
       categoria: 'Luxo',
-      paleta: ['#12131a', '#d4af37', '#ffffff', '#f0d791'],
+      paleta: ['#12131a', '#ffffff', '#e8d49c', '#dcdce6'],
       build(W, H) {
         const m = Math.round(W * 0.055);
-        const cw = W - m * 2; // centro exato = W / 2
-        const seloSz = 116;
-        const seloY = Math.round(H * 0.06);
+        const cw = W - m * 2;
+        const seloSz = 118;
         return {
           fundo: '#12131a',
           camadas: [
             mkFoto(W, H),
             mkDeg(W, H, {
-              nome: 'Sombra topo', x: 0, y: 0, w: W, h: Math.round(H * 0.24),
-              cor1: '#12131a99', cor2: '#12131a00', angulo: 180
+              nome: 'Degradê topo', x: 0, y: 0, w: W, h: Math.round(H * 0.26),
+              cor1: '#12131ab3', cor2: '#12131a00', angulo: 180
             }),
             mkDeg(W, H, {
-              nome: 'Sombra base', x: 0, y: Math.round(H * 0.44), w: W, h: H - Math.round(H * 0.44) + 2,
+              nome: 'Degradê base', x: 0, y: Math.round(H * 0.44), w: W, h: H - Math.round(H * 0.44),
               cor1: '#12131a00', cor2: '#12131af2', angulo: 180
             }),
-            mkCirc(Math.round(W / 2 - seloSz / 2), seloY, seloSz, seloSz, {
-              nome: 'Selo circular', cor: '#14151cd9', borda: 2, corBorda: '#d4af37'
+            mkCirc(m, m, seloSz, seloSz, {
+              nome: 'Selo circular branco', cor: '#ffffff'
             }),
             mkTexto(W, 'Texto selo', '{negociacao}', {
-              x: Math.round(W / 2 - (seloSz - 12) / 2), y: seloY + Math.round(seloSz * 0.34), w: seloSz - 12, h: 42,
-              fonte: 'Montserrat', peso: 700, tamanho: 20, espacamento: 2, maiusculas: true,
-              cor: '#d4af37', alinhamento: 'center', autoFit: true
+              x: m + 8, y: m + Math.round(seloSz * 0.36), w: seloSz - 16, h: 40,
+              fonte: 'Montserrat', peso: 800, tamanho: 20, espacamento: 1.5, maiusculas: true,
+              cor: '#12131a', alinhamento: 'center', autoFit: true
             }),
-            mkTexto(W, 'Manchete Monumental', '{nome}', {
-              x: m, y: Math.round(H * 0.61), w: cw, h: Math.round(H * 0.145),
-              fonte: 'Playfair Display', peso: 700, tamanho: Math.round(W * 0.080), entrelinha: 1.02,
+            mkTexto(W, 'Linha Bairro e Preço', '{bairro}, {cidade} | {preco}', {
+              x: m, y: Math.round(H * 0.565), w: cw, h: Math.round(H * 0.044),
+              fonte: 'Montserrat', peso: 600, tamanho: Math.round(W * 0.025), espacamento: 2.5,
+              maiusculas: true, cor: '#f5efe0', alinhamento: 'center', autoFit: true
+            }),
+            mkTexto(W, 'Manchete À VENDA', 'À VENDA', {
+              x: m, y: Math.round(H * 0.618), w: cw, h: Math.round(H * 0.145),
+              fonte: 'Playfair Display', peso: 700, tamanho: Math.round(W * 0.105), entrelinha: 0.98,
               cor: '#ffffff', alinhamento: 'center', autoFit: true
             }),
-            mkLinha(Math.round(W * 0.25), Math.round(H * 0.772), Math.round(W * 0.50), {
-              nome: 'Linha central', cor: '#d4af3799', espessura: 1.5
+            mkTexto(W, 'Subtítulo Nome', '{nome}', {
+              x: m, y: Math.round(H * 0.778), w: cw, h: Math.round(H * 0.062),
+              fonte: 'Cormorant Garamond', peso: 600, italico: true, tamanho: Math.round(W * 0.044),
+              cor: '#e8d49c', alinhamento: 'center', autoFit: true
             }),
-            mkTexto(W, 'Bairro e Preço', '{bairro} · {preco}', {
-              x: m, y: Math.round(H * 0.792), w: cw, h: Math.round(H * 0.068),
-              fonte: 'Montserrat', peso: 700, tamanho: Math.round(W * 0.040),
-              cor: '#f0d791', alinhamento: 'center', autoFit: true
+            mkLinha(Math.round(W * 0.25), Math.round(H * 0.854), Math.round(W * 0.50), {
+              nome: 'Linha sutil base', cor: '#ffffff66', espessura: 1.5
             }),
-            mkTexto(W, 'Detalhes', '{quartos} quartos · {suites} suítes · {area} · {vagas} vagas', {
-              x: m, y: Math.round(H * 0.878), w: cw, h: Math.round(H * 0.044),
-              fonte: 'Inter', peso: 500, tamanho: Math.round(W * 0.025),
+            mkTexto(W, 'Specs rodapé', '{quartos} quartos · {suites} suítes · {area} · {vagas} vagas', {
+              x: m, y: Math.round(H * 0.875), w: cw, h: Math.round(H * 0.044),
+              fonte: 'Inter', peso: 500, tamanho: Math.round(W * 0.024),
               cor: '#dcdce6', alinhamento: 'center', autoFit: true
             })
           ]
@@ -1100,14 +1180,14 @@
       build(W, H) {
         const m = Math.round(W * 0.055);
         const cw = W - m * 2;
-        const degY = Math.round(H * 0.36);
+        const degY = Math.round(H * 0.38);
         return {
           fundo: '#171721',
           camadas: [
             mkFoto(W, H),
             mkDeg(W, H, {
-              nome: 'Degradê', x: 0, y: degY, w: W, h: H - degY + 2,
-              cor1: '#00000000', cor2: '#000000eb', angulo: 180
+              nome: 'Degradê suave base', x: 0, y: degY, w: W, h: H - degY,
+              cor1: '#17172100', cor2: '#171721eb', angulo: 180
             }),
             mkTexto(W, 'Selo', '{precoRotulo}', {
               x: W - m - 220, y: Math.round(H * 0.048), w: 220, h: 52,
@@ -1149,35 +1229,34 @@
         const m = Math.round(W * 0.055);
         const cw = W - m * 2;
         const fy = Math.round(H * 0.64);
-        const transH = Math.round(H * 0.14);
         return {
           fundo: '#171721',
           camadas: [
-            mkFoto(W, H, { h: fy + 2 }),
-            mkDeg(W, H, {
-              nome: 'Transição sombra adaptativa', x: 0, y: fy - transH, w: W, h: transH + 2,
-              cor1: '#17172100', cor2: '#171721ff', angulo: 180
-            }),
+            mkFoto(W, H, { h: fy }),
             mkRet({
               nome: 'Faixa inferior', x: 0, y: fy, w: W, h: H - fy,
               cor: '#171721', raio: 0
             }),
             mkRet({
-              nome: 'Linha dourada', x: m, y: fy + Math.round(H * 0.028), w: 112, h: 5,
+              nome: 'Divisor dourado', x: 0, y: fy - 2, w: W, h: 4,
+              cor: '#c9a227', raio: 0
+            }),
+            mkRet({
+              nome: 'Linha dourada', x: m, y: fy + Math.round(H * 0.030), w: 112, h: 5,
               cor: '#c9a227', raio: 3
             }),
             mkTexto(W, 'Nome', '{nome}', {
-              x: m, y: fy + Math.round(H * 0.048), w: cw, h: Math.round(H * 0.115),
+              x: m, y: fy + Math.round(H * 0.052), w: cw, h: Math.round(H * 0.115),
               fonte: 'Playfair Display', peso: 700, tamanho: Math.round(W * 0.064), entrelinha: 1.05,
               cor: '#ffffff', autoFit: true
             }),
             mkTexto(W, 'Detalhes', '{bairro} · {quartos} quartos · {area}', {
-              x: m, y: fy + Math.round(H * 0.184), w: cw, h: Math.round(H * 0.044),
+              x: m, y: fy + Math.round(H * 0.186), w: cw, h: Math.round(H * 0.044),
               fonte: 'Montserrat', peso: 500, tamanho: Math.round(W * 0.028),
               cor: '#c3c3cc', autoFit: true
             }),
             mkTexto(W, 'Preço', '{preco}', {
-              x: m, y: fy + Math.round(H * 0.244), w: cw, h: Math.round(H * 0.074),
+              x: m, y: fy + Math.round(H * 0.246), w: cw, h: Math.round(H * 0.074),
               fonte: 'Montserrat', peso: 800, tamanho: Math.round(W * 0.048),
               cor: '#c9a227', autoFit: true
             })
@@ -1193,18 +1272,18 @@
       build(W, H) {
         const m = Math.round(W * 0.055) + 16;
         const cw = W - m * 2;
-        const degY = Math.round(H * 0.48);
+        const degY = Math.round(H * 0.46);
         return {
-          fundo: '#ffffff',
+          fundo: '#171721',
           camadas: [
             mkFoto(W, H),
             mkDeg(W, H, {
-              nome: 'Sombra', x: 0, y: degY, w: W, h: H - degY + 2,
-              cor1: '#00000000', cor2: '#000000c4', angulo: 180
+              nome: 'Sombra suave base', x: 0, y: degY, w: W, h: H - degY,
+              cor1: '#17172100', cor2: '#171721c4', angulo: 180
             }),
             mkRet({
               nome: 'Moldura', x: 36, y: 36, w: W - 72, h: H - 72,
-              cor: '#00000000', borda: 5, corBorda: '#ffffffcc'
+              cor: '#00000000', borda: 4, corBorda: '#ffffffcc'
             }),
             mkTexto(W, 'Nome', '{nome}', {
               x: m, y: Math.round(H * 0.665), w: cw, h: Math.round(H * 0.12),
@@ -1765,6 +1844,7 @@
       toast,
       modelosProntos: MODELOS_CAPA,
       meusModelos: () => getModelosInfo(),
+      onVoltar: ctx.onVoltar,
       opcoesTopbar: { apresentacao: true, lote: true, vitrine: true, whatsapp: false },
 
       onChangeDoc(doc) {

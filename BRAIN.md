@@ -16,17 +16,17 @@
   - `src/web/routes/` — Rotas por domínio: `status.routes.js`, `carteira.routes.js`, `config.routes.js`, `radar.routes.js`, `pdf.routes.js`, `vitrine.routes.js`, `prospeccao.routes.js`, `busca.routes.js`.
 
 - 🕸️ **Studio Core & Konva UI/UX (Design Visual 1:1)**
-  - `src/public/studio-core.js` (`window.BIGA_STUDIO`) — Motor Konva.js v9 (Schema JSON v1), 10 tipos de camada (`foto`, `texto`, `retangulo`, `circulo`, `linha`, `degrade`, `poligono` 4pt, `icone`, `logo`, `qrcode`), 22 tokens inteligentes (`CAMPOS_INTELIGENTES`), 23 ícones vetoriais (`ICONES_SVG`), 1.800+ fontes Google, roda de cores HSV, serialização com matriz lógica 1:1 (`getAbsoluteTransform(contentLayer)`) e telemetria tipográfica, miniaturas `data:image/png` (`renderizarMiniaturaCanvas`), blindagem touch mobile e UI estilo Canva/Adobe Express.
-  - `src/public/studio.css` — Estilização Desktop (`>= 900px` rail + painel grafite + palco + barra contextual + filmstrip) e Mobile (`< 900px` topbar vidro fosco + palco + barra inferior + bottom sheet `[data-allow-scroll]`), Modo Apresentação (`.studio-pres`), modais Kit/Exportar.
+  - `src/public/studio-core.js` (`window.BIGA_STUDIO`) — Motor Konva.js v9 (Schema JSON v1), 10 tipos de camada (`foto`, `texto`, `retangulo`, `circulo`, `linha`, `degrade`, `poligono` 4pt, `icone`, `logo` com `ocultarSemLogo`, `qrcode`), tokens inteligentes (`{nomeKicker}`, `{nomeDestaque}` + poda de rótulos órfãos), 23 ícones vetoriais (`ICONES_SVG`), 1.800+ fontes Google, gradientes retangulares exatos (5 paradas anti-banding), `Transformer` compensado (~10–11px, 4 cantos em `<90px`), quick-bar acima + 2 alças externas (`↻`, `✥`), barra inferior contextual em 2 modos (Criação 6 itens / Edição + `✓` + mini-painéis compactos), Camadas (`Tudo` / `Em sobreposição` + drag-and-drop), Apresentação no `document.body` (`contain`), Action Sheet `···` no mobile e miniaturas WYSIWYG com fontes pré-carregadas.
+  - `src/public/studio.css` — Estilização Desktop (`>= 900px` rail + painel grafite + palco + filmstrip) e Mobile (`< 900px` modo tela cheia `100dvh` sem rolagem, topbar única compacta, Action Sheet inferior, alças flutuantes `↻`/`✥`, barra inferior em 2 modos, mini-sheet `44dvh`, cartões de camadas `>= 56px`, Modo Apresentação `100vw×100dvh`, miniaturas `object-fit: contain`).
   - `src/public/vendor/konva.min.js` — Konva v9.3.18 vendorizado localmente (`script-src 'self'`).
   - `src/public/fontes-google.json` — Metadados de famílias e pesos do Google Fonts.
 
-- 🕸️ **UI / Painel SPA**
-  - `src/public/index.html` — Casca HTML e ordem de carregamento (`app.css`, `studio.css`, `biga-art.js`, `konva.min.js`, `studio-core.js`, `capas.js`, `js/*.js`, `app.js`).
-  - `src/public/app.css` — Design System BIGA ("Mercury — Alpine banking at blue hour"): tokens `--color-onyx-canvas`, `--color-graphite-card`, `--color-obsidian-button`, `--color-cobalt`, `--color-ivory-text`, `--color-ash-text`, `--font-ui`, `--font-display`, `--r-card`, `--r-pill`, `--r-nav`.
-  - `src/public/app.js` — Roteador SPA (`views` em `Map`) e delegação de eventos.
-  - `src/public/capas.js` — Editor unificado de Capas & Carrossel sobre `BIGA_STUDIO` (`feed 1080×1350`, `quadrado 1080×1080`, `story 1080×1920`, até 10 slides, 12 modelos sofisticados, exportação JPG/PNG e geração em lote).
-  - `src/public/js/` — Módulos de tela: `core.js`, `ui.js`, `inicio.js`, `dia.js`, `carteira.js`, `vitrine.js`, `pdf.js` (Estúdio PDF 16:9 Konva), `busca.js`, `clientes.js`, `config.js`.
+- 🕸️ **UI / Painel SPA (Navegação Apple HIG)**
+  - `src/public/index.html` — Casca HTML com `viewport-fit=cover` e ordem de carregamento (`app.css`, `studio.css`, `biga-art.js`, `konva.min.js`, `studio-core.js`, `capas.js`, `js/*.js`, `app.js`).
+  - `src/public/app.css` — Design System BIGA (`#171721` Onyx, `#1e1e2a` Grafite, `#272735` Obsidiana, `#5266eb` Cobalto), Tab Bar inferior fixa 4 itens (`Design`, `Imóveis`, `Clientes`, `Menu`), gaveta `☰`, Bottom Sheet `Estúdio de Design`, menu `#inicio` em cards 2×2 e `body.biga-studio-fullscreen` (`100dvh`) para `#capas`/`#pdf`.
+  - `src/public/app.js` — Roteador SPA (`views` em `Map`), toggle `biga-studio-fullscreen`, rastreamento explícito `lastNonStudioRoute` e delegação de eventos.
+  - `src/public/capas.js` — Editor de Capas & Carrossel sobre `BIGA_STUDIO` (`4:5`, `1:1`, `9:16`, até 10 slides, **12 modelos fiéis**, exportação JPG/PNG, lote e fallback de tokens com poda de órfãos).
+  - `src/public/js/` — Módulos de tela: `core.js`, `ui.js` (Tab Bar HIG, Design Sheet, Gaveta `☰`), `inicio.js` (hero BIGA + grid 2×2), `dia.js`, `carteira.js`, `vitrine.js`, `pdf.js` (Estúdio PDF 16:9 Konva 12 modelos), `busca.js`, `clientes.js`, `config.js`.
 
 - 🕸️ **Domain / Core Logic, PDF & Testes Studio**
   - `src/domain/` — `sheets.js` (carteira CSV), `matcher.js`, `radar.js`, `quem-procura.js`, `vitrine.js`, `capas.js` (modelos + carrossel até 10 slides em `capas.json`), `pdf-modelos.js` (modelos próprios JSON v1 em `pdf_modelos.json`), `prospeccao.js`, `garimpo.js`, `anuncios.js`, `scheduler.js`.
@@ -51,7 +51,7 @@
 - *Rotas HTTP de PDF 16:9, Kit de Marca, Logo, Modelos e QR* ➔ `src/web/routes/pdf.routes.js`
 - *Rotas HTTP de Vitrine e Capas* ➔ `src/web/routes/vitrine.routes.js`
 - *Gerenciador de Kit, Fichas 16:9, Precedência (ficha > padrão ★ > kit) e Worker PDFKit* ➔ `src/pdf/deck16x9/manager.js`
-- *Motor Híbrido Vetorial 1:1 (`gerarDeCena`, Modo A/B, perspectiva), Cenas Preset 5×2 e Cache de Fontes Google 3 níveis* ➔ `src/pdf/deck16x9/{gerar,motor,cenas,cache-fontes,icones,worker}.js`
+- *Motor Híbrido Vetorial 1:1 (`gerarDeCena`, Modo A/B, perspectiva, gradientes exatos), Cenas Preset 12 Modelos Estruturalmente Distintos × 2 Paletas + aliases `A..F` e Cache de Fontes Google* ➔ `src/pdf/deck16x9/{gerar,motor,modelos,cenas,cache-fontes,icones,worker}.js`
 - *Modelos Próprios PDF JSON v1 & Backup* ➔ `src/domain/pdf-modelos.js`, `src/config/backup.js`
 - *Tela `#pdf` (Estúdio PDF 16:9 Konva)* ➔ `src/public/js/pdf.js`
 - *Tela `#capas` (Estúdio Capas, Carrossel 10 slides, 3 formatos e 12 modelos)* ➔ `src/public/capas.js`, `src/domain/capas.js`

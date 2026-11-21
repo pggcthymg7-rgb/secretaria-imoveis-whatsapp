@@ -14,6 +14,8 @@ const sharp = require('sharp');
 const { FOTOS_DIR } = require('../src/config/paths');
 const cacheFontes = require('../src/pdf/deck16x9/cache-fontes');
 const { criarCenaModelo } = require('../src/pdf/deck16x9/cenas');
+const { IDS_MODELOS_12 } = require('../src/pdf/deck16x9/modelos');
+const motorPdf = require('../src/pdf/deck16x9/motor');
 const { gerarDeCena } = require('../src/pdf/deck16x9/gerar');
 const { executarTarefa } = require('../src/pdf/deck16x9/worker');
 const pdf16x9 = require('../src/pdf/deck16x9/manager');
@@ -494,7 +496,7 @@ test('3. Renderização Vetorial Híbrida: 5 modelos x 2 paletas, Modo A vs B, l
   };
   const kit = { marca: 'Aurora Imóveis', logo: logoPng, fonte: 'Jost', telefone: '62999887766' };
 
-  // 3a. 5 modelos (A, B, D, E, F) x 2 paletas (principal, segunda)
+  // 3a. 5 aliases legados (A, B, D, E, F) x 2 paletas (principal, segunda) + 12 modelos canônicos distintos
   let pdfModeloA = null;
   for (const modelo of ['A', 'B', 'D', 'E', 'F']) {
     for (const paleta of ['principal', 'segunda']) {
@@ -512,6 +514,31 @@ test('3. Renderização Vetorial Híbrida: 5 modelos x 2 paletas, Modo A vs B, l
       if (modelo === 'A' && paleta === 'principal') pdfModeloA = buf;
     }
   }
+
+  // Valida todos os 12 modelos canônicos gerando PDF 6 páginas + layouts estruturalmente distintos por slide
+  assert.equal(IDS_MODELOS_12.length, 12);
+  const firmasPorSlide = { capa: new Set(), resumo: new Set(), foto: new Set(), galeria: new Set(), texto: new Set(), contato: new Set() };
+  for (const mid of IDS_MODELOS_12) {
+    const cena = criarCenaModelo(mid, 'principal', kit, dadosImovel);
+    assert.equal(cena.slides.length, 6, `${mid} deve ter 6 slides`);
+    for (const sl of cena.slides) {
+      const assinatura = `${sl.fundo}|${sl.camadas.map(c => `${c.tipo}:${Math.round(c.x / 10)},${Math.round(c.y / 10)},${Math.round(c.w / 10)},${Math.round(c.h / 10)}`).join(';')}`;
+      assert.equal(firmasPorSlide[sl.tipo].has(assinatura), false, `Slide ${sl.tipo} de ${mid} repetiu layout idêntico a outro modelo`);
+      firmasPorSlide[sl.tipo].add(assinatura);
+    }
+    const { doc, info } = gerarDeCena(PDFDocument, QRCode, { cena, dados: dadosImovel, kit, fotos: fotosPng, fontesResolvidas });
+    const buf = await coletarPdf(doc);
+    assert.equal(buf.subarray(0, 4).toString(), '%PDF', `Modelo 12 canônico ${mid} deve gerar PDF válido`);
+    assert.equal(info.paginas, 6, `Modelo ${mid} deve gerar 6 páginas`);
+  }
+
+  // Motor: projeção exata de gradiente retangular e poda de rótulos órfãos
+  const ptsV = motorPdf.calcularPontosDegrade(1080, 500, 180);
+  assert.ok(Math.abs(ptsV.start.y) < 1 && Math.abs(ptsV.end.y - 500) < 1, 'gradiente vertical 180° deve cruzar exatamente [0..h]');
+  const stopsV = motorPdf.construirParadasDegrade('#0b2242eb', '#0b224200', 1);
+  assert.equal(stopsV[4][1], '#0b2242', 'stop transparent end deve preservar RGB exato sem cinza intermediário');
+  const dParcial = motorPdf.resolverDadosParaTokens({ quartos: '2', suites: '', vagas: '', area: '62 m²' }, kit);
+  assert.equal(motorPdf.substituirTokens('{quartos} qts · {suites} suítes · {area} · {vagas} vagas', dParcial), '2 qts · 62 m²');
 
   // Validação em JS puro de páginas, dimensões e texto decodificado no buffer PDF
   const inspA = inspecionarPdfBinario(pdfModeloA, tmpDir, 'modelo-A.pdf');

@@ -11,10 +11,15 @@
   // Desenha a página atual. Ao TROCAR de página (go) anima a entrada; nas atualizações da mesma
   // página não anima, mantém a rolagem e (manterCampos) o que estava sendo digitado.
   function render(opts = {}) {
-    if (!S.authed) return viewLogin();
+    if (!S.authed) {
+      document.body.classList.remove('biga-studio-fullscreen');
+      return viewLogin();
+    }
     const navegando = Boolean(S._navegando);
     const y = scrollY;
     const campos = opts.manterCampos ? capturarCampos() : null;
+    if (S.route !== 'capas' && S.route !== 'pdf') S.lastNonStudioRoute = S.route;
+    document.body.classList.toggle('biga-studio-fullscreen', S.route === 'capas' || S.route === 'pdf');
     root.classList.toggle('sem-anim', !navegando);
     (views.get(S.route) || viewHome)();
     if (campos) restaurarCampos(campos);
@@ -189,7 +194,13 @@
     }
   });
 
-  addEventListener('hashchange', go);
+  addEventListener('hashchange', () => {
+    if (typeof BIGA.fecharMenusMobile === 'function') BIGA.fecharMenusMobile();
+    go();
+  });
+  addEventListener('keydown', e => {
+    if (e.key === 'Escape' && typeof BIGA.fecharMenusMobile === 'function') BIGA.fecharMenusMobile();
+  });
 
   // ------------------------------------------------------------------ início
   (async () => {

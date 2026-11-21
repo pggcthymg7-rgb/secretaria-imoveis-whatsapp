@@ -119,12 +119,92 @@
     }, 22);
   }
 
+  const tabIconSvg = kind => {
+    const attrs = 'viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+    if (kind === 'design') return `<svg ${attrs}><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12l8-4.5"/><path d="M12 12v9"/><path d="M12 12L4 7.5"/></svg>`;
+    if (kind === 'imoveis') return `<svg ${attrs}><path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5z"/></svg>`;
+    if (kind === 'clientes') return `<svg ${attrs}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
+    return `<svg ${attrs}><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>`;
+  };
+
+  const hamburgerBtnHtml = () =>
+    '<button type="button" class="nav-hamburger" data-action="abrirGavetaNav" aria-label="Abrir menu" aria-expanded="false">☰</button>';
+
+  function fecharMenusMobile() {
+    $('#bigaNavDrawerBackdrop')?.classList.add('hide');
+    $('#bigaNavDrawer')?.classList.add('hide');
+    $('#bigaDesignBackdrop')?.classList.add('hide');
+    $('#bigaDesignSheet')?.classList.add('hide');
+    $('.nav-hamburger')?.setAttribute('aria-expanded', 'false');
+  }
+
+  function renderMobileShellExtras(rotaAtual) {
+    const isDesign = rotaAtual === 'capas' || rotaAtual === 'pdf';
+    const isImoveis = ['carteira', 'vitrine'].includes(rotaAtual);
+    const isClientes = ['radar', 'busca', 'garimpo', 'prospeccao'].includes(rotaAtual);
+    const isInicio = rotaAtual === 'inicio';
+    return `
+      <div class="biga-sheet-backdrop hide" id="bigaNavDrawerBackdrop" data-action="fecharMenusMobile"></div>
+      <aside class="biga-drawer hide" id="bigaNavDrawer" role="dialog" aria-modal="true" aria-label="Menu principal">
+        <div class="biga-drawer-head">
+          <a class="logo" href="#inicio" data-nav-close="1">${LOGO}</a>
+          <button type="button" class="biga-drawer-close" data-action="fecharMenusMobile" aria-label="Fechar menu">✕</button>
+        </div>
+        <div class="biga-drawer-body">
+          <a href="#inicio" class="biga-drawer-home ${isInicio ? 'active' : ''}" data-nav-close="1"><span aria-hidden="true">✨</span><span>Início · BIGA</span></a>
+          ${GRUPOS.map(([g, ic, nome]) => `
+            <div class="biga-drawer-group">
+              <span class="biga-drawer-label"><span aria-hidden="true">${ic}</span> ${esc(nome)}</span>
+              <div class="biga-drawer-links">
+                ${paginasDo(g).map(([k, l, d, , pic]) => `<a href="#${k}" title="${esc(d)}" class="${rotaAtual === k ? 'active' : ''}" data-nav-close="1"><span aria-hidden="true">${pic}</span><span>${esc(l)}</span></a>`).join('')}
+              </div>
+            </div>`).join('')}
+        </div>
+      </aside>
+      <div class="biga-sheet-backdrop hide" id="bigaDesignBackdrop" data-action="fecharMenusMobile"></div>
+      <div class="biga-design-sheet hide" id="bigaDesignSheet" role="dialog" aria-modal="true" aria-label="Escolher editor">
+        <div class="biga-sheet-handle"><span></span></div>
+        <div class="biga-design-head">
+          <b>Estúdio de Design</b>
+          <button type="button" class="biga-drawer-close" data-action="fecharMenusMobile" aria-label="Fechar">✕</button>
+        </div>
+        <div class="biga-design-cards">
+          <a class="biga-design-card ${rotaAtual === 'capas' ? 'active' : ''}" href="#capas" data-nav-close="1">
+            <span class="biga-design-ic" aria-hidden="true">🎨</span>
+            <span class="biga-design-txt"><b>Editor de Capas</b><span>Capas &amp; Carrossel 4:5, 1:1, 9:16 · 12 modelos</span></span>
+          </a>
+          <a class="biga-design-card ${rotaAtual === 'pdf' ? 'active' : ''}" href="#pdf" data-nav-close="1">
+            <span class="biga-design-ic" aria-hidden="true">📄</span>
+            <span class="biga-design-txt"><b>Editor de PDF 16:9</b><span>Apresentação vetorial 16:9 · 12 modelos</span></span>
+          </a>
+        </div>
+      </div>
+      <nav class="biga-tabbar" aria-label="Navegação rápida">
+        <button type="button" class="biga-tab ${isDesign ? 'active' : ''}" data-action="abrirSeletorDesign">
+          ${tabIconSvg('design')}<span>Design</span>
+        </button>
+        <a class="biga-tab ${isImoveis ? 'active' : ''}" href="#carteira">
+          ${tabIconSvg('imoveis')}<span>Imóveis</span>
+        </a>
+        <a class="biga-tab ${isClientes ? 'active' : ''}" href="#radar">
+          ${tabIconSvg('clientes')}<span>Clientes</span>
+        </a>
+        <a class="biga-tab ${isInicio ? 'active' : ''}" href="#inicio">
+          ${tabIconSvg('menu')}<span>Menu</span>
+        </a>
+      </nav>`;
+  }
+
   function shell(inner) {
     const rotaAtual = S.route === 'geral' ? 'hoje' : S.route;
     const grupoAtual = grupoDe(rotaAtual);
     const st = S.status || {};
     const conn = st.connectionStatus === 'CONECTADO';
     const paused = st.config && st.config.pausado;
+    const paginasGrupo = grupoAtual ? paginasDo(grupoAtual) : [];
+    const subMobile = grupoAtual === 'imoveis'
+      ? paginasGrupo.filter(([k]) => k !== 'capas' && k !== 'pdf')
+      : paginasGrupo;
     stopSay();
     detachArt();
     root.innerHTML = `
@@ -132,16 +212,41 @@
         <a class="logo" href="#inicio">${LOGO}</a>
         <div class="links groups">${GRUPOS.map(([g, ic, nome]) => `<a href="#${paginasDo(g)[0][0]}" class="${grupoAtual === g ? 'active' : ''}"><span aria-hidden="true">${ic}</span> ${nome}</a>`).join('')}</div>
         <span class="status-dot"><span class="dot ${paused ? 'warn' : conn ? 'on' : ''}"></span>${paused ? 'Pausada' : conn ? 'Online' : st.connectionStatus === 'AGUARDANDO_QR_CODE' ? 'Ler QR' : 'Offline'}</span>
+        ${hamburgerBtnHtml()}
       </div>
-      ${grupoAtual ? `<div class="subnav">${paginasDo(grupoAtual).map(([k, l, d, , ic]) => `<a href="#${k}" title="${esc(d)}" class="${rotaAtual === k ? 'active' : ''}"><span aria-hidden="true">${ic}</span> ${l}</a>`).join('')}</div>` : ''}</nav>
+      ${grupoAtual ? `<div class="subnav">${paginasGrupo.map(([k, l, d, , ic]) => `<a href="#${k}" title="${esc(d)}" class="${rotaAtual === k ? 'active' : ''}"><span aria-hidden="true">${ic}</span> ${l}</a>`).join('')}</div>` : ''}</nav>
       <main class="page-enter">
         <div class="container crumbs"><a href="#inicio">Início</a> › ${esc((GRUPOS.find(x => x[0] === grupoAtual) || [])[2] || '')} › <b>${esc(rotaDe(rotaAtual)[1])}</b></div>
+        ${subMobile.length > 1 ? `<div class="container mobile-subtabs">${subMobile.map(([k, l, , , ic]) => `<a href="#${k}" class="${rotaAtual === k ? 'active' : ''}"><span aria-hidden="true">${ic}</span> ${esc(l)}</a>`).join('')}</div>` : ''}
         ${inner}</main>
-      <div class="space-60"></div>`;
+      <div class="space-60"></div>
+      ${renderMobileShellExtras(rotaAtual)}`;
   }
+
+  root.addEventListener('click', ev => {
+    if (ev.target.closest('[data-nav-close]')) fecharMenusMobile();
+  });
 
   register({
     actions: {
+      abrirGavetaNav: () => {
+        const abriu = $('#bigaNavDrawer')?.classList.contains('hide');
+        fecharMenusMobile();
+        if (abriu) {
+          $('#bigaNavDrawerBackdrop')?.classList.remove('hide');
+          $('#bigaNavDrawer')?.classList.remove('hide');
+          $('.nav-hamburger')?.setAttribute('aria-expanded', 'true');
+        }
+      },
+      abrirSeletorDesign: () => {
+        const abriu = $('#bigaDesignSheet')?.classList.contains('hide');
+        fecharMenusMobile();
+        if (abriu) {
+          $('#bigaDesignBackdrop')?.classList.remove('hide');
+          $('#bigaDesignSheet')?.classList.remove('hide');
+        }
+      },
+      fecharMenusMobile: () => fecharMenusMobile(),
       soMarcados: el => {
         const box = document.querySelector(`[data-filter="${CSS.escape(el.dataset.target || '')}"]`);
         if (!box) return;
@@ -177,6 +282,7 @@
 
   Object.assign(BIGA, {
     ART, LOGO, detachArt, attachArt, toggle, field, header, decisionTag, groupSearch, applyGroupFilter, formData,
-    GRUPOS, ROUTES, SO_ADMIN, isAdmin, rotasVisiveis, rotaDe, grupoDe, paginasDo, stopSay, say, shell
+    GRUPOS, ROUTES, SO_ADMIN, isAdmin, rotasVisiveis, rotaDe, grupoDe, paginasDo, stopSay, say, shell,
+    hamburgerBtnHtml, renderMobileShellExtras, fecharMenusMobile
   });
 })();
