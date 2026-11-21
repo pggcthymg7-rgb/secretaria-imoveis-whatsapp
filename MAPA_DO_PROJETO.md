@@ -18,7 +18,7 @@ Guia simples de onde cada parte do sistema mora e onde mexer para fazer alteraç
 ├── docs/auditorias/          # Relatórios históricos das auditorias técnica e E2E
 ├── tests/                    # Testes automatizados (rodados com npm test)
 └── src/                      # Código principal da aplicação
-    ├── public/               # Telas do painel web (index.html, app.css, app.js roteador, js/*.js por domínio, capas.js e biga-art.js)
+    ├── public/               # Telas do painel web (index.html, app.css, app.js roteador, studio-core.js + studio.css + vendor/konva.min.js, js/*.js, capas.js e biga-art.js)
     ├── web/                  # Servidor web Express (app.js, helpers.js e rotas por domínio em routes/)
     ├── config/               # Caminhos, gravação em JSON, .env, ajustes, login, backup, métricas e atualização
     ├── whatsapp/             # Conexão WhatsApp (Baileys), reconexão, atendimento 1ª msg/ligações, contatos e comandos
@@ -40,12 +40,13 @@ Guia simples de onde cada parte do sistema mora e onde mexer para fazer alteraç
 | **Telas de Meu Dia (Radar e Atendimento)** | `src/public/js/dia.js` | Pedidos dos grupos, aprovações e regras de 1ª mensagem/ligação |
 | **Tela da Carteira (Imóveis e Quem Procura)** | `src/public/js/carteira.js` | Cadastro, edição, fotos e match reverso nos grupos |
 | **Tela da Vitrine (e ligação com Capas)** | `src/public/js/vitrine.js` | Publicação automática nos grupos e montagem da aba Capas |
-| **Tela de Fichas PDF (16:9)** | `src/public/js/pdf.js` | Seleção de modelos, paletas, ordem de páginas, prévia e envio WhatsApp |
+| **Tela de Fichas PDF (16:9)** | `src/public/js/pdf.js` | Estúdio Visual PDF 16:9 Konva (`1152×648`), até 14 páginas, apresentação, modelos próprios ★ e envio WhatsApp |
 | **Tela de Busca Inteligente** | `src/public/js/busca.js` | Filtros dos portais, histórico de grupos e importação `.txt`/`.zip` |
 | **Telas de Garimpo e Prospecção** | `src/public/js/clientes.js` | Leads encontrados na web e campanhas graduais no WhatsApp |
 | **Telas de Configurar (Cérebro, Simulador, Ajustes, Corretores)** | `src/public/js/config.js` | Lugares ensinados, teste de mensagens, chaves/backup e equipe multi-tenant |
-| **Editor visual de capas no navegador** | `src/public/capas.js` e `src/public/fontes-google.json` | Canvas, camadas, presets e lista de fontes Google |
-| **Salvar/carregar modelos de capa no servidor** | `src/domain/capas.js` | Persistência dos modelos salvos (`capas.json`) |
+| **Núcleo do Estúdio Visual (Konva.js)** | `src/public/studio-core.js`, `src/public/studio.css`, `src/public/vendor/konva.min.js` | Engine compartilhada Schema v1, Campos Inteligentes, perspectiva 4 vértices/skew, telemetria 1:1 e blindagem touch |
+| **Editor de Capas & Carrossel** | `src/public/capas.js` e `src/public/fontes-google.json` | Carrossel até 10 slides, 3 formatos (`feed`, `quadrado`, `story`), 12 modelos sofisticados, lote e fontes Google |
+| **Salvar/carregar modelos de capa e PDF no servidor** | `src/domain/capas.js` e `src/domain/pdf-modelos.js` | Persistência dos modelos salvos (`capas.json` e `pdf_modelos.json`) |
 | **Rotas HTTP e endpoints da API (`/api/...`)** | `src/web/app.js` e `src/web/routes/*.routes.js` | Segurança HTTP em `app.js` e rotas separadas por área (`status`, `carteira`, `config`, `radar`, `pdf`, `vitrine`, `prospeccao`, `busca`) |
 | **Conexão com WhatsApp, QR Code e queda/reconexão** | `src/whatsapp/client.js` e `src/whatsapp/reconexao.js` | Socket Baileys, leitura de grupos e disparo de mensagens |
 | **Comandos no "Mensagem para mim" (`ajuda`, `busca`, etc.)** | `src/whatsapp/assistant.js` | Interpretador de comandos do dono via WhatsApp |
@@ -59,7 +60,7 @@ Guia simples de onde cada parte do sistema mora e onde mexer para fazer alteraç
 | **Busca inteligente em portais e grupos** | `src/integrations/busca/` e `src/domain/anuncios.js` | OLX/ZAP/VivaReal via Apify, Serper, Brave, Tavily e memória de grupos |
 | **Garimpo de compradores na internet** | `src/domain/garimpo.js` | Varredura periódica de leads interessados |
 | **Chaves e seleção de modelo Gemini (IA)** | `src/integrations/gemini/` | Validação de chave e fallback automático de modelos |
-| **PDF 16:9 e Ficha A4 do imóvel** | `src/pdf/deck16x9/` e `src/pdf/ficha-a4.js` (e `fonts/`) | Modelos de slides, paletas, cache de fotos e worker de PDF |
+| **PDF 16:9 Híbrido e Ficha A4 do imóvel** | `src/pdf/deck16x9/` (`motor.js`, `gerar.js`, `cenas.js`, `cache-fontes.js`, `icones.js`, `manager.js`, `worker.js`) e `src/pdf/ficha-a4.js` | Motor híbrido vetorial 1:1 Konva ↔ PDFKit, cache `.ttf` Google Fonts, cache Sharp, Worker isolado e fallback A4 |
 | **Login, senha, configurações, backup e restauração** | `src/config/` (`auth.js`, `settings.js`, `backup.js`, `envfile.js`) | Sessões, validações do painel e arquivo `.json.gz` |
 | **Caminhos de dados (`DATA_DIR`) e métricas** | `src/config/paths.js`, `store.js`, `metrics.js`, `sistema.js` | Armazenamento seguro em disco e atualização na VM |
 | **Modo equipe / SaaS (vários corretores no mesmo servidor)** | `src/tenancy/` | Contêiner isolado por corretor, `/api/equipe` e sessões múltiplas |
